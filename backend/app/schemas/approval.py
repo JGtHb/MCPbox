@@ -109,8 +109,18 @@ class ModuleRequestResponse(BaseModel):
     updated_at: datetime
 
 
+class VulnerabilityInfo(BaseModel):
+    """A known vulnerability from OSV.dev."""
+
+    id: str  # e.g., "GHSA-xxxx" or "CVE-2024-xxxx"
+    summary: str
+    severity: str | None = None  # "CRITICAL", "HIGH", "MEDIUM", "LOW"
+    fixed_version: str | None = None
+    link: str | None = None
+
+
 class PyPIPackageInfo(BaseModel):
-    """PyPI package information for module requests."""
+    """PyPI package information and safety data for module requests."""
 
     package_name: str
     is_stdlib: bool
@@ -121,6 +131,13 @@ class PyPIPackageInfo(BaseModel):
     author: str | None = None
     license: str | None = None
     home_page: str | None = None
+    # Safety data from external sources (OSV.dev, deps.dev)
+    vulnerabilities: list[VulnerabilityInfo] = []
+    vulnerability_count: int = 0
+    scorecard_score: float | None = None  # OpenSSF Scorecard overall score (0-10)
+    scorecard_date: str | None = None
+    dependency_count: int | None = None
+    source_repo: str | None = None
     error: str | None = None
 
 

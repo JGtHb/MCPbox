@@ -15,6 +15,14 @@ export interface ToolApprovalQueueItem {
   current_version: number
 }
 
+export interface VulnerabilityInfo {
+  id: string
+  summary: string
+  severity: string | null
+  fixed_version: string | null
+  link: string | null
+}
+
 export interface PyPIPackageInfo {
   package_name: string
   is_stdlib: boolean
@@ -25,6 +33,13 @@ export interface PyPIPackageInfo {
   author: string | null
   license: string | null
   home_page: string | null
+  // Safety data from external sources
+  vulnerabilities: VulnerabilityInfo[]
+  vulnerability_count: number
+  scorecard_score: number | null
+  scorecard_date: string | null
+  dependency_count: number | null
+  source_repo: string | null
   error: string | null
 }
 

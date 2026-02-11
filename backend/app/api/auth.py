@@ -1,6 +1,8 @@
 """Authentication API endpoints."""
 
 import logging
+import time
+from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +31,29 @@ from app.services.auth import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Rate limiting for login attempts
+_login_attempts: dict[str, list[float]] = defaultdict(list)
+_LOGIN_WINDOW = 60  # 1-minute window
+_LOGIN_MAX_ATTEMPTS = 5  # Max login attempts per window
+
+
+def _check_login_rate_limit(client_ip: str) -> None:
+    """Check if a client IP has exceeded the login attempt rate limit."""
+    now = time.monotonic()
+    attempts = _login_attempts[client_ip]
+    _login_attempts[client_ip] = [t for t in attempts if now - t < _LOGIN_WINDOW]
+    if len(_login_attempts[client_ip]) >= _LOGIN_MAX_ATTEMPTS:
+        logger.warning("Login rate limit exceeded for %s", client_ip)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many login attempts. Please try again later.",
+        )
+
+
+def _record_login_attempt(client_ip: str) -> None:
+    """Record a login attempt for rate limiting."""
+    _login_attempts[client_ip].append(time.monotonic())
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -119,12 +144,17 @@ async def setup_admin(
 @router.post("/login", response_model=TokenResponse)
 async def login(
     request: LoginRequest,
+    http_request: Request,
     auth_service: AuthService = Depends(get_auth_service),
 ) -> TokenResponse:
     """Authenticate and get JWT tokens.
 
     Returns access and refresh tokens on successful authentication.
+    Rate limited to 5 attempts per minute per IP.
     """
+    client_ip = http_request.client.host if http_request.client else "unknown"
+    _check_login_rate_limit(client_ip)
+
     try:
         user = await auth_service.authenticate(
             username=request.username,
@@ -134,11 +164,13 @@ async def login(
         logger.info(f"User logged in: {user.username}")
         return TokenResponse(**tokens)
     except InvalidCredentialsError as e:
+        _record_login_attempt(client_ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
         ) from e
     except UserInactiveError as e:
+        _record_login_attempt(client_ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User account is deactivated",

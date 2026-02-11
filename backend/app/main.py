@@ -141,9 +141,6 @@ def create_app() -> FastAPI:
             "/health",
             "/health/detail",
             "/health/services",
-            "/docs",
-            "/redoc",
-            "/openapi.json",
         ],
     )
 

@@ -467,8 +467,33 @@ function ToolsQueue() {
   )
 }
 
+// Severity badge colors
+function severityColor(severity: string | null): string {
+  switch (severity?.toUpperCase()) {
+    case 'CRITICAL':
+      return 'bg-red-600 text-white'
+    case 'HIGH':
+      return 'bg-red-100 text-red-800'
+    case 'MEDIUM':
+      return 'bg-yellow-100 text-yellow-800'
+    case 'LOW':
+      return 'bg-gray-100 text-gray-700'
+    default:
+      return 'bg-gray-100 text-gray-600'
+  }
+}
+
+// OpenSSF Scorecard color (0-10 scale)
+function scorecardColor(score: number): string {
+  if (score >= 7) return 'text-green-700'
+  if (score >= 4) return 'text-yellow-700'
+  return 'text-red-700'
+}
+
 // PyPI Info Display Component
 function PyPIInfoDisplay({ info, moduleName }: { info: PyPIPackageInfo | null; moduleName: string }) {
+  const [vulnsExpanded, setVulnsExpanded] = useState(false)
+
   if (!info) {
     return (
       <div className="mt-3 rounded border border-gray-200 bg-gray-50 p-3 text-sm text-gray-500">
@@ -501,9 +526,13 @@ function PyPIInfoDisplay({ info, moduleName }: { info: PyPIPackageInfo | null; m
     )
   }
 
+  const hasVulns = info.vulnerability_count > 0
+  const borderColor = hasVulns ? 'border-red-300' : 'border-blue-200'
+  const bgColor = hasVulns ? 'bg-red-50' : 'bg-blue-50'
+
   // Third-party package
   return (
-    <div className="mt-3 rounded border border-blue-200 bg-blue-50 p-3">
+    <div className={`mt-3 rounded border ${borderColor} ${bgColor} p-3`}>
       <div className="flex flex-wrap items-center gap-2">
         <span className="rounded bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">
           PyPI Package
@@ -545,6 +574,85 @@ function PyPIInfoDisplay({ info, moduleName }: { info: PyPIPackageInfo | null; m
           >
             Project Homepage
           </a>
+        )}
+      </div>
+
+      {/* Security section */}
+      <div className="mt-3 border-t border-gray-200 pt-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Vulnerability badge */}
+          {hasVulns ? (
+            <button
+              onClick={() => setVulnsExpanded(!vulnsExpanded)}
+              className="flex items-center gap-1 rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 hover:bg-red-200"
+            >
+              {info.vulnerability_count} known {info.vulnerability_count === 1 ? 'vulnerability' : 'vulnerabilities'}
+              <span className="ml-1">{vulnsExpanded ? '\u25B2' : '\u25BC'}</span>
+            </button>
+          ) : (
+            <span className="rounded bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+              No known vulnerabilities
+            </span>
+          )}
+
+          {/* OpenSSF Scorecard */}
+          {info.scorecard_score !== null && (
+            <span className={`text-xs font-medium ${scorecardColor(info.scorecard_score)}`}>
+              OpenSSF Score: {info.scorecard_score.toFixed(1)}/10
+            </span>
+          )}
+
+          {/* Dependency count */}
+          {info.dependency_count !== null && (
+            <span className="text-xs text-gray-500">
+              {info.dependency_count} {info.dependency_count === 1 ? 'dependency' : 'dependencies'}
+            </span>
+          )}
+
+          {/* Source repo link */}
+          {info.source_repo && (
+            <a
+              href={`https://${info.source_repo}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-blue-600 hover:underline"
+            >
+              Source
+            </a>
+          )}
+        </div>
+
+        {/* Expanded vulnerability list */}
+        {vulnsExpanded && info.vulnerabilities && info.vulnerabilities.length > 0 && (
+          <div className="mt-2 space-y-2">
+            {info.vulnerabilities.map((vuln) => (
+              <div key={vuln.id} className="rounded border border-red-200 bg-white p-2 text-xs">
+                <div className="flex items-center gap-2">
+                  <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${severityColor(vuln.severity)}`}>
+                    {vuln.severity || 'UNKNOWN'}
+                  </span>
+                  {vuln.link ? (
+                    <a
+                      href={vuln.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-mono text-blue-600 hover:underline"
+                    >
+                      {vuln.id}
+                    </a>
+                  ) : (
+                    <span className="font-mono">{vuln.id}</span>
+                  )}
+                  {vuln.fixed_version && (
+                    <span className="text-gray-500">
+                      Fixed in v{vuln.fixed_version}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-1 text-gray-600">{vuln.summary}</p>
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>

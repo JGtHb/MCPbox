@@ -342,6 +342,7 @@ FORBIDDEN_DUNDER_ATTRS = {
     "__import__",  # Direct import function access
     "__loader__",  # Module loader (can load arbitrary code)
     "__spec__",  # Module spec (contains loader)
+    "__dict__",  # Object namespace (exposes internals, aids escape chains)
 }
 
 # Additional patterns that indicate escape attempts
@@ -357,6 +358,7 @@ FORBIDDEN_PATTERNS = [
     r"\.__import__\b",
     r"\.__loader__\b",
     r"\.__spec__\b",
+    r"\.__dict__\b",
     # getattr-style access (in case someone passes strings)
     r"getattr\s*\([^)]*['\"]__\w+__['\"]",
     # vars() can expose __dict__ which contains dunders

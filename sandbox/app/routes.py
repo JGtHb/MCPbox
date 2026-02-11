@@ -934,12 +934,19 @@ class PyPIInfoRequest(BaseModel):
 
 
 class PyPIInfoResponse(BaseModel):
-    """Response with PyPI package information."""
+    """Response with PyPI package information and safety data."""
 
     module_name: str
     package_name: str
     is_stdlib: bool
     pypi_info: Optional[dict] = None
+    # Safety data from external sources (OSV.dev, deps.dev)
+    vulnerabilities: list[dict] = []
+    vulnerability_count: int = 0
+    scorecard_score: Optional[float] = None
+    scorecard_date: Optional[str] = None
+    dependency_count: Optional[int] = None
+    source_repo: Optional[str] = None
     error: Optional[str] = None
 
 
@@ -1046,9 +1053,10 @@ async def classify_modules_endpoint(body: ModuleClassifyRequest):
 
 @router.post("/packages/pypi-info", response_model=PyPIInfoResponse)
 async def get_pypi_info_endpoint(body: PyPIInfoRequest):
-    """Get PyPI information for a module.
+    """Get PyPI information and safety data for a module.
 
-    Returns package metadata from PyPI, or indicates if it's a stdlib module.
+    Returns package metadata from PyPI, known vulnerabilities from OSV.dev,
+    and project health from deps.dev. Stdlib modules skip safety checks.
     """
     from app.stdlib_detector import is_stdlib_module
     from app.pypi_client import fetch_module_info, package_info_to_dict
@@ -1075,11 +1083,49 @@ async def get_pypi_info_endpoint(body: PyPIInfoRequest):
                 error=f"Package '{package_name}' not found on PyPI",
             )
 
+        # Fetch safety data in parallel (non-blocking, failures don't break response)
+        from app.osv_client import fetch_vulnerabilities
+        from app.deps_client import fetch_deps_info
+
+        vuln_results, deps_info = await asyncio.gather(
+            fetch_vulnerabilities(package_name),
+            fetch_deps_info(package_name, info.version if info else None),
+            return_exceptions=True,
+        )
+
+        # Handle vulnerabilities (graceful on error)
+        vulns: list[dict] = []
+        if isinstance(vuln_results, list):
+            vulns = [v.to_dict() for v in vuln_results]
+        elif isinstance(vuln_results, Exception):
+            logger.warning(
+                "OSV.dev lookup failed for %s: %s", package_name, vuln_results
+            )
+
+        # Handle deps.dev info (graceful on error)
+        scorecard_score = None
+        scorecard_date = None
+        dependency_count = None
+        source_repo = None
+        if not isinstance(deps_info, Exception) and deps_info is not None:
+            scorecard_score = deps_info.scorecard_score
+            scorecard_date = deps_info.scorecard_date
+            dependency_count = deps_info.dependency_count
+            source_repo = deps_info.source_repo
+        elif isinstance(deps_info, Exception):
+            logger.warning("deps.dev lookup failed for %s: %s", package_name, deps_info)
+
         return PyPIInfoResponse(
             module_name=body.module_name,
             package_name=package_name,
             is_stdlib=False,
             pypi_info=package_info_to_dict(info),
+            vulnerabilities=vulns,
+            vulnerability_count=len(vulns),
+            scorecard_score=scorecard_score,
+            scorecard_date=scorecard_date,
+            dependency_count=dependency_count,
+            source_repo=source_repo,
         )
     except Exception as e:
         return PyPIInfoResponse(

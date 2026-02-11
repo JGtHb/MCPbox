@@ -28,8 +28,8 @@ logger = logging.getLogger(__name__)
 _jwks_cache: dict | None = None
 _jwks_cache_time: float = 0.0
 _JWKS_CACHE_TTL = 300  # 5 minutes
-# Maximum age for stale JWKS cache before rejecting (1 hour)
-_JWKS_MAX_STALE_AGE = 3600
+# Maximum age for stale JWKS cache before rejecting (15 minutes)
+_JWKS_MAX_STALE_AGE = 900
 
 # Rate limiting for failed service token attempts
 _failed_auth_attempts: dict[str, list[float]] = defaultdict(list)
@@ -116,7 +116,7 @@ class AuthenticatedUser(BaseModel):
 
     email: str | None = None  # Optional - extracted from verified CF JWT
     source: str  # "local" or "worker"
-    auth_method: str | None = None  # "jwt", "oauth", "bearer", or None (local)
+    auth_method: str | None = None  # "jwt", "oauth", or None (local)
 
 
 async def verify_mcp_auth(

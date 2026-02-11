@@ -17,8 +17,9 @@ Authentication (Hybrid Model):
 import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api.mcp_gateway import router as mcp_router
 from app.core import settings, setup_logging
@@ -116,14 +117,11 @@ def create_mcp_app() -> FastAPI:
         openapi_url=None,
     )
 
-    # CORS - restrict to known MCP client origins
-    # Using explicit origins instead of wildcard to prevent cross-origin attacks
-    mcp_cors_origins = ["https://mcp.claude.ai", "https://claude.ai"]
-    # Also include any user-configured CORS origins
-    mcp_cors_origins.extend(o for o in settings.cors_origins_list if o not in mcp_cors_origins)
+    # CORS - restrict to MCP client origins only (separate from admin panel CORS)
+    # Configured via MCP_CORS_ORIGINS env var, defaults to claude.ai origins
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=mcp_cors_origins,
+        allow_origins=settings.mcp_cors_origins_list,
         allow_credentials=True,
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "Accept", "X-MCPbox-Service-Token"],
@@ -148,8 +146,15 @@ def create_mcp_app() -> FastAPI:
         return {"status": "ok"}
 
     @app.get("/health")
-    async def health():
-        """Health check for tunnel monitoring."""
+    async def health(request: Request):
+        """Health check — only responds to localhost (Docker healthcheck).
+
+        Requests from other IPs are rejected to avoid leaking service
+        existence through the tunnel.
+        """
+        client_ip = request.client.host if request.client else None
+        if client_ip not in ("127.0.0.1", "::1"):
+            return JSONResponse(status_code=404, content={"detail": "Not found"})
         return {"status": "ok"}
 
     return app

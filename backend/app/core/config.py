@@ -76,6 +76,10 @@ class Settings(BaseSettings):
     # CORS - for local admin panel access
     cors_origins: str = "http://localhost:3000"
 
+    # MCP CORS - separate from admin panel, for tunnel-exposed MCP gateway
+    # Defaults to Claude AI origins; add other AI service origins as needed
+    mcp_cors_origins: str = "https://mcp.claude.ai,https://claude.ai"
+
     # Sandbox - requires API key for authentication
     sandbox_api_key: str = ""
 
@@ -169,6 +173,11 @@ class Settings(BaseSettings):
     def cors_origins_list(self) -> list[str]:
         """Parse CORS origins from comma-separated string."""
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def mcp_cors_origins_list(self) -> list[str]:
+        """Parse MCP CORS origins from comma-separated string."""
+        return [origin.strip() for origin in self.mcp_cors_origins.split(",") if origin.strip()]
 
     @property
     def effective_jwt_secret_key(self) -> str:

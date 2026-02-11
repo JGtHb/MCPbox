@@ -32,6 +32,7 @@ from app.schemas.approval import (
     ToolApprovalAction,
     ToolApprovalQueueItem,
     ToolApprovalQueueResponse,
+    VulnerabilityInfo,
 )
 from app.services.approval import ApprovalService
 from app.services.sandbox_client import SandboxClient, get_sandbox_client
@@ -371,6 +372,15 @@ async def get_pending_module_requests(
             author=None,
             license=None,
             home_page=None,
+            # Safety data from sandbox (OSV.dev + deps.dev)
+            vulnerabilities=[
+                VulnerabilityInfo(**v) for v in pypi_result.get("vulnerabilities", [])
+            ],
+            vulnerability_count=pypi_result.get("vulnerability_count", 0),
+            scorecard_score=pypi_result.get("scorecard_score"),
+            scorecard_date=pypi_result.get("scorecard_date"),
+            dependency_count=pypi_result.get("dependency_count"),
+            source_repo=pypi_result.get("source_repo"),
             error=pypi_result.get("error") or package_status.get("error"),
         )
 

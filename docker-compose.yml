@@ -107,6 +107,7 @@ services:
       - SANDBOX_URL=http://sandbox:8001
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_RETENTION_DAYS=${LOG_RETENTION_DAYS:-30}
+      - MCP_CORS_ORIGINS=${MCP_CORS_ORIGINS:-https://mcp.claude.ai,https://claude.ai}
     depends_on:
       postgres:
         condition: service_healthy

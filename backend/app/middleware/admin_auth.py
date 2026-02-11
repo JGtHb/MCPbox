@@ -26,9 +26,6 @@ logger = logging.getLogger(__name__)
 # Only read-only health endpoints are excluded - circuit breaker reset requires auth
 EXCLUDED_PATHS = [
     "/config",  # Frontend needs to check if auth is required
-    "/docs",
-    "/redoc",
-    "/openapi.json",
     "/mcp",  # MCP gateway has its own auth via Cloudflare
     "/auth",  # Auth endpoints handle their own authentication
     "/internal",  # Service-to-service endpoints (Docker internal network only)

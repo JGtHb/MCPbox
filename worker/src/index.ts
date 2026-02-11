@@ -129,28 +129,6 @@ function extractEmailFromJwt(jwt: string): string | null {
 }
 
 /**
- * HMAC-based constant-time string comparison.
- * Uses HMAC-SHA256 to avoid leaking string lengths via timing.
- */
-async function timingSafeEqual(a: string, b: string): Promise<boolean> {
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode('mcpbox-comparison-key'),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-  const sigA = new Uint8Array(await crypto.subtle.sign('HMAC', key, encoder.encode(a)));
-  const sigB = new Uint8Array(await crypto.subtle.sign('HMAC', key, encoder.encode(b)));
-  let result = 0;
-  for (let i = 0; i < sigA.length; i++) {
-    result |= sigA[i] ^ sigB[i];
-  }
-  return result === 0;
-}
-
-/**
  * Fetch JWKS from Cloudflare Access with caching.
  */
 async function getJWKS(
@@ -596,63 +574,6 @@ export default {
       return new Response(JSON.stringify(prmResponse), {
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       });
-    }
-
-    // =================================================================
-    // Service token bypass: Cloudflare sync may send the service token
-    // as a Bearer token. This bypasses OAuthProvider and proxies
-    // directly to the gateway with auth_method "bearer" (sync-only,
-    // no tool execution allowed at gateway level).
-    // =================================================================
-    if (url.pathname === '/') {
-      const authHeader = request.headers.get('Authorization');
-      if (authHeader && env.MCPBOX_SERVICE_TOKEN) {
-        const token = authHeader.startsWith('Bearer ')
-          ? authHeader.slice(7)
-          : null;
-        if (token && await timingSafeEqual(token, env.MCPBOX_SERVICE_TOKEN)) {
-          console.log(`Service token auth for ${url.pathname} (Cloudflare sync)`);
-
-          if (!env.MCPBOX_TUNNEL) {
-            return new Response(JSON.stringify({ error: 'Service temporarily unavailable' }), {
-              status: 503,
-              headers: { 'Content-Type': 'application/json', ...corsHeaders },
-            });
-          }
-
-          // Build headers for MCPbox Gateway (sync path)
-          const headers = new Headers(request.headers);
-          headers.set('X-MCPbox-Service-Token', env.MCPBOX_SERVICE_TOKEN);
-          headers.set('X-Forwarded-Host', url.host);
-          headers.set('X-Forwarded-Proto', 'https');
-          headers.delete('X-MCPbox-User-Email');
-          headers.delete('X-MCPbox-Auth-Method');
-          headers.set('X-MCPbox-Auth-Method', 'bearer');
-
-          try {
-            const targetUrl = `http://mcp-gateway:8002/mcp${url.search}`;
-            const response = await env.MCPBOX_TUNNEL.fetch(targetUrl, {
-              method: request.method,
-              headers,
-              body: request.body,
-            });
-            const responseHeaders = new Headers(response.headers);
-            Object.entries(corsHeaders).forEach(([k, v]) => responseHeaders.set(k, v));
-            console.log(`Worker response: ${response.status} for ${url.pathname} (service token)`);
-            return new Response(response.body, {
-              status: response.status,
-              statusText: response.statusText,
-              headers: responseHeaders,
-            });
-          } catch (error) {
-            console.error('Proxy error (service token path):', error);
-            return new Response(JSON.stringify({ error: 'Failed to connect to backend service' }), {
-              status: 502,
-              headers: { 'Content-Type': 'application/json', ...corsHeaders },
-            });
-          }
-        }
-      }
     }
 
     // =================================================================

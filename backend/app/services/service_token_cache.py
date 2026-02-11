@@ -15,6 +15,7 @@ pick up the change within TTL_SECONDS.
 """
 
 import logging
+import re
 import time
 
 from sqlalchemy import select
@@ -85,9 +86,18 @@ class ServiceTokenCache:
             self._decryption_error = False
             logger.info("No service token in database (local-only mode)")
 
-        # Cache JWT verification params
+        # Cache JWT verification params (with format validation)
         if config:
-            self._team_domain = config.team_domain
+            td = config.team_domain
+            if td and not re.fullmatch(r"[a-zA-Z0-9._-]+\.cloudflareaccess\.com", td):
+                logger.error(
+                    "team_domain '%s' does not match *.cloudflareaccess.com — "
+                    "rejecting to prevent JWKS redirection attacks",
+                    td,
+                )
+                self._team_domain = None
+            else:
+                self._team_domain = td
             self._portal_aud = config.mcp_portal_aud
         else:
             self._team_domain = None
