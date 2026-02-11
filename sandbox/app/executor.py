@@ -1,0 +1,1281 @@
+"""Python Executor - safely executes user-provided Python code."""
+
+import asyncio
+import json
+import logging
+import os
+import resource
+import sys
+import time
+import traceback
+from dataclasses import dataclass
+from datetime import datetime
+from io import StringIO
+from typing import Any, Optional
+
+import httpx
+
+from app.ssrf import SSRFProtectedAsyncHttpClient
+
+logger = logging.getLogger(__name__)
+
+# Maximum output size (1MB)
+MAX_OUTPUT_SIZE = 1024 * 1024
+
+# Maximum memory per execution (256MB) - prevents memory exhaustion attacks
+MAX_MEMORY_BYTES = 256 * 1024 * 1024
+
+# Default execution timeout (30 seconds)
+DEFAULT_TIMEOUT = 30.0
+
+# Environment variable to require resource limits (default: true in production)
+REQUIRE_RESOURCE_LIMITS = (
+    os.environ.get("REQUIRE_RESOURCE_LIMITS", "true").lower() == "true"
+)
+
+
+@dataclass
+class ResourceLimitStatus:
+    """Track which resource limits were successfully applied."""
+
+    memory_limit_set: bool = False
+    cpu_limit_set: bool = False
+    fd_limit_set: bool = False
+    memory_limit_value: int | None = None
+    cpu_limit_value: int | None = None
+    fd_limit_value: int | None = None
+
+    @property
+    def all_limits_set(self) -> bool:
+        """Check if all critical limits were set."""
+        return self.memory_limit_set and self.cpu_limit_set and self.fd_limit_set
+
+    @property
+    def any_limits_set(self) -> bool:
+        """Check if any limits were set."""
+        return self.memory_limit_set or self.cpu_limit_set or self.fd_limit_set
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for logging/debugging."""
+        return {
+            "memory": {
+                "set": self.memory_limit_set,
+                "value_mb": self.memory_limit_value // (1024 * 1024)
+                if self.memory_limit_value
+                else None,
+            },
+            "cpu": {
+                "set": self.cpu_limit_set,
+                "value_seconds": self.cpu_limit_value,
+            },
+            "file_descriptors": {
+                "set": self.fd_limit_set,
+                "value": self.fd_limit_value,
+            },
+        }
+
+
+# Global status tracking
+_resource_limit_status = ResourceLimitStatus()
+
+
+def set_resource_limits() -> ResourceLimitStatus:
+    """Set resource limits to prevent resource exhaustion attacks.
+
+    These limits apply to the current process and are enforced by the OS.
+
+    Returns:
+        ResourceLimitStatus indicating which limits were successfully set.
+    """
+    global _resource_limit_status
+    status = ResourceLimitStatus()
+
+    # Check if we're in a containerized environment (Docker sets cgroup limits)
+    in_container = (
+        os.path.exists("/.dockerenv") or os.environ.get("CONTAINER", "") == "true"
+    )
+
+    try:
+        # Limit virtual memory to prevent memory exhaustion
+        # This catches attacks like: x = [0] * (10**9)
+        soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+        # Only set if not already limited by container
+        if hard == resource.RLIM_INFINITY or hard > MAX_MEMORY_BYTES:
+            resource.setrlimit(resource.RLIMIT_AS, (MAX_MEMORY_BYTES, hard))
+            status.memory_limit_set = True
+            status.memory_limit_value = MAX_MEMORY_BYTES
+            logger.info(f"Set memory limit to {MAX_MEMORY_BYTES // (1024 * 1024)}MB")
+        else:
+            # Container already has stricter limit - consider it set
+            status.memory_limit_set = True
+            status.memory_limit_value = hard
+            logger.info(
+                f"Container memory limit already set to {hard // (1024 * 1024)}MB"
+            )
+    except (ValueError, resource.error) as e:
+        if in_container:
+            # In container, cgroup limits may be enforced instead
+            logger.info(f"Memory limit via cgroup (container): {e}")
+            status.memory_limit_set = True  # Trust container limits
+        else:
+            logger.warning(f"Could not set memory limit: {e}")
+
+    try:
+        # Limit CPU time as backup to asyncio timeout
+        # This catches blocking CPU loops that bypass asyncio.wait_for
+        cpu_limit = 60  # 60 seconds of CPU time
+        soft, hard = resource.getrlimit(resource.RLIMIT_CPU)
+        resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit, hard))
+        status.cpu_limit_set = True
+        status.cpu_limit_value = cpu_limit
+        logger.info(f"Set CPU time limit to {cpu_limit}s")
+    except (ValueError, resource.error) as e:
+        if in_container:
+            logger.info(f"CPU limit via cgroup (container): {e}")
+            status.cpu_limit_set = True  # Trust container limits
+        else:
+            logger.warning(f"Could not set CPU limit: {e}")
+
+    try:
+        # Limit file descriptors to prevent FD exhaustion attacks
+        # This catches attacks like: [open('/dev/null') for _ in range(100000)]
+        max_fds = 256  # Reasonable limit for tool execution
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        resource.setrlimit(resource.RLIMIT_NOFILE, (max_fds, hard))
+        status.fd_limit_set = True
+        status.fd_limit_value = max_fds
+        logger.info(f"Set file descriptor limit to {max_fds}")
+    except (ValueError, resource.error) as e:
+        if in_container:
+            logger.info(f"FD limit via container: {e}")
+            status.fd_limit_set = True  # Trust container limits
+        else:
+            logger.warning(f"Could not set file descriptor limit: {e}")
+
+    _resource_limit_status = status
+    return status
+
+
+def get_resource_limit_status() -> ResourceLimitStatus:
+    """Get the current resource limit status."""
+    return _resource_limit_status
+
+
+def validate_resource_limits() -> tuple[bool, str | None]:
+    """Validate that resource limits are properly configured.
+
+    Returns:
+        Tuple of (is_valid, error_message). If is_valid is True, error_message is None.
+    """
+    status = _resource_limit_status
+
+    if not status.any_limits_set:
+        return False, "No resource limits could be set - sandbox is not secure"
+
+    if REQUIRE_RESOURCE_LIMITS and not status.all_limits_set:
+        missing = []
+        if not status.memory_limit_set:
+            missing.append("memory")
+        if not status.cpu_limit_set:
+            missing.append("CPU")
+        if not status.fd_limit_set:
+            missing.append("file descriptors")
+        return (
+            False,
+            f"Missing required resource limits: {', '.join(missing)}. Set REQUIRE_RESOURCE_LIMITS=false to disable this check.",
+        )
+
+    return True, None
+
+
+# Set resource limits when module loads (runs once per process)
+_init_status = set_resource_limits()
+
+# Log validation result
+is_valid, error_msg = validate_resource_limits()
+if not is_valid:
+    if REQUIRE_RESOURCE_LIMITS:
+        logger.error(f"SECURITY: {error_msg}")
+    else:
+        logger.warning(f"SECURITY WARNING: {error_msg}")
+
+
+class SizeLimitedStringIO(StringIO):
+    """StringIO wrapper that limits total size to prevent memory exhaustion.
+
+    When the limit is exceeded, writes are silently truncated and a warning
+    is added at the end of the output.
+    """
+
+    def __init__(self, max_size: int = MAX_OUTPUT_SIZE):
+        super().__init__()
+        self.max_size = max_size
+        self._truncated = False
+
+    def write(self, s: str) -> int:
+        if self._truncated:
+            return 0  # Silently discard further writes
+
+        current_size = self.tell()
+        remaining = self.max_size - current_size
+
+        if remaining <= 0:
+            self._truncated = True
+            super().write("\n... [OUTPUT TRUNCATED - exceeded 1MB limit] ...")
+            return 0
+
+        if len(s) > remaining:
+            # Write only what fits
+            super().write(s[:remaining])
+            self._truncated = True
+            super().write("\n... [OUTPUT TRUNCATED - exceeded 1MB limit] ...")
+            return remaining
+
+        return super().write(s)
+
+    @property
+    def was_truncated(self) -> bool:
+        return self._truncated
+
+
+# =============================================================================
+# MODULE ALLOWLIST CONFIGURATION
+# =============================================================================
+#
+# SECURITY CRITERIA (based on collective.trustedimports):
+# - No file system access (read/write)
+# - No network access (we provide protected httpx instead)
+# - No system information disclosure
+# - No unbounded execution time (regex has timeout wrapper)
+# - No arbitrary attribute setting on objects
+#
+# DANGEROUS MODULES (never allow):
+# - os, sys, subprocess, shutil, pathlib - system access
+# - pickle, shelve, marshal, code, codeop - arbitrary code execution
+# - socket, urllib.request, http.client - network (use provided http client)
+# - inspect, gc, traceback, __builtins__ - sandbox escape via introspection
+# - ctypes, cffi, mmap - memory access
+# - multiprocessing, threading, signal - process/thread control
+# - importlib, builtins - import system manipulation
+#
+# See: https://github.com/collective/collective.trustedimports
+# See: https://python-security.readthedocs.io/security.html
+# =============================================================================
+
+DEFAULT_ALLOWED_MODULES = {
+    # Data formats
+    "json",
+    "base64",
+    "binascii",
+    "html",
+    # Date/Time
+    "datetime",
+    "calendar",
+    "zoneinfo",
+    # Math & Numbers
+    "math",
+    "cmath",
+    "decimal",
+    "fractions",
+    "statistics",
+    # Text processing
+    "regex",  # Timeout-protected wrapper (not 're' - ReDoS vulnerable)
+    "string",
+    "textwrap",
+    "difflib",
+    # URL handling (parse only, NOT urllib.request)
+    "urllib.parse",
+    # Data structures
+    "collections",
+    "collections.abc",
+    "itertools",
+    "functools",
+    # NOTE: 'operator' intentionally excluded - attrgetter() enables sandbox escape
+    # Types & Utilities
+    "typing",
+    "dataclasses",
+    "enum",
+    "uuid",
+    "copy",
+    # Hashing (for checksums, signatures)
+    "hashlib",
+    "hmac",
+}
+
+# NOTE: There is no FORBIDDEN_MODULES list. Admins have full control over
+# which modules are allowed via the global module whitelist in Settings.
+# If an admin chooses to allow potentially dangerous modules like 'os' or
+# 'subprocess', that is their decision to make for their homelab deployment.
+
+# Timeout for regex operations (in seconds) to prevent ReDoS attacks
+REGEX_TIMEOUT = 5.0
+
+# =============================================================================
+# SANDBOX ESCAPE PREVENTION
+# =============================================================================
+#
+# Even with dangerous builtins removed (type, object, getattr, setattr),
+# attackers can still escape via dunder attributes on existing objects:
+#
+#   [].__class__.__mro__[-1].__subclasses__()  # Gets all object subclasses
+#   "".__class__.__bases__[0].__subclasses__() # Same via string
+#   func.__globals__                           # Access to global namespace
+#   func.__code__                              # Access to code objects
+#
+# These attributes allow sandbox escape by accessing:
+# - builtins.code, builtins.frame, builtins.function
+# - _io._IOBase, subprocess.Popen, os._wrap_close
+# - Any class that provides file/process/network access
+#
+# SOLUTION: Scan code for dangerous attribute access patterns before execution.
+# =============================================================================
+
+# Dunder attributes that enable sandbox escape
+FORBIDDEN_DUNDER_ATTRS = {
+    "__class__",  # Access object's class (leads to __mro__, __bases__)
+    "__bases__",  # Access parent classes (leads to object)
+    "__mro__",  # Method Resolution Order (leads to object)
+    "__subclasses__",  # List all subclasses (exposes dangerous classes)
+    "__globals__",  # Function's global namespace (access to modules)
+    "__code__",  # Function's code object (can be manipulated)
+    "__builtins__",  # Access to builtins dict/module
+    "__import__",  # Direct import function access
+    "__loader__",  # Module loader (can load arbitrary code)
+    "__spec__",  # Module spec (contains loader)
+}
+
+# Additional patterns that indicate escape attempts
+FORBIDDEN_PATTERNS = [
+    # Direct attribute access patterns
+    r"\.__class__\b",
+    r"\.__bases__\b",
+    r"\.__mro__\b",
+    r"\.__subclasses__\b",
+    r"\.__globals__\b",
+    r"\.__code__\b",
+    r"\.__builtins__\b",
+    r"\.__import__\b",
+    r"\.__loader__\b",
+    r"\.__spec__\b",
+    # getattr-style access (in case someone passes strings)
+    r"getattr\s*\([^)]*['\"]__\w+__['\"]",
+    # vars() can expose __dict__ which contains dunders
+    r"\bvars\s*\(",
+    # dir() can be used to discover attributes
+    r"\bdir\s*\(",
+]
+
+
+def validate_code_safety(
+    code: str, source_name: str = "<tool>"
+) -> tuple[bool, str | None]:
+    """Validate that code doesn't contain sandbox escape patterns.
+
+    Args:
+        code: Python source code to validate
+        source_name: Name to use in error messages
+
+    Returns:
+        Tuple of (is_safe, error_message). If is_safe is True, error_message is None.
+    """
+    import regex
+
+    # Check for forbidden dunder attributes
+    for pattern in FORBIDDEN_PATTERNS:
+        try:
+            match = regex.search(pattern, code, timeout=REGEX_TIMEOUT)
+            if match:
+                # Extract the specific forbidden attribute for the error message
+                matched_text = match.group(0)
+                return False, (
+                    f"Security violation in {source_name}: "
+                    f"Access to '{matched_text}' is forbidden. "
+                    f"This pattern can be used to escape the sandbox."
+                )
+        except regex.TimeoutError:
+            # If regex times out, reject the code as potentially malicious
+            return False, (
+                f"Security violation in {source_name}: "
+                f"Code pattern analysis timed out (possible ReDoS attempt)"
+            )
+
+    return True, None
+
+
+class TimeoutProtectedRegex:
+    """Wrapper around regex module that enforces timeout on all operations.
+
+    Prevents ReDoS (Regular Expression Denial of Service) attacks by ensuring
+    all regex operations complete within REGEX_TIMEOUT seconds.
+    """
+
+    def __init__(self, regex_module):
+        self._regex = regex_module
+        self._timeout = REGEX_TIMEOUT
+
+    def _add_timeout(self, kwargs: dict) -> dict:
+        """Add timeout to kwargs if not already present."""
+        if "timeout" not in kwargs:
+            kwargs["timeout"] = self._timeout
+        return kwargs
+
+    def compile(self, pattern, flags=0, **kwargs):
+        """Compile a regex pattern with timeout protection."""
+        return self._regex.compile(pattern, flags, **self._add_timeout(kwargs))
+
+    def search(self, pattern, string, flags=0, **kwargs):
+        """Search for pattern in string with timeout protection."""
+        return self._regex.search(pattern, string, flags, **self._add_timeout(kwargs))
+
+    def match(self, pattern, string, flags=0, **kwargs):
+        """Match pattern at start of string with timeout protection."""
+        return self._regex.match(pattern, string, flags, **self._add_timeout(kwargs))
+
+    def fullmatch(self, pattern, string, flags=0, **kwargs):
+        """Match pattern against entire string with timeout protection."""
+        return self._regex.fullmatch(
+            pattern, string, flags, **self._add_timeout(kwargs)
+        )
+
+    def split(self, pattern, string, maxsplit=0, flags=0, **kwargs):
+        """Split string by pattern with timeout protection."""
+        return self._regex.split(
+            pattern, string, maxsplit, flags, **self._add_timeout(kwargs)
+        )
+
+    def findall(self, pattern, string, flags=0, **kwargs):
+        """Find all matches of pattern in string with timeout protection."""
+        return self._regex.findall(pattern, string, flags, **self._add_timeout(kwargs))
+
+    def finditer(self, pattern, string, flags=0, **kwargs):
+        """Find all matches as iterator with timeout protection."""
+        return self._regex.finditer(pattern, string, flags, **self._add_timeout(kwargs))
+
+    def sub(self, pattern, repl, string, count=0, flags=0, **kwargs):
+        """Replace pattern matches with timeout protection."""
+        return self._regex.sub(
+            pattern, repl, string, count, flags, **self._add_timeout(kwargs)
+        )
+
+    def subn(self, pattern, repl, string, count=0, flags=0, **kwargs):
+        """Replace pattern matches and return count with timeout protection."""
+        return self._regex.subn(
+            pattern, repl, string, count, flags, **self._add_timeout(kwargs)
+        )
+
+    def escape(self, pattern):
+        """Escape special characters in pattern (no timeout needed)."""
+        return self._regex.escape(pattern)
+
+    def purge(self):
+        """Clear the regex cache (no timeout needed)."""
+        return self._regex.purge()
+
+    # Expose commonly used flags
+    @property
+    def IGNORECASE(self):
+        return self._regex.IGNORECASE
+
+    @property
+    def I(self):  # noqa: E743 - Intentionally mirrors regex.I API
+        return self._regex.I
+
+    @property
+    def MULTILINE(self):
+        return self._regex.MULTILINE
+
+    @property
+    def M(self):
+        return self._regex.M
+
+    @property
+    def DOTALL(self):
+        return self._regex.DOTALL
+
+    @property
+    def S(self):
+        return self._regex.S
+
+    @property
+    def VERBOSE(self):
+        return self._regex.VERBOSE
+
+    @property
+    def X(self):
+        return self._regex.X
+
+    @property
+    def ASCII(self):
+        return self._regex.ASCII
+
+    @property
+    def A(self):
+        return self._regex.A
+
+    @property
+    def UNICODE(self):
+        return self._regex.UNICODE
+
+    @property
+    def U(self):
+        return self._regex.U
+
+    # Allow access to error class
+    @property
+    def error(self):
+        return self._regex.error
+
+    # Allow access to TimeoutError for users who want to catch it
+    @property
+    def TimeoutError(self):
+        return self._regex.TimeoutError
+
+
+class ErrorDetail:
+    """Detailed error information for debugging."""
+
+    def __init__(
+        self,
+        message: str,
+        error_type: str = "Error",
+        line_number: Optional[int] = None,
+        code_context: Optional[list[str]] = None,
+        traceback_lines: Optional[list[str]] = None,
+        source_file: str = "<tool>",
+    ):
+        self.message = message
+        self.error_type = error_type
+        self.line_number = line_number
+        self.code_context = code_context or []
+        self.traceback_lines = traceback_lines or []
+        self.source_file = source_file
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "message": self.message,
+            "error_type": self.error_type,
+            "line_number": self.line_number,
+            "code_context": self.code_context,
+            "traceback": self.traceback_lines,
+            "source_file": self.source_file,
+        }
+
+    def __str__(self) -> str:
+        if self.line_number:
+            return f"{self.error_type} at line {self.line_number}: {self.message}"
+        return f"{self.error_type}: {self.message}"
+
+
+class DebugInfo:
+    """Debug information captured during execution."""
+
+    def __init__(self):
+        self.http_calls: list[dict[str, Any]] = []
+
+    def add_http_call(
+        self,
+        method: str,
+        url: str,
+        status_code: Optional[int] = None,
+        duration_ms: int = 0,
+        request_headers: Optional[dict] = None,
+        response_preview: Optional[str] = None,
+        error: Optional[str] = None,
+    ):
+        self.http_calls.append(
+            {
+                "method": method,
+                "url": url,
+                "status_code": status_code,
+                "duration_ms": duration_ms,
+                "request_headers": request_headers,
+                "response_preview": response_preview,
+                "error": error,
+            }
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "http_calls": self.http_calls,
+        }
+
+
+class ExecutionResult:
+    """Result of executing Python code."""
+
+    def __init__(
+        self,
+        success: bool,
+        result: Any = None,
+        error: Optional[str] = None,
+        error_detail: Optional[ErrorDetail] = None,
+        stdout: str = "",
+        duration_ms: int = 0,
+        debug_info: Optional[DebugInfo] = None,
+    ):
+        self.success = success
+        self.result = result
+        self.error = error
+        self.error_detail = error_detail
+        self.stdout = stdout
+        self.duration_ms = duration_ms
+        self.debug_info = debug_info
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result = {
+            "success": self.success,
+            "result": self.result,
+            "error": self.error,
+            "stdout": self.stdout[:MAX_OUTPUT_SIZE] if self.stdout else "",
+            "duration_ms": self.duration_ms,
+        }
+        if self.error_detail:
+            result["error_detail"] = self.error_detail.to_dict()
+        if self.debug_info:
+            result["debug_info"] = self.debug_info.to_dict()
+        return result
+
+
+def extract_error_detail(
+    exception: Exception,
+    python_code: str,
+    source_file: str = "<tool>",
+) -> ErrorDetail:
+    """Extract detailed error information from an exception.
+
+    Parses the traceback to find errors in user code and provides
+    context around the error location.
+    """
+    error_type = type(exception).__name__
+    message = str(exception)
+    line_number = None
+    code_context = []
+
+    # Get full traceback
+    tb_lines = traceback.format_exception(
+        type(exception), exception, exception.__traceback__
+    )
+
+    # Find line number from traceback
+    for line in reversed(tb_lines):
+        # Look for lines mentioning our source file
+        if source_file in line:
+            # Parse line like '  File "<tool>", line 5, in main'
+            import regex
+
+            match = regex.search(
+                rf'File "{regex.escape(source_file)}", line (\d+)',
+                line,
+                timeout=REGEX_TIMEOUT,
+            )
+            if match:
+                line_number = int(match.group(1))
+                break
+
+    # Extract code context if we found a line number
+    if line_number and python_code:
+        code_lines = python_code.split("\n")
+        start = max(0, line_number - 3)
+        end = min(len(code_lines), line_number + 2)
+
+        for i in range(start, end):
+            prefix = ">>> " if i == line_number - 1 else "    "
+            code_context.append(f"{i + 1:4d} {prefix}{code_lines[i]}")
+
+    # Clean up traceback for user display
+    clean_tb = []
+    for line in tb_lines:
+        if "sandbox/app" not in line and "__builtins__" not in line:
+            clean_tb.append(line.rstrip())
+
+    return ErrorDetail(
+        message=message,
+        error_type=error_type,
+        line_number=line_number,
+        code_context=code_context,
+        traceback_lines=clean_tb,
+        source_file=source_file,
+    )
+
+
+# --- SSRF Prevention for Python Code Mode ---
+# SSRFProtectedAsyncHttpClient is imported at the top of the file
+
+
+class DebugHttpClient:
+    """Wrapper around httpx.AsyncClient that captures request/response info.
+
+    Used in debug mode to provide visibility into HTTP calls made by user code.
+    """
+
+    def __init__(self, client: httpx.AsyncClient, debug_info: DebugInfo):
+        self._client = client
+        self._debug_info = debug_info
+
+    async def _capture_request(
+        self,
+        method: str,
+        url: str,
+        response: Optional[httpx.Response] = None,
+        error: Optional[Exception] = None,
+        duration_ms: int = 0,
+        **kwargs,
+    ):
+        """Capture request/response details for debugging."""
+        # Sanitize headers (remove auth for display)
+        request_headers = {}
+        if "headers" in kwargs:
+            for k, v in kwargs["headers"].items():
+                if k.lower() in ("authorization", "x-api-key"):
+                    request_headers[k] = "[REDACTED]"
+                else:
+                    request_headers[k] = v
+
+        response_preview = None
+        status_code = None
+
+        if response:
+            status_code = response.status_code
+            try:
+                # Get first 500 chars of response for preview
+                content = response.text[:500]
+                if len(response.text) > 500:
+                    content += "... [truncated]"
+                response_preview = content
+            except Exception:
+                response_preview = "[binary content]"
+
+        self._debug_info.add_http_call(
+            method=method,
+            url=str(url),
+            status_code=status_code,
+            duration_ms=duration_ms,
+            request_headers=request_headers if request_headers else None,
+            response_preview=response_preview,
+            error=str(error) if error else None,
+        )
+
+    async def get(self, url, **kwargs):
+        start = time.monotonic()
+        try:
+            response = await self._client.get(url, **kwargs)
+            duration = int((time.monotonic() - start) * 1000)
+            await self._capture_request(
+                "GET", url, response=response, duration_ms=duration, **kwargs
+            )
+            return response
+        except Exception as e:
+            duration = int((time.monotonic() - start) * 1000)
+            await self._capture_request(
+                "GET", url, error=e, duration_ms=duration, **kwargs
+            )
+            raise
+
+    async def post(self, url, **kwargs):
+        start = time.monotonic()
+        try:
+            response = await self._client.post(url, **kwargs)
+            duration = int((time.monotonic() - start) * 1000)
+            await self._capture_request(
+                "POST", url, response=response, duration_ms=duration, **kwargs
+            )
+            return response
+        except Exception as e:
+            duration = int((time.monotonic() - start) * 1000)
+            await self._capture_request(
+                "POST", url, error=e, duration_ms=duration, **kwargs
+            )
+            raise
+
+    async def put(self, url, **kwargs):
+        start = time.monotonic()
+        try:
+            response = await self._client.put(url, **kwargs)
+            duration = int((time.monotonic() - start) * 1000)
+            await self._capture_request(
+                "PUT", url, response=response, duration_ms=duration, **kwargs
+            )
+            return response
+        except Exception as e:
+            duration = int((time.monotonic() - start) * 1000)
+            await self._capture_request(
+                "PUT", url, error=e, duration_ms=duration, **kwargs
+            )
+            raise
+
+    async def patch(self, url, **kwargs):
+        start = time.monotonic()
+        try:
+            response = await self._client.patch(url, **kwargs)
+            duration = int((time.monotonic() - start) * 1000)
+            await self._capture_request(
+                "PATCH", url, response=response, duration_ms=duration, **kwargs
+            )
+            return response
+        except Exception as e:
+            duration = int((time.monotonic() - start) * 1000)
+            await self._capture_request(
+                "PATCH", url, error=e, duration_ms=duration, **kwargs
+            )
+            raise
+
+    async def delete(self, url, **kwargs):
+        start = time.monotonic()
+        try:
+            response = await self._client.delete(url, **kwargs)
+            duration = int((time.monotonic() - start) * 1000)
+            await self._capture_request(
+                "DELETE", url, response=response, duration_ms=duration, **kwargs
+            )
+            return response
+        except Exception as e:
+            duration = int((time.monotonic() - start) * 1000)
+            await self._capture_request(
+                "DELETE", url, error=e, duration_ms=duration, **kwargs
+            )
+            raise
+
+    async def head(self, url, **kwargs):
+        start = time.monotonic()
+        try:
+            response = await self._client.head(url, **kwargs)
+            duration = int((time.monotonic() - start) * 1000)
+            await self._capture_request(
+                "HEAD", url, response=response, duration_ms=duration, **kwargs
+            )
+            return response
+        except Exception as e:
+            duration = int((time.monotonic() - start) * 1000)
+            await self._capture_request(
+                "HEAD", url, error=e, duration_ms=duration, **kwargs
+            )
+            raise
+
+    async def options(self, url, **kwargs):
+        start = time.monotonic()
+        try:
+            response = await self._client.options(url, **kwargs)
+            duration = int((time.monotonic() - start) * 1000)
+            await self._capture_request(
+                "OPTIONS", url, response=response, duration_ms=duration, **kwargs
+            )
+            return response
+        except Exception as e:
+            duration = int((time.monotonic() - start) * 1000)
+            await self._capture_request(
+                "OPTIONS", url, error=e, duration_ms=duration, **kwargs
+            )
+            raise
+
+    async def request(self, method, url, **kwargs):
+        start = time.monotonic()
+        try:
+            response = await self._client.request(method, url, **kwargs)
+            duration = int((time.monotonic() - start) * 1000)
+            await self._capture_request(
+                method, url, response=response, duration_ms=duration, **kwargs
+            )
+            return response
+        except Exception as e:
+            duration = int((time.monotonic() - start) * 1000)
+            await self._capture_request(
+                method, url, error=e, duration_ms=duration, **kwargs
+            )
+            raise
+
+
+class PythonExecutor:
+    """Executes Python code safely with injected dependencies.
+
+    Supports:
+    - Helper code that gets loaded into the namespace
+    - Pre-authenticated httpx.AsyncClient injection
+    - Execution timeouts
+    - Output size limits
+    - Safe built-in restrictions
+    """
+
+    def _create_safe_builtins(
+        self,
+        allowed_modules: set[str] | None = None,
+    ) -> dict[str, Any]:
+        """Create a restricted builtins dict for safe execution.
+
+        Args:
+            allowed_modules: Set of module names that can be imported.
+                            If None, uses DEFAULT_ALLOWED_MODULES.
+
+        Allows common operations but blocks dangerous functions.
+        """
+        # Use default allowed modules if not specified
+        if allowed_modules is None:
+            allowed_modules = DEFAULT_ALLOWED_MODULES
+
+        # Start with a copy of builtins
+        import builtins
+
+        safe_builtins = {}
+
+        # Allowed built-in functions
+        allowed_builtins = {
+            # Types
+            "bool",
+            "int",
+            "float",
+            "str",
+            "list",
+            "dict",
+            "tuple",
+            "set",
+            "frozenset",
+            "bytes",
+            "bytearray",
+            # NOTE: type() removed - allows sandbox escape via type().__bases__[0].__subclasses__()
+            # NOTE: object removed - allows sandbox escape via object.__subclasses__() which
+            # provides access to dangerous classes like _io._IOBase, subprocess.Popen, etc.
+            # Functions
+            "abs",
+            "all",
+            "any",
+            "ascii",
+            "bin",
+            "callable",
+            "chr",
+            "divmod",
+            "enumerate",
+            "filter",
+            "format",
+            # NOTE: getattr/setattr/hasattr removed - they allow sandbox escape via __class__, __bases__
+            # hasattr() internally calls getattr() which defeats the purpose of blocking getattr
+            "hash",
+            "hex",
+            "id",
+            "isinstance",
+            "issubclass",
+            "iter",
+            "len",
+            "map",
+            "max",
+            "min",
+            "next",
+            "oct",
+            "ord",
+            "pow",
+            "print",
+            "range",
+            "repr",
+            "reversed",
+            "round",
+            # NOTE: setattr removed - allows modifying protected attributes
+            "slice",
+            "sorted",
+            "sum",
+            "zip",
+            # Exceptions
+            "Exception",
+            "ValueError",
+            "TypeError",
+            "KeyError",
+            "IndexError",
+            "RuntimeError",
+            "StopIteration",
+            "AttributeError",
+            # Constants
+            "True",
+            "False",
+            "None",
+        }
+
+        for name in allowed_builtins:
+            if hasattr(builtins, name):
+                safe_builtins[name] = getattr(builtins, name)
+
+        # Add safe __import__ that only allows whitelisted modules
+        # Note: __builtins__ can be either a dict or a module depending on context
+        if isinstance(__builtins__, dict):
+            real_import = __builtins__["__import__"]
+        else:
+            real_import = __builtins__.__import__
+
+        def safe_import(name, globals=None, locals=None, fromlist=(), level=0):
+            base_module = name.split(".")[0]
+
+            # Check against allowed modules (admin-configured whitelist)
+            if name not in allowed_modules and base_module not in allowed_modules:
+                raise ImportError(
+                    f"Import of '{name}' is not allowed. "
+                    f"Allowed modules: {sorted(allowed_modules)}"
+                )
+
+            module = real_import(name, globals, locals, fromlist, level)
+
+            # Wrap regex module with timeout protection
+            if name == "regex":
+                return TimeoutProtectedRegex(module)
+
+            return module
+
+        safe_builtins["__import__"] = safe_import
+
+        return safe_builtins
+
+    def _create_execution_namespace(
+        self,
+        http_client: httpx.AsyncClient,
+        helper_code: Optional[str] = None,
+        allowed_modules: set[str] | None = None,
+    ) -> dict[str, Any]:
+        """Create the execution namespace with injected dependencies.
+
+        Args:
+            http_client: HTTP client for making requests
+            helper_code: Optional shared code to execute in namespace
+            allowed_modules: Set of allowed module names (None = use defaults)
+        """
+        # Wrap HTTP client with SSRF protection to prevent access to internal IPs
+        protected_client = SSRFProtectedAsyncHttpClient(http_client)
+
+        namespace = {
+            "__builtins__": self._create_safe_builtins(allowed_modules),
+            # Inject SSRF-protected HTTP client
+            "http": protected_client,
+            # Inject commonly used modules
+            "json": json,
+            "datetime": datetime,
+        }
+
+        # Execute helper code to add to namespace
+        if helper_code:
+            try:
+                exec(compile(helper_code, "<helpers>", "exec"), namespace)
+            except Exception as e:
+                logger.error(f"Failed to load helper code: {e}")
+                raise ValueError(f"Invalid helper code: {e}")
+
+        return namespace
+
+    async def execute(
+        self,
+        python_code: str,
+        arguments: dict[str, Any],
+        http_client: httpx.AsyncClient,
+        helper_code: Optional[str] = None,
+        timeout: float = DEFAULT_TIMEOUT,
+        debug_mode: bool = False,
+        allowed_modules: set[str] | None = None,
+    ) -> ExecutionResult:
+        """Execute Python code with the provided arguments.
+
+        Args:
+            python_code: Python code with async main() function
+            arguments: Keyword arguments to pass to main()
+            http_client: Pre-authenticated httpx client
+            helper_code: Optional helper code to load first
+            timeout: Execution timeout in seconds
+            debug_mode: If True, capture detailed debug info
+            allowed_modules: Set of module names allowed for import (None = defaults)
+
+        Returns:
+            ExecutionResult with success/error and result
+        """
+        start_time = time.monotonic()
+        stdout_capture = SizeLimitedStringIO()  # Use size-limited to prevent OOM
+        debug_info = DebugInfo() if debug_mode else None
+
+        # Wrap HTTP client to capture debug info
+        if debug_mode:
+            http_client = DebugHttpClient(http_client, debug_info)
+
+        # SECURITY: Validate code for sandbox escape patterns before execution
+        # Check helper code first
+        if helper_code:
+            is_safe, error_msg = validate_code_safety(helper_code, "<helpers>")
+            if not is_safe:
+                error_detail = ErrorDetail(
+                    message=error_msg,
+                    error_type="SecurityError",
+                    source_file="<helpers>",
+                )
+                return ExecutionResult(
+                    success=False,
+                    error=error_msg,
+                    error_detail=error_detail,
+                    stdout="",
+                    duration_ms=int((time.monotonic() - start_time) * 1000),
+                    debug_info=debug_info,
+                )
+
+        # Check main code
+        is_safe, error_msg = validate_code_safety(python_code, "<tool>")
+        if not is_safe:
+            error_detail = ErrorDetail(
+                message=error_msg,
+                error_type="SecurityError",
+                source_file="<tool>",
+            )
+            return ExecutionResult(
+                success=False,
+                error=error_msg,
+                error_detail=error_detail,
+                stdout="",
+                duration_ms=int((time.monotonic() - start_time) * 1000),
+                debug_info=debug_info,
+            )
+
+        try:
+            # Create execution namespace
+            try:
+                namespace = self._create_execution_namespace(
+                    http_client, helper_code, allowed_modules
+                )
+            except ValueError as e:
+                # Error loading helper code
+                error_detail = ErrorDetail(
+                    message=str(e),
+                    error_type="HelperCodeError",
+                    source_file="<helpers>",
+                )
+                return ExecutionResult(
+                    success=False,
+                    error=str(e),
+                    error_detail=error_detail,
+                    stdout=stdout_capture.getvalue(),
+                    duration_ms=int((time.monotonic() - start_time) * 1000),
+                    debug_info=debug_info,
+                )
+
+            # Capture stdout
+            old_stdout = sys.stdout
+            sys.stdout = stdout_capture
+
+            try:
+                # Compile and execute the user's code to define main()
+                compiled = compile(python_code, "<tool>", "exec")
+                exec(compiled, namespace)
+
+                # Verify main() exists and is async
+                if "main" not in namespace:
+                    error_detail = ErrorDetail(
+                        message="Code must define an async main() function",
+                        error_type="ValidationError",
+                    )
+                    return ExecutionResult(
+                        success=False,
+                        error="Code must define an async main() function",
+                        error_detail=error_detail,
+                        stdout=stdout_capture.getvalue(),
+                        duration_ms=int((time.monotonic() - start_time) * 1000),
+                        debug_info=debug_info,
+                    )
+
+                main_func = namespace["main"]
+                if not asyncio.iscoroutinefunction(main_func):
+                    error_detail = ErrorDetail(
+                        message="main() must be an async function (use 'async def main(...)')",
+                        error_type="ValidationError",
+                    )
+                    return ExecutionResult(
+                        success=False,
+                        error="main() must be an async function (use 'async def main(...)')",
+                        error_detail=error_detail,
+                        stdout=stdout_capture.getvalue(),
+                        duration_ms=int((time.monotonic() - start_time) * 1000),
+                        debug_info=debug_info,
+                    )
+
+                # Execute main() with timeout
+                try:
+                    result = await asyncio.wait_for(
+                        main_func(**arguments),
+                        timeout=timeout,
+                    )
+                except asyncio.TimeoutError:
+                    error_detail = ErrorDetail(
+                        message=f"Execution timed out after {timeout} seconds",
+                        error_type="TimeoutError",
+                    )
+                    return ExecutionResult(
+                        success=False,
+                        error=f"Execution timed out after {timeout} seconds",
+                        error_detail=error_detail,
+                        stdout=stdout_capture.getvalue(),
+                        duration_ms=int(timeout * 1000),
+                        debug_info=debug_info,
+                    )
+
+                # Ensure result is JSON-serializable
+                try:
+                    json.dumps(result)
+                except (TypeError, ValueError):
+                    result = str(result)
+
+                return ExecutionResult(
+                    success=True,
+                    result=result,
+                    stdout=stdout_capture.getvalue(),
+                    duration_ms=int((time.monotonic() - start_time) * 1000),
+                    debug_info=debug_info,
+                )
+
+            finally:
+                sys.stdout = old_stdout
+
+        except SyntaxError as e:
+            # Extract code context for syntax errors
+            code_context = []
+            if e.lineno and python_code:
+                code_lines = python_code.split("\n")
+                start = max(0, e.lineno - 3)
+                end = min(len(code_lines), e.lineno + 1)
+                for i in range(start, end):
+                    prefix = ">>> " if i == e.lineno - 1 else "    "
+                    code_context.append(f"{i + 1:4d} {prefix}{code_lines[i]}")
+
+            error_detail = ErrorDetail(
+                message=e.msg or "Invalid syntax",
+                error_type="SyntaxError",
+                line_number=e.lineno,
+                code_context=code_context,
+            )
+            return ExecutionResult(
+                success=False,
+                error=f"Syntax error at line {e.lineno}: {e.msg}",
+                error_detail=error_detail,
+                stdout=stdout_capture.getvalue(),
+                duration_ms=int((time.monotonic() - start_time) * 1000),
+                debug_info=debug_info,
+            )
+        except ImportError as e:
+            error_detail = ErrorDetail(
+                message=str(e),
+                error_type="ImportError",
+            )
+            return ExecutionResult(
+                success=False,
+                error=str(e),
+                error_detail=error_detail,
+                stdout=stdout_capture.getvalue(),
+                duration_ms=int((time.monotonic() - start_time) * 1000),
+                debug_info=debug_info,
+            )
+        except Exception as e:
+            # Capture full traceback for debugging
+            tb = traceback.format_exc()
+            logger.error(f"Execution error: {tb}")
+
+            error_detail = extract_error_detail(e, python_code)
+
+            return ExecutionResult(
+                success=False,
+                error=f"{type(e).__name__}: {e}",
+                error_detail=error_detail,
+                stdout=stdout_capture.getvalue(),
+                duration_ms=int((time.monotonic() - start_time) * 1000),
+                debug_info=debug_info,
+            )
+
+
+# Global executor instance
+python_executor = PythonExecutor()

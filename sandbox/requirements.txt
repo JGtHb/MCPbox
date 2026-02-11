@@ -1,0 +1,10 @@
+# Shared Sandbox Service
+# Dynamically loads and executes MCP tools
+
+httpx>=0.27.0
+fastapi>=0.109.0
+uvicorn>=0.27.0
+pydantic>=2.0.0
+cryptography>=42.0.0
+slowapi>=0.1.9
+regex>=2024.0.0  # Drop-in replacement for re with timeout support (ReDoS protection)
