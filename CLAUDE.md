@@ -28,7 +28,7 @@ This file provides context for AI assistants (like Claude) working on this codeb
 ### Recent Changes
 
 - **Tunnel Security Review** - Worker simplified (apiRoute: '/', eliminated Bug #108 workaround), server-side JWT verification, /internal/* auth, fail-closed ServiceTokenCache, isolated DB network, OAuth redirect_uri validation, HMAC-based timingSafeEqual
-- **Pre-Production Security Review** - Two review cycles completed, all findings fixed (see `docs/PRE-PRODUCTION-REVIEW.md`)
+- **Pre-Production Security Review** - Two review cycles completed, all findings fixed
 - **Sandbox Hardening** - `validate_code_safety()` on all execution paths, consolidated builtins, SSRF redirect prevention
 - **Cloudflare Setup Wizard** - Automated 7-step wizard at `/tunnel/setup` for configuring remote access (tunnel, VPC, Worker, MCP Portal)
 - **Hybrid Architecture** - Local-first with optional Cloudflare Worker for remote access
