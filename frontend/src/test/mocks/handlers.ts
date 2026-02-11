@@ -258,7 +258,7 @@ export const handlers = [
         },
         {
           id: 'server-2',
-          name: 'OpenAPI Server',
+          name: 'Python Tools Server',
           status: 'ready',
           tool_count: 2,
           requests_24h: 50,

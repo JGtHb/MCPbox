@@ -6,6 +6,8 @@ All notable changes to MCPbox will be documented in this file.
 
 ### Security
 - Add `.dev.vars` and `.dev.vars.*` to `.gitignore` to prevent accidental commit of Cloudflare Worker secrets
+- Remove internal review tracking files (REVIEW_PROGRESS.md, PRE-PRODUCTION-REVIEW*.md) from repository
+- Replace placeholder `security@example.com` in README.md with GitHub Security Advisory guidance
 
 ### Fixed
 - Fix unawaited `CircuitBreaker.reset_all()` in health endpoint — the `/health/circuits/reset` endpoint was silently doing nothing
@@ -21,6 +23,8 @@ All notable changes to MCPbox will be documented in this file.
 - Remove dead re-exports from `api/index.ts`
 - Remove no-op `PythonExecutor.close()` method and empty `__init__` constructor
 - Apply formatting fixes to 3 files with pre-existing `ruff format` issues
+- Remove "legacy format" labeling from `mcpbox_test_code` tool description
+- Remove "OpenAPI Server" legacy reference from frontend test mocks
 
 ### Tests
 - Add 34 sandbox escape integration tests (`test_sandbox_escape.py`)
@@ -37,3 +41,6 @@ All notable changes to MCPbox will be documented in this file.
 - Update README architecture diagram to show separate MCP Gateway (:8002)
 - Update documentation links to include all available docs
 - Add CHANGELOG
+- Rewrite ARCHITECTURE.md — remove aspirational content (Envoy sidecar, network_logs, storage_logs, alerting, gVisor, seccomp, learning mode), fix MCP Gateway as separate service, update DB schema and API spec to match reality
+- Rewrite FUTURE-EPICS.md — remove completed/outdated epics, document current state accurately
+- Update COMPETITIVE-ANALYSIS.md — replace API Config references with code-first approach, update gap analysis to reflect full Python support

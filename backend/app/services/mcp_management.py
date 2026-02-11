@@ -191,13 +191,13 @@ MCP_MANAGEMENT_TOOLS = [
     },
     {
         "name": "mcpbox_test_code",
-        "description": "Test Python code execution without saving. Supports two formats: (1) 'async def main()' format (same as mcpbox_create_tool) - pass arguments via the arguments parameter, or (2) legacy format where code sets a 'result' variable directly. Returns result, stdout, and any errors.",
+        "description": "Test Python code execution without saving. Use the 'async def main()' format (same as mcpbox_create_tool) and pass arguments via the arguments parameter. Returns result, stdout, and any errors.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "code": {
                     "type": "string",
-                    "description": "Python code using either: 'async def main(param: str): return value' OR 'result = value'",
+                    "description": "Python code with 'async def main(param: str) -> type: return value' entry point",
                 },
                 "arguments": {
                     "type": "object",
@@ -821,13 +821,9 @@ class MCPManagementService:
     async def _test_code(self, args: dict, sandbox_client: SandboxClient) -> dict:
         """Test Python code execution.
 
-        Supports two code formats:
-        1. async def main() format (same as mcpbox_create_tool):
+        Code should use the async def main() format (same as mcpbox_create_tool):
            async def main(x: int) -> int:
                return x * 2
-
-        2. Legacy result= format:
-           result = some_value
         """
         code = args.get("code")
         if not code:

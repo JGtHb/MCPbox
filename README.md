@@ -180,7 +180,7 @@ Contributions are welcome! Please:
 
 ## Security
 
-If you discover a security vulnerability, please email security@example.com instead of opening a public issue.
+If you discover a security vulnerability, please open a [GitHub Security Advisory](https://docs.github.com/en/code-security/security-advisories) on this repository instead of opening a public issue.
 
 ---
 
