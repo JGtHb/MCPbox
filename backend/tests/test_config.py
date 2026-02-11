@@ -1,0 +1,183 @@
+"""Tests for configuration validation.
+
+Tests the Settings validation to ensure invalid configurations
+are rejected at startup.
+
+Note: These tests use pytest.mark.skip_rate_limiter_reset to skip the
+autouse reset_rate_limiter fixture, which would otherwise import app modules
+that conflict with config module reloading.
+"""
+
+import os
+from unittest.mock import patch
+
+import pytest
+
+# Mark all tests in this module to skip rate limiter reset
+pytestmark = pytest.mark.skip_rate_limiter_reset
+
+
+class TestEncryptionKeyValidation:
+    """Tests for encryption key validation."""
+
+    def test_valid_encryption_key_accepted(self):
+        """Test that a valid 64-character hex key is accepted."""
+        with patch.dict(
+            os.environ,
+            {
+                "MCPBOX_ENCRYPTION_KEY": "0" * 64,
+                "SANDBOX_API_KEY": "0" * 32,
+            },
+            clear=False,
+        ):
+            from importlib import reload
+
+            import app.core.config as config_module
+
+            reload(config_module)
+            assert config_module.settings.mcpbox_encryption_key == "0" * 64
+
+    def test_short_encryption_key_rejected(self):
+        """Test that a short encryption key is rejected."""
+        with patch.dict(
+            os.environ,
+            {
+                "MCPBOX_ENCRYPTION_KEY": "0" * 32,  # Too short
+                "SANDBOX_API_KEY": "0" * 32,
+            },
+            clear=False,
+        ):
+            from importlib import reload
+
+            import app.core.config as config_module
+
+            with pytest.raises(Exception) as exc_info:
+                reload(config_module)
+
+            assert "64" in str(exc_info.value)
+
+
+class TestSandboxApiKeyValidation:
+    """Tests for sandbox API key validation."""
+
+    def test_valid_sandbox_api_key_accepted(self):
+        """Test that a valid sandbox API key is accepted."""
+        with patch.dict(
+            os.environ,
+            {
+                "MCPBOX_ENCRYPTION_KEY": "0" * 64,
+                "SANDBOX_API_KEY": "a" * 32,
+            },
+            clear=False,
+        ):
+            from importlib import reload
+
+            import app.core.config as config_module
+
+            reload(config_module)
+            assert config_module.settings.sandbox_api_key == "a" * 32
+
+    def test_short_sandbox_api_key_rejected(self):
+        """Test that a short sandbox API key is rejected."""
+        with patch.dict(
+            os.environ,
+            {
+                "MCPBOX_ENCRYPTION_KEY": "0" * 64,
+                "SANDBOX_API_KEY": "short",
+            },
+            clear=False,
+        ):
+            from importlib import reload
+
+            import app.core.config as config_module
+
+            with pytest.raises(Exception) as exc_info:
+                reload(config_module)
+
+            assert "32 characters" in str(exc_info.value)
+
+
+class TestSecretUniquenessValidation:
+    """Tests for secret uniqueness validation."""
+
+    def test_duplicate_secrets_warning(self):
+        """Test that duplicate secrets generate warnings."""
+        with patch.dict(
+            os.environ,
+            {
+                "MCPBOX_ENCRYPTION_KEY": "0" * 64,
+                "SANDBOX_API_KEY": "duplicate_secret_12345678901234567890",
+                "JWT_SECRET_KEY": "duplicate_secret_12345678901234567890",  # Same as SANDBOX_API_KEY
+            },
+            clear=False,
+        ):
+            from importlib import reload
+
+            import app.core.config as config_module
+
+            reload(config_module)
+            warnings = config_module.settings.check_security_configuration()
+            # Should have a warning about duplicate secrets
+            assert any("same value" in w for w in warnings)
+
+    def test_unique_secrets_no_warning(self):
+        """Test that unique secrets don't generate warnings about duplicates."""
+        with patch.dict(
+            os.environ,
+            {
+                "MCPBOX_ENCRYPTION_KEY": "0" * 64,
+                "SANDBOX_API_KEY": "a" * 32,
+                "JWT_SECRET_KEY": "c" * 32,
+            },
+            clear=False,
+        ):
+            from importlib import reload
+
+            import app.core.config as config_module
+
+            reload(config_module)
+            warnings = config_module.settings.check_security_configuration()
+            # Should not have any warning about duplicate secrets
+            assert not any("same value" in w for w in warnings)
+
+
+class TestLogRetentionValidation:
+    """Tests for log retention days validation."""
+
+    def test_valid_log_retention_accepted(self):
+        """Test that valid log retention days is accepted."""
+        with patch.dict(
+            os.environ,
+            {
+                "MCPBOX_ENCRYPTION_KEY": "0" * 64,
+                "SANDBOX_API_KEY": "0" * 32,
+                "LOG_RETENTION_DAYS": "90",
+            },
+            clear=False,
+        ):
+            from importlib import reload
+
+            import app.core.config as config_module
+
+            reload(config_module)
+            assert config_module.settings.log_retention_days == 90
+
+    def test_invalid_log_retention_rejected(self):
+        """Test that invalid log retention (< 1) is rejected."""
+        with patch.dict(
+            os.environ,
+            {
+                "MCPBOX_ENCRYPTION_KEY": "0" * 64,
+                "SANDBOX_API_KEY": "0" * 32,
+                "LOG_RETENTION_DAYS": "0",
+            },
+            clear=False,
+        ):
+            from importlib import reload
+
+            import app.core.config as config_module
+
+            with pytest.raises(Exception) as exc_info:
+                reload(config_module)
+
+            assert "at least 1" in str(exc_info.value)
