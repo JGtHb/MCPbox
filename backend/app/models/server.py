@@ -57,9 +57,6 @@ class Server(BaseModel):
         default="imported",
     )
 
-    # Vestigial from per-server container architecture; kept for database compatibility
-    container_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-
     # Network configuration
     network_mode: Mapped[str] = mapped_column(
         NetworkMode,

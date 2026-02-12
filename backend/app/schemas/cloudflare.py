@@ -29,14 +29,6 @@ def _validate_resource_name(v: str) -> str:
 AccessPolicyType = Literal["everyone", "emails", "email_domain"]
 
 
-class ExistingResource(BaseModel):
-    """An existing Cloudflare resource that would be overwritten."""
-
-    resource_type: str  # "tunnel", "vpc_service", "mcp_server", "access_app", "mcp_portal"
-    name: str
-    id: str
-
-
 class AccessPolicyConfig(BaseModel):
     """Configuration for Cloudflare Access Policy rules."""
 

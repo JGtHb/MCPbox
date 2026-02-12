@@ -14,7 +14,6 @@ export interface Server {
 }
 
 export interface ServerDetail extends Server {
-  container_id: string | null
   allowed_hosts: string[] | null
   default_timeout_ms: number
   helper_code: string | null
@@ -28,11 +27,9 @@ export interface ServerDetail extends Server {
 
 export interface ContainerStatus {
   server_id: string
-  container_id: string | null
   status: string
-  health: string | null
-  started_at: string | null
   registered_tools: number
+  message: string | null
 }
 
 // Query keys

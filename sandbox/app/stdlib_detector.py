@@ -280,19 +280,6 @@ def is_stdlib_module(module_name: str) -> bool:
     return top_level in KNOWN_STDLIB
 
 
-def get_all_stdlib_modules() -> set[str]:
-    """Get the complete set of stdlib module names.
-
-    Returns:
-        Set of all stdlib module names
-    """
-    if hasattr(sys, "stdlib_module_names"):
-        return set(sys.stdlib_module_names)
-
-    # Fallback - return empty set, meaning all modules will be treated as third-party
-    return set()
-
-
 def classify_modules(module_names: list[str]) -> dict[str, list[str]]:
     """Classify a list of modules into stdlib and third-party.
 

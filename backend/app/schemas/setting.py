@@ -3,13 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
-
-
-class SettingUpdate(BaseModel):
-    """Schema for updating a setting value."""
-
-    value: str | None = Field(None, description="The setting value")
+from pydantic import BaseModel, ConfigDict
 
 
 class SettingResponse(BaseModel):

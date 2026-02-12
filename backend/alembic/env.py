@@ -12,7 +12,20 @@ from app.core.config import settings
 from app.core.database import Base
 
 # Import all models here so Alembic can detect them
-from app.models import Credential, Server, Tool  # noqa: F401
+from app.models import (  # noqa: F401
+    ActivityLog,
+    AdminUser,
+    CloudflareConfig,
+    Credential,
+    GlobalConfig,
+    ModuleRequest,
+    NetworkAccessRequest,
+    Server,
+    Setting,
+    Tool,
+    ToolVersion,
+    TunnelConfiguration,
+)
 
 # this is the Alembic Config object
 config = context.config
