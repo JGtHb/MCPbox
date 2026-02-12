@@ -10,7 +10,7 @@ LAN could access the admin API without proper authorization.
 import logging
 
 from fastapi import Request, Response
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import JSONResponse
 
 from app.services.auth import (
@@ -52,7 +52,7 @@ class AdminAuthMiddleware(BaseHTTPMiddleware):
     - Returns 401 Unauthorized if token is missing or invalid
     """
 
-    async def dispatch(self, request: Request, call_next) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         path = request.url.path
 
         # Skip auth for CORS preflight requests (OPTIONS)

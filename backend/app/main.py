@@ -1,6 +1,7 @@
 """MCPbox Backend - FastAPI Application Factory."""
 
 import asyncio
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -47,7 +48,7 @@ _rate_limit_cleanup_task: asyncio.Task | None = None
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan handler for startup/shutdown."""
     # Startup
     setup_logging(
@@ -176,7 +177,7 @@ def create_app() -> FastAPI:
 
     # Root endpoint
     @app.get("/")
-    async def root():
+    async def root() -> dict[str, str]:
         """Root endpoint with API information."""
         return {
             "name": settings.app_name,

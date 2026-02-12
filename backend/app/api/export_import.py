@@ -135,17 +135,17 @@ class ImportResult(BaseModel):
 @router.get("/servers", response_model=ExportResponse)
 async def export_all_servers(
     server_service: ServerService = Depends(get_server_service),
-):
+) -> ExportResponse:
     """Export all servers and their tools.
 
     Returns a JSON export that can be used for backup or migration.
     NOTE: Credentials are NOT included in the export for security.
     """
     # Use list_with_tools to avoid N+1 queries (fetches all servers + tools in 2 queries)
-    servers = await server_service.list_with_tools()
+    servers_list = await server_service.list_with_tools()
     exported_servers = []
 
-    for server in servers:
+    for server in servers_list:
         exported_tools = [
             ExportedTool(
                 name=tool.name,
@@ -192,7 +192,7 @@ async def export_all_servers(
 async def export_server(
     server_id: UUID,
     server_service: ServerService = Depends(get_server_service),
-):
+) -> ExportedServer:
     """Export a single server and its tools."""
     server = await server_service.get(server_id)
     if not server:
@@ -228,7 +228,7 @@ async def import_servers(
     server_service: ServerService = Depends(get_server_service),
     tool_service: ToolService = Depends(get_tool_service),
     db: AsyncSession = Depends(get_db),
-):
+) -> ImportResult:
     """Import servers and tools from an export.
 
     Creates new servers with new IDs. Does NOT overwrite existing servers.
@@ -297,7 +297,9 @@ async def import_servers(
                 if server_data.helper_code:
                     await server_service.update(
                         server.id,
-                        ServerUpdate(helper_code=server_data.helper_code),
+                        ServerUpdate(  # type: ignore[call-arg]
+                            helper_code=server_data.helper_code,
+                        ),
                     )
 
                 # Create all tools - if any fail, entire server is rolled back
@@ -313,6 +315,7 @@ async def import_servers(
                         description=tool_data.description,
                         timeout_ms=tool_data.timeout_ms,
                         python_code=tool_data.python_code,
+                        code_dependencies=None,
                     )
                     await tool_service.create(server.id, tool_create)
                     server_tools_created += 1
@@ -341,7 +344,7 @@ async def import_servers(
 @router.get("/download/servers")
 async def download_export(
     server_service: ServerService = Depends(get_server_service),
-):
+) -> JSONResponse:
     """Download all servers as a JSON file."""
     export = await export_all_servers(server_service)
 

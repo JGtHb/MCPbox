@@ -112,7 +112,7 @@ class SandboxClient:
         self,
         method: str,
         url: str,
-        **kwargs,
+        **kwargs: Any,
     ) -> httpx.Response:
         """Make HTTP request with automatic client recovery on connection errors.
 
@@ -139,10 +139,14 @@ class SandboxClient:
                             self._client = None
                 else:
                     raise
+        # This should be unreachable since the loop either returns or raises,
+        # but satisfies mypy's missing return statement check.
+        raise httpx.CloseError("All retry attempts exhausted")  # pragma: no cover
 
-    def get_circuit_state(self) -> dict:
+    def get_circuit_state(self) -> dict[str, Any]:
         """Get current circuit breaker state."""
-        return self._circuit_breaker.get_state()
+        result: dict[str, Any] = self._circuit_breaker.get_state()
+        return result
 
     async def reset_circuit(self) -> None:
         """Reset circuit breaker to closed state."""
@@ -152,7 +156,7 @@ class SandboxClient:
         """Check if sandbox service is healthy."""
         try:
 
-            async def do_health_check():
+            async def do_health_check() -> bool:
                 client = await self._get_client()
                 response = await client.get(
                     f"{self.sandbox_url}/health",
@@ -160,11 +164,12 @@ class SandboxClient:
                 )
                 return response.status_code == 200
 
-            return await retry_async(
+            result: bool = await retry_async(
                 do_health_check,
                 config=RetryConfig(max_retries=2, base_delay=0.5),
                 circuit_breaker=self._circuit_breaker,
             )
+            return result
         except CircuitBreakerOpen as e:
             logger.warning(f"Sandbox circuit breaker open: {e}")
             return False
@@ -196,7 +201,7 @@ class SandboxClient:
         """
         try:
 
-            async def do_register():
+            async def do_register() -> dict[str, Any]:
                 client = await self._get_client()
                 response = await client.post(
                     f"{self.sandbox_url}/servers/register",
@@ -213,7 +218,7 @@ class SandboxClient:
 
                 if response.status_code == 200:
                     try:
-                        data = response.json()
+                        data: dict[str, Any] = response.json()
                     except ValueError as e:
                         logger.error(f"Invalid JSON response from sandbox: {e}")
                         return {
@@ -234,11 +239,12 @@ class SandboxClient:
                         "error": response.text,
                     }
 
-            return await retry_async(
+            result: dict[str, Any] = await retry_async(
                 do_register,
                 config=SANDBOX_RETRY_CONFIG,
                 circuit_breaker=self._circuit_breaker,
             )
+            return result
 
         except CircuitBreakerOpen as e:
             logger.error(f"Cannot register server - circuit breaker open: {e}")
@@ -265,7 +271,7 @@ class SandboxClient:
         """
         try:
 
-            async def do_unregister():
+            async def do_unregister() -> dict[str, Any]:
                 client = await self._get_client()
                 response = await client.post(
                     f"{self.sandbox_url}/servers/{server_id}/unregister",
@@ -280,17 +286,18 @@ class SandboxClient:
                     return {"success": True, "note": "Server was not registered"}
                 else:
                     try:
-                        error_data = response.json()
+                        error_data: dict[str, Any] = response.json()
                         error_msg = error_data.get("detail", response.text)
                     except ValueError:
                         error_msg = response.text
                     return {"success": False, "error": error_msg}
 
-            return await retry_async(
+            result: dict[str, Any] = await retry_async(
                 do_unregister,
                 config=SANDBOX_RETRY_CONFIG,
                 circuit_breaker=self._circuit_breaker,
             )
+            return result
 
         except CircuitBreakerOpen as e:
             logger.error(f"Cannot unregister server - circuit breaker open: {e}")
@@ -314,7 +321,7 @@ class SandboxClient:
         """
         try:
 
-            async def do_list():
+            async def do_list() -> list[dict[str, Any]]:
                 client = await self._get_client()
                 params = {"server_id": server_id} if server_id else {}
                 response = await client.get(
@@ -325,18 +332,20 @@ class SandboxClient:
 
                 if response.status_code == 200:
                     try:
-                        data = response.json()
+                        data: dict[str, Any] = response.json()
                     except ValueError:
                         logger.warning("Invalid JSON response from sandbox list_tools")
                         return []
-                    return data.get("tools", [])
+                    tools: list[dict[str, Any]] = data.get("tools", [])
+                    return tools
                 return []
 
-            return await retry_async(
+            result: list[dict[str, Any]] = await retry_async(
                 do_list,
                 config=SANDBOX_RETRY_CONFIG,
                 circuit_breaker=self._circuit_breaker,
             )
+            return result
 
         except CircuitBreakerOpen:
             logger.warning("Cannot list tools - circuit breaker open")
@@ -363,7 +372,7 @@ class SandboxClient:
         """
         try:
 
-            async def do_call():
+            async def do_call() -> dict[str, Any]:
                 client = await self._get_client()
                 response = await client.post(
                     f"{self.sandbox_url}/tools/{tool_name}/call",
@@ -381,16 +390,18 @@ class SandboxClient:
                         "error": f"Sandbox server error: {response.status_code}",
                     }
                 try:
-                    return response.json()
+                    result: dict[str, Any] = response.json()
+                    return result
                 except ValueError as e:
                     logger.error(f"Invalid JSON response from tool call: {e}")
                     return {"success": False, "error": "Invalid JSON response from sandbox"}
 
-            return await retry_async(
+            result: dict[str, Any] = await retry_async(
                 do_call,
                 config=SANDBOX_RETRY_CONFIG,
                 circuit_breaker=self._circuit_breaker,
             )
+            return result
 
         except CircuitBreakerOpen as e:
             logger.error(f"Cannot call tool - circuit breaker open: {e}")
@@ -416,7 +427,7 @@ class SandboxClient:
         """
         try:
 
-            async def do_request():
+            async def do_request() -> dict[str, Any]:
                 client = await self._get_client()
                 response = await client.post(
                     f"{self.sandbox_url}/mcp",
@@ -435,7 +446,8 @@ class SandboxClient:
                         },
                     }
                 try:
-                    return response.json()
+                    result: dict[str, Any] = response.json()
+                    return result
                 except ValueError as e:
                     logger.error(f"Invalid JSON response from MCP request: {e}")
                     return {
@@ -444,11 +456,12 @@ class SandboxClient:
                         "error": {"code": -32603, "message": "Invalid JSON response from sandbox"},
                     }
 
-            return await retry_async(
+            result: dict[str, Any] = await retry_async(
                 do_request,
                 config=SANDBOX_RETRY_CONFIG,
                 circuit_breaker=self._circuit_breaker,
             )
+            return result
 
         except CircuitBreakerOpen as e:
             logger.error(f"Cannot process MCP request - circuit breaker open: {e}")
@@ -495,9 +508,9 @@ class SandboxClient:
         """
         try:
 
-            async def do_execute():
+            async def do_execute() -> dict[str, Any]:
                 client = await self._get_client()
-                payload = {
+                payload: dict[str, Any] = {
                     "code": code,
                     "arguments": arguments or {},
                     "credentials": credentials or {},
@@ -518,16 +531,18 @@ class SandboxClient:
                         "error": f"Sandbox server error: {response.status_code}",
                     }
                 try:
-                    return response.json()
+                    result: dict[str, Any] = response.json()
+                    return result
                 except ValueError as e:
                     logger.error(f"Invalid JSON response from code execution: {e}")
                     return {"success": False, "error": "Invalid JSON response from sandbox"}
 
-            return await retry_async(
+            result: dict[str, Any] = await retry_async(
                 do_execute,
                 config=SANDBOX_RETRY_CONFIG,
                 circuit_breaker=self._circuit_breaker,
             )
+            return result
 
         except CircuitBreakerOpen as e:
             logger.error(f"Cannot execute code - circuit breaker open: {e}")
@@ -542,7 +557,7 @@ class SandboxClient:
                 "error": str(e),
             }
 
-    async def close(self):
+    async def close(self) -> None:
         """Close the HTTP client."""
         if self._client:
             await self._client.aclose()
@@ -566,9 +581,9 @@ class SandboxClient:
         """
         try:
 
-            async def do_install():
+            async def do_install() -> dict[str, Any]:
                 client = await self._get_client()
-                payload = {"module_name": module_name}
+                payload: dict[str, Any] = {"module_name": module_name}
                 if version:
                     payload["version"] = version
 
@@ -581,17 +596,19 @@ class SandboxClient:
 
                 if response.status_code == 200:
                     try:
-                        return response.json()
+                        result: dict[str, Any] = response.json()
+                        return result
                     except ValueError:
                         return {"success": False, "error": "Invalid JSON response"}
                 else:
                     return {"success": False, "error": response.text}
 
-            return await retry_async(
+            result: dict[str, Any] = await retry_async(
                 do_install,
                 config=RetryConfig(max_retries=2, base_delay=1.0),
                 circuit_breaker=self._circuit_breaker,
             )
+            return result
 
         except CircuitBreakerOpen as e:
             return {"success": False, "error": f"Sandbox unavailable: {e}"}
@@ -610,7 +627,7 @@ class SandboxClient:
         """
         try:
 
-            async def do_sync():
+            async def do_sync() -> dict[str, Any]:
                 client = await self._get_client()
                 response = await client.post(
                     f"{self.sandbox_url}/packages/sync",
@@ -621,17 +638,19 @@ class SandboxClient:
 
                 if response.status_code == 200:
                     try:
-                        return response.json()
+                        result: dict[str, Any] = response.json()
+                        return result
                     except ValueError:
                         return {"success": False, "error": "Invalid JSON response"}
                 else:
                     return {"success": False, "error": response.text}
 
-            return await retry_async(
+            result: dict[str, Any] = await retry_async(
                 do_sync,
                 config=RetryConfig(max_retries=2, base_delay=2.0),
                 circuit_breaker=self._circuit_breaker,
             )
+            return result
 
         except CircuitBreakerOpen as e:
             return {"success": False, "error": f"Sandbox unavailable: {e}"}
@@ -650,7 +669,7 @@ class SandboxClient:
         """
         try:
 
-            async def do_status():
+            async def do_status() -> dict[str, Any]:
                 client = await self._get_client()
                 response = await client.get(
                     f"{self.sandbox_url}/packages/status/{module_name}",
@@ -659,17 +678,19 @@ class SandboxClient:
 
                 if response.status_code == 200:
                     try:
-                        return response.json()
+                        result: dict[str, Any] = response.json()
+                        return result
                     except ValueError:
                         return {"error": "Invalid JSON response"}
                 else:
                     return {"error": response.text}
 
-            return await retry_async(
+            result: dict[str, Any] = await retry_async(
                 do_status,
                 config=SANDBOX_RETRY_CONFIG,
                 circuit_breaker=self._circuit_breaker,
             )
+            return result
 
         except CircuitBreakerOpen as e:
             return {"error": f"Sandbox unavailable: {e}"}
@@ -685,7 +706,7 @@ class SandboxClient:
         """
         try:
 
-            async def do_list():
+            async def do_list() -> list[dict[str, str]]:
                 client = await self._get_client()
                 response = await client.get(
                     f"{self.sandbox_url}/packages",
@@ -694,17 +715,19 @@ class SandboxClient:
 
                 if response.status_code == 200:
                     try:
-                        data = response.json()
-                        return data.get("packages", [])
+                        data: dict[str, Any] = response.json()
+                        packages: list[dict[str, str]] = data.get("packages", [])
+                        return packages
                     except ValueError:
                         return []
                 return []
 
-            return await retry_async(
+            result: list[dict[str, str]] = await retry_async(
                 do_list,
                 config=SANDBOX_RETRY_CONFIG,
                 circuit_breaker=self._circuit_breaker,
             )
+            return result
 
         except CircuitBreakerOpen:
             return []
@@ -723,7 +746,7 @@ class SandboxClient:
         """
         try:
 
-            async def do_classify():
+            async def do_classify() -> dict[str, list[str]]:
                 client = await self._get_client()
                 response = await client.post(
                     f"{self.sandbox_url}/packages/classify",
@@ -733,16 +756,18 @@ class SandboxClient:
 
                 if response.status_code == 200:
                     try:
-                        return response.json()
+                        result: dict[str, list[str]] = response.json()
+                        return result
                     except ValueError:
                         return {"stdlib": [], "third_party": []}
                 return {"stdlib": [], "third_party": []}
 
-            return await retry_async(
+            result: dict[str, list[str]] = await retry_async(
                 do_classify,
                 config=SANDBOX_RETRY_CONFIG,
                 circuit_breaker=self._circuit_breaker,
             )
+            return result
 
         except Exception as e:
             logger.warning(f"Error classifying modules: {e}")
@@ -759,7 +784,7 @@ class SandboxClient:
         """
         try:
 
-            async def do_pypi():
+            async def do_pypi() -> dict[str, Any]:
                 client = await self._get_client()
                 response = await client.post(
                     f"{self.sandbox_url}/packages/pypi-info",
@@ -769,16 +794,18 @@ class SandboxClient:
 
                 if response.status_code == 200:
                     try:
-                        return response.json()
+                        result: dict[str, Any] = response.json()
+                        return result
                     except ValueError:
                         return {"error": "Invalid JSON response"}
                 return {"error": response.text}
 
-            return await retry_async(
+            result: dict[str, Any] = await retry_async(
                 do_pypi,
                 config=SANDBOX_RETRY_CONFIG,
                 circuit_breaker=self._circuit_breaker,
             )
+            return result
 
         except Exception as e:
             logger.warning(f"Error getting PyPI info for {module_name}: {e}")

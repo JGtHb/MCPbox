@@ -6,6 +6,7 @@ import os
 import re
 import secrets
 import subprocess
+from typing import Any
 from uuid import UUID
 
 import httpx
@@ -138,8 +139,8 @@ class CloudflareService:
             except DecryptionError as e:
                 logger.warning(f"Failed to decrypt API token: {e}")
 
-        # Fall back to wrangler's stored OAuth token
-        return self._get_wrangler_oauth_token()
+        # No token available
+        return None
 
     async def _get_decrypted_tunnel_token(self, config: CloudflareConfig) -> str | None:
         """Get decrypted tunnel token from config."""
@@ -292,10 +293,10 @@ class CloudflareService:
             )
             org = data.get("result", {})
             # Team domain is either auth_domain or name.cloudflareaccess.com
-            auth_domain = org.get("auth_domain")
+            auth_domain: str | None = org.get("auth_domain")
             if auth_domain:
                 return auth_domain
-            org_name = org.get("name")
+            org_name: str | None = org.get("name")
             if org_name:
                 return f"{org_name}.cloudflareaccess.com"
         except CloudflareAPIError:
@@ -318,9 +319,9 @@ class CloudflareService:
         method: str,
         path: str,
         api_token: str,
-        json: dict | None = None,
-        params: dict | None = None,
-    ) -> dict:
+        json: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Make a request to the Cloudflare API."""
         url = f"{CF_API_BASE}{path}"
         headers = self._get_headers(api_token)
@@ -343,7 +344,7 @@ class CloudflareService:
                     f"Cloudflare API error: HTTP {response.status_code} (empty response)"
                 )
 
-            data = response.json()
+            data: dict[str, Any] = response.json()
 
             if not data.get("success", False):
                 errors = data.get("errors", [])
@@ -1809,8 +1810,8 @@ compatibility_flags = ["nodejs_compat"]
 
             return ConfigureJwtResponse(
                 success=True,
-                team_domain=config.team_domain,
-                aud=config.mcp_portal_aud,
+                team_domain=config.team_domain or "",
+                aud=config.mcp_portal_aud or "",
                 worker_test_result=worker_test_result,
                 message="JWT verification secrets set successfully: CF_ACCESS_TEAM_DOMAIN, CF_ACCESS_AUD",
             )

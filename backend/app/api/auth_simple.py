@@ -99,7 +99,7 @@ async def _verify_cf_access_jwt(jwt_token: str, team_domain: str, expected_aud: 
     try:
         # Get the signing key from JWKS using the JWT header's kid
         header = pyjwt.get_unverified_header(jwt_token)
-        jwk_set = pyjwt.PyJWKSet.from_dict(jwks)
+        jwk_set = pyjwt.PyJWKSet.from_dict(jwks)  # type: ignore[attr-defined]
 
         signing_key = None
         for key in jwk_set.keys:

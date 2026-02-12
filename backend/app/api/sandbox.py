@@ -71,7 +71,7 @@ async def start_server(
     credential_service: CredentialService = Depends(get_credential_service),
     global_config_service: GlobalConfigService = Depends(get_global_config_service),
     sandbox_client: SandboxClient = Depends(get_sandbox_client),
-):
+) -> ServerStatusResponse:
     """Start a server by registering its tools with the sandbox.
 
     The server must have tools defined.
@@ -157,7 +157,7 @@ async def stop_server(
     db: AsyncSession = Depends(get_db),
     server_service: ServerService = Depends(get_server_service),
     sandbox_client: SandboxClient = Depends(get_sandbox_client),
-):
+) -> ServerStatusResponse:
     """Stop a server by unregistering its tools from the sandbox."""
     server = await server_service.get(server_id)
     if not server:
@@ -207,7 +207,7 @@ async def restart_server(
     credential_service: CredentialService = Depends(get_credential_service),
     global_config_service: GlobalConfigService = Depends(get_global_config_service),
     sandbox_client: SandboxClient = Depends(get_sandbox_client),
-):
+) -> ServerStatusResponse:
     """Restart a server by re-registering its tools."""
     server = await server_service.get(server_id)
     if not server:
@@ -285,7 +285,7 @@ async def get_server_status(
     server_id: UUID,
     server_service: ServerService = Depends(get_server_service),
     sandbox_client: SandboxClient = Depends(get_sandbox_client),
-):
+) -> ServerStatusResponse:
     """Get current status of a server."""
     server = await server_service.get(server_id)
     if not server:
@@ -311,7 +311,7 @@ async def get_server_status(
 async def get_server_logs(
     server_id: UUID,
     server_service: ServerService = Depends(get_server_service),
-):
+) -> ServerLogsResponse:
     """Get logs for a server.
 
     Note: With the shared sandbox architecture, per-server logs

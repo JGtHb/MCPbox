@@ -5,7 +5,7 @@ User identity is captured via X-Admin-Username header or client IP for audit tra
 """
 
 import logging
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
@@ -50,7 +50,7 @@ def get_approval_service(db: AsyncSession = Depends(get_db)) -> ApprovalService:
     return ApprovalService(db)
 
 
-async def _refresh_server_registration(tool, db: AsyncSession) -> bool:
+async def _refresh_server_registration(tool: Any, db: AsyncSession) -> bool:
     """Re-register a server with sandbox after tool approval.
 
     This ensures newly approved tools are immediately available without
@@ -123,12 +123,16 @@ async def _refresh_server_registration(tool, db: AsyncSession) -> bool:
 
         # Re-register with sandbox
         sandbox_client = SandboxClient.get_instance()
-        success = await sandbox_client.register_server(
+        reg_result = await sandbox_client.register_server(
             server_id=str(server.id),
             server_name=server.name,
             tools=tool_defs,
             credentials=creds_list,
             allowed_modules=allowed_modules,
+        )
+
+        success = (
+            bool(reg_result.get("success")) if isinstance(reg_result, dict) else bool(reg_result)
         )
 
         if success:
@@ -138,7 +142,7 @@ async def _refresh_server_registration(tool, db: AsyncSession) -> bool:
         else:
             logger.warning(f"Failed to re-register server {server.name} after approval")
 
-        return success
+        return bool(success)
 
     except Exception as e:
         logger.error(f"Error refreshing server registration: {e}")
@@ -179,7 +183,7 @@ def get_admin_identity(
 @router.get("/stats", response_model=ApprovalDashboardStats)
 async def get_approval_stats(
     service: ApprovalService = Depends(get_approval_service),
-):
+) -> ApprovalDashboardStats:
     """Get approval dashboard statistics.
 
     Returns counts of pending items and recent activity.
@@ -201,7 +205,7 @@ async def get_pending_tools(
         None, description="Search by tool name, description, or server name"
     ),
     service: ApprovalService = Depends(get_approval_service),
-):
+) -> ToolApprovalQueueResponse:
     """Get tools pending approval.
 
     Returns tools that have been submitted for review and need admin action.
@@ -226,7 +230,7 @@ async def take_tool_action(
     db: AsyncSession = Depends(get_db),
     service: ApprovalService = Depends(get_approval_service),
     admin_identity: str = Depends(get_admin_identity),
-):
+) -> dict[str, Any]:
     """Approve or reject a tool.
 
     The admin must provide a reason for rejection.
@@ -288,7 +292,7 @@ async def bulk_tool_action(
     db: AsyncSession = Depends(get_db),
     service: ApprovalService = Depends(get_approval_service),
     admin_identity: str = Depends(get_admin_identity),
-):
+) -> BulkActionResponse:
     """Approve or reject multiple tools at once.
 
     The admin must provide a reason for bulk rejection.
@@ -324,7 +328,7 @@ async def bulk_tool_action(
         result = await service.bulk_reject_tools(
             tool_ids=action.tool_ids,
             rejected_by=admin_identity,
-            reason=action.reason,
+            reason=action.reason or "",
         )
 
     return BulkActionResponse(**result)
@@ -342,7 +346,7 @@ async def get_pending_module_requests(
     search: str | None = Query(None, description="Search by module name or justification"),
     service: ApprovalService = Depends(get_approval_service),
     sandbox_client: SandboxClient = Depends(get_sandbox_client),
-):
+) -> ModuleRequestQueueResponse:
     """Get pending module whitelist requests.
 
     Returns module requests that need admin review, enriched with PyPI information
@@ -412,7 +416,7 @@ async def take_module_request_action(
     action: ModuleRequestAction,
     service: ApprovalService = Depends(get_approval_service),
     admin_identity: str = Depends(get_admin_identity),
-):
+) -> ModuleRequestResponse:
     """Approve or reject a module whitelist request.
 
     Approval will add the module to the server's allowed modules list.
@@ -456,7 +460,7 @@ async def bulk_module_request_action(
     action: BulkModuleRequestAction,
     service: ApprovalService = Depends(get_approval_service),
     admin_identity: str = Depends(get_admin_identity),
-):
+) -> BulkActionResponse:
     """Approve or reject multiple module requests at once.
 
     Approval will add the modules to the respective server's allowed modules list.
@@ -478,7 +482,7 @@ async def bulk_module_request_action(
         result = await service.bulk_reject_module_requests(
             request_ids=action.request_ids,
             rejected_by=admin_identity,
-            reason=action.reason,
+            reason=action.reason or "",
         )
 
     return BulkActionResponse(**result)
@@ -497,7 +501,7 @@ async def get_pending_network_requests(
         None, description="Search by host, justification, or server/tool name"
     ),
     service: ApprovalService = Depends(get_approval_service),
-):
+) -> NetworkAccessRequestQueueResponse:
     """Get pending network access requests.
 
     Returns network access requests that need admin review.
@@ -523,7 +527,7 @@ async def take_network_request_action(
     action: NetworkAccessRequestAction,
     service: ApprovalService = Depends(get_approval_service),
     admin_identity: str = Depends(get_admin_identity),
-):
+) -> NetworkAccessRequestResponse:
     """Approve or reject a network access request.
 
     Approval will add the host to the server's allowed hosts list and
@@ -568,7 +572,7 @@ async def bulk_network_request_action(
     action: BulkNetworkRequestAction,
     service: ApprovalService = Depends(get_approval_service),
     admin_identity: str = Depends(get_admin_identity),
-):
+) -> BulkActionResponse:
     """Approve or reject multiple network access requests at once.
 
     Approval will add the hosts to the respective server's allowed hosts list and
@@ -591,7 +595,7 @@ async def bulk_network_request_action(
         result = await service.bulk_reject_network_requests(
             request_ids=action.request_ids,
             rejected_by=admin_identity,
-            reason=action.reason,
+            reason=action.reason or "",
         )
 
     return BulkActionResponse(**result)

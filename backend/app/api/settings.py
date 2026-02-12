@@ -51,7 +51,7 @@ def get_setting_service(db: AsyncSession = Depends(get_db)) -> SettingService:
 @router.get("/settings", response_model=SettingListResponse)
 async def list_settings(
     setting_service: SettingService = Depends(get_setting_service),
-):
+) -> SettingListResponse:
     """List all settings.
 
     NOTE: Encrypted values are masked for security.
@@ -84,7 +84,7 @@ def get_global_config_service(db: AsyncSession = Depends(get_db)) -> GlobalConfi
 @router.get("/modules", response_model=ModuleConfigResponse)
 async def get_module_config(
     config_service: GlobalConfigService = Depends(get_global_config_service),
-):
+) -> ModuleConfigResponse:
     """Get the global module configuration."""
     allowed = await config_service.get_allowed_modules()
     is_custom = not await config_service.is_using_defaults()
@@ -102,7 +102,7 @@ async def update_modules(
     db: AsyncSession = Depends(get_db),
     config_service: GlobalConfigService = Depends(get_global_config_service),
     sandbox_client: SandboxClient = Depends(get_sandbox_client),
-):
+) -> ModuleConfigResponse:
     """Update the global allowed modules list.
 
     When adding modules, triggers package installation in the sandbox.
@@ -205,7 +205,7 @@ class PyPIInfoResponse(BaseModel):
 async def get_enhanced_module_config(
     config_service: GlobalConfigService = Depends(get_global_config_service),
     sandbox_client: SandboxClient = Depends(get_sandbox_client),
-):
+) -> EnhancedModuleConfigResponse:
     """Get enhanced module configuration with installation status.
 
     Returns module list with:
@@ -262,7 +262,7 @@ async def get_enhanced_module_config(
 async def get_pypi_info(
     module_name: str,
     sandbox_client: SandboxClient = Depends(get_sandbox_client),
-):
+) -> PyPIInfoResponse:
     """Get PyPI information for a module.
 
     Returns package metadata from PyPI, or indicates if it's a stdlib module.
@@ -282,9 +282,9 @@ async def get_pypi_info(
 @router.post("/modules/{module_name}/install", response_model=ModuleInstallResponse)
 async def install_module(
     module_name: str,
-    request: ModuleInstallRequest = None,
+    request: ModuleInstallRequest | None = None,
     sandbox_client: SandboxClient = Depends(get_sandbox_client),
-):
+) -> ModuleInstallResponse:
     """Manually trigger installation of a module.
 
     Use this to retry failed installations or install a specific version.
@@ -305,7 +305,7 @@ async def install_module(
 async def sync_modules(
     config_service: GlobalConfigService = Depends(get_global_config_service),
     sandbox_client: SandboxClient = Depends(get_sandbox_client),
-):
+) -> dict[str, Any]:
     """Manually trigger a sync of all modules.
 
     Installs any missing third-party packages in the sandbox.

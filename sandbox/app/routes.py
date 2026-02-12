@@ -748,6 +748,12 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
         AttributeError,
         IndexError,
         ZeroDivisionError,
+        SyntaxError,
+        ImportError,
+        NameError,
+        StopIteration,
+        ArithmeticError,
+        LookupError,
     ) as e:
         # Known safe exceptions — return details to help debugging
         return ExecuteCodeResponse(

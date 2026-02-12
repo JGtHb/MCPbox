@@ -6,13 +6,13 @@ import os
 import threading
 import time
 from collections import defaultdict
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Optional
 
 from fastapi import Request, Response, status
 from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.types import ASGIApp
 
 from app.core.request_utils import _is_valid_ip
 
@@ -54,7 +54,7 @@ class RateLimiter:
     _instance: Optional["RateLimiter"] = None
     _instance_lock: threading.Lock = threading.Lock()
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._buckets: dict[str, RateLimitBucket] = defaultdict(RateLimitBucket)
         self._lock = asyncio.Lock()
         self._last_cleanup = time.monotonic()
@@ -270,11 +270,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     def __init__(
         self,
-        app,
+        app: ASGIApp,
         requests_per_minute: int = 100,  # Default, overridden by path config
         exclude_paths: list[str] | None = None,
         enabled: bool = True,
-    ):
+    ) -> None:
         super().__init__(app)
         self.default_rpm = requests_per_minute
         self.exclude_paths = exclude_paths or [
@@ -329,7 +329,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         return "unknown"
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Process request with rate limiting."""
         # Skip if disabled
         if not self.enabled:

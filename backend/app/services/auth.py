@@ -88,11 +88,13 @@ def create_access_token(user_id: UUID, password_version: int) -> str:
         "type": "access",
         "pv": password_version,  # Password version for invalidation
     }
-    return jwt.encode(
+    token = jwt.encode(
         payload,
         settings.effective_jwt_secret_key,
         algorithm=settings.jwt_algorithm,
     )
+    # PyJWT 2.x returns str; older type stubs may declare bytes
+    return str(token)
 
 
 def create_refresh_token(user_id: UUID, password_version: int) -> str:
@@ -107,11 +109,13 @@ def create_refresh_token(user_id: UUID, password_version: int) -> str:
         "pv": password_version,
         "jti": jti,
     }
-    return jwt.encode(
+    token = jwt.encode(
         payload,
         settings.effective_jwt_secret_key,
         algorithm=settings.jwt_algorithm,
     )
+    # PyJWT 2.x returns str; older type stubs may declare bytes
+    return str(token)
 
 
 def decode_token(token: str) -> dict[str, Any]:
@@ -155,7 +159,7 @@ class AuthService:
         """Check if any admin user exists."""
         result = await self.session.execute(select(func.count(AdminUser.id)))
         count = result.scalar()
-        return count > 0
+        return (count or 0) > 0
 
     async def get_user_by_username(self, username: str) -> AdminUser | None:
         """Get user by username."""

@@ -3,6 +3,7 @@
 import logging
 import time
 from collections import defaultdict
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,6 +56,7 @@ def _record_login_attempt(client_ip: str) -> None:
     """Record a login attempt for rate limiting."""
     _login_attempts[client_ip].append(time.monotonic())
 
+
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
@@ -66,7 +68,7 @@ def get_auth_service(db: AsyncSession = Depends(get_db)) -> AuthService:
 async def get_current_user(
     request: Request,
     auth_service: AuthService = Depends(get_auth_service),
-):
+) -> Any:
     """Dependency to get the current authenticated user from JWT token."""
     auth_header = request.headers.get("Authorization", "")
 
@@ -205,7 +207,7 @@ async def refresh_tokens(
 
 @router.post("/logout", response_model=MessageResponse)
 async def logout(
-    current_user=Depends(get_current_user),
+    current_user: Any = Depends(get_current_user),
 ) -> MessageResponse:
     """Log out the current user.
 
@@ -219,7 +221,7 @@ async def logout(
 @router.post("/change-password", response_model=MessageResponse)
 async def change_password(
     request: ChangePasswordRequest,
-    current_user=Depends(get_current_user),
+    current_user: Any = Depends(get_current_user),
     auth_service: AuthService = Depends(get_auth_service),
 ) -> MessageResponse:
     """Change the current user's password.
@@ -244,7 +246,7 @@ async def change_password(
 
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(
-    current_user=Depends(get_current_user),
+    current_user: Any = Depends(get_current_user),
 ) -> UserResponse:
     """Get the current user's information."""
     return UserResponse.model_validate(current_user)

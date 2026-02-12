@@ -599,6 +599,8 @@ class MCPManagementService:
                 name=name,
                 description=args.get("description"),
                 python_code=python_code,
+                code_dependencies=None,
+                timeout_ms=None,
             )
 
             tool = await self._tool_service.create(server_id, tool_data)
@@ -652,6 +654,9 @@ class MCPManagementService:
         try:
             tool_update = ToolUpdate(**update_fields)
             updated_tool = await self._tool_service.update(tool_id, tool_update)
+
+            if updated_tool is None:
+                return {"error": f"Tool {tool_id} not found"}
 
             return {
                 "success": True,

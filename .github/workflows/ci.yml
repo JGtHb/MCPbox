@@ -185,10 +185,9 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Run mypy
-        # TODO: Remove `|| true` once existing type errors are fixed (~217 errors)
         run: |
           cd backend
-          mypy app --ignore-missing-imports || true
+          mypy app --ignore-missing-imports
 
   audit:
     name: Dependency Audit

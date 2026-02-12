@@ -15,6 +15,7 @@ Authentication (Hybrid Model):
 """
 
 import asyncio
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -52,7 +53,7 @@ _rate_limit_cleanup_task: asyncio.Task | None = None
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan handler."""
     # Startup
     setup_logging(
@@ -149,12 +150,12 @@ def create_mcp_app() -> FastAPI:
     app.include_router(mcp_router)
 
     @app.get("/")
-    async def root():
+    async def root() -> dict[str, str]:
         """Root endpoint — minimal response, no service identification."""
         return {"status": "ok"}
 
     @app.get("/health")
-    async def health(request: Request):
+    async def health(request: Request) -> dict[str, str] | JSONResponse:
         """Health check — only responds to localhost (Docker healthcheck).
 
         Requests from other IPs are rejected to avoid leaking service

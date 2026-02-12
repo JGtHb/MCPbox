@@ -17,7 +17,7 @@ class JSONFormatter(logging.Formatter):
     newlines) in log messages, preventing malformed JSON output.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(datefmt="%Y-%m-%dT%H:%M:%S")
 
     def format(self, record: logging.LogRecord) -> str:
