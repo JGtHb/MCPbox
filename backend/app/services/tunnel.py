@@ -4,8 +4,9 @@ import asyncio
 import logging
 import re
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -67,11 +68,11 @@ class TunnelService:
         """Get tunnel start time."""
         return self._started_at
 
-    def add_status_callback(self, callback) -> None:
+    def add_status_callback(self, callback: Callable[..., Any]) -> None:
         """Add a callback for status changes."""
         self._status_callbacks.append(callback)
 
-    def remove_status_callback(self, callback) -> None:
+    def remove_status_callback(self, callback: Callable[..., Any]) -> None:
         """Remove a status callback."""
         if callback in self._status_callbacks:
             self._status_callbacks.remove(callback)

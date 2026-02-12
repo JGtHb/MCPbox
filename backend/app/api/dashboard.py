@@ -90,7 +90,7 @@ async def get_dashboard(
     period: str = Query(
         "24h", description="Time period: 1h, 6h, 24h, 7d", pattern="^(1h|6h|24h|7d)$"
     ),
-):
+) -> DashboardResponse:
     """Get comprehensive dashboard statistics.
 
     Returns aggregated stats, server summaries, time series data, and recent errors.
@@ -167,7 +167,10 @@ async def get_dashboard(
         .where(Tool.server_id.in_(server_ids))
         .group_by(Tool.server_id)
     )
-    tool_counts = {row.server_id: row.count for row in tool_counts_result}
+    tool_counts: dict[UUID, int] = {
+        row.server_id: row[1]
+        for row in tool_counts_result  # [server_id, count]
+    }
 
     # Batch query: request counts per server
     request_counts_result = await db.execute(
@@ -178,7 +181,10 @@ async def get_dashboard(
         )
         .group_by(ActivityLog.server_id)
     )
-    request_counts = {row.server_id: row.count for row in request_counts_result}
+    request_counts: dict[UUID, int] = {
+        row.server_id: row[1]
+        for row in request_counts_result  # [server_id, count]
+    }
 
     # Batch query: error counts per server
     error_counts_result = await db.execute(
@@ -190,7 +196,10 @@ async def get_dashboard(
         )
         .group_by(ActivityLog.server_id)
     )
-    error_counts = {row.server_id: row.count for row in error_counts_result}
+    error_counts: dict[UUID, int] = {
+        row.server_id: row[1]
+        for row in error_counts_result  # [server_id, count]
+    }
 
     server_summaries = [
         ServerSummary(

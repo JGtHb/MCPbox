@@ -15,6 +15,7 @@ Authentication (Hybrid Model):
 """
 
 import asyncio
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -51,8 +52,17 @@ logger = get_logger("mcp_gateway")
 _rate_limit_cleanup_task: asyncio.Task | None = None
 
 
+def _task_done_callback(task: asyncio.Task[None]) -> None:
+    """Log unhandled exceptions from background tasks."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error(f"Background task {task.get_name()} failed: {exc}")
+
+
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan handler."""
     # Startup
     setup_logging(
@@ -85,6 +95,7 @@ async def lifespan(app: FastAPI):
 
     global _rate_limit_cleanup_task
     _rate_limit_cleanup_task = asyncio.create_task(rate_limit_cleanup_loop())
+    _rate_limit_cleanup_task.add_done_callback(_task_done_callback)
 
     yield
 
@@ -137,16 +148,24 @@ def create_mcp_app() -> FastAPI:
         exclude_paths=[],
     )
 
+    # Prometheus metrics (localhost-only, not exposed through tunnel)
+    if settings.enable_metrics:
+        from prometheus_fastapi_instrumentator import Instrumentator
+
+        Instrumentator(
+            excluded_handlers=["/health", "/metrics"],
+        ).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+
     # MCP router
     app.include_router(mcp_router)
 
     @app.get("/")
-    async def root():
+    async def root() -> dict[str, str]:
         """Root endpoint — minimal response, no service identification."""
         return {"status": "ok"}
 
     @app.get("/health")
-    async def health(request: Request):
+    async def health(request: Request) -> dict[str, str] | JSONResponse:
         """Health check — only responds to localhost (Docker healthcheck).
 
         Requests from other IPs are rejected to avoid leaking service

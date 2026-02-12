@@ -302,6 +302,154 @@ DEFAULT_ALLOWED_MODULES = {
     "hmac",
 }
 
+
+# --- Shared safe builtins (single source of truth) ---
+#
+# Used by both PythonExecutor (tool execution) and the /execute endpoint.
+# IMPORTANT: Any changes here affect ALL code execution paths.
+
+# Allowed builtin names — everything NOT in this set is blocked.
+ALLOWED_BUILTIN_NAMES = {
+    # Types
+    "bool",
+    "int",
+    "float",
+    "str",
+    "list",
+    "dict",
+    "tuple",
+    "set",
+    "frozenset",
+    "bytes",
+    "bytearray",
+    # NOTE: type() removed - allows sandbox escape via type().__bases__[0].__subclasses__()
+    # NOTE: object removed - allows sandbox escape via object.__subclasses__() which
+    # provides access to dangerous classes like _io._IOBase, subprocess.Popen, etc.
+    # NOTE: super() removed - implicitly accesses __class__ and MRO, enabling escape
+    # Functions
+    "abs",
+    "all",
+    "any",
+    "ascii",
+    "bin",
+    "callable",
+    "chr",
+    "divmod",
+    "enumerate",
+    "filter",
+    "format",
+    # NOTE: getattr/setattr/hasattr removed - they allow sandbox escape via __class__, __bases__
+    # hasattr() internally calls getattr() which defeats the purpose of blocking getattr
+    "hash",
+    "hex",
+    "id",
+    "isinstance",
+    "issubclass",
+    "iter",
+    "len",
+    "map",
+    "max",
+    "min",
+    "next",
+    "oct",
+    "ord",
+    "pow",
+    "print",
+    "range",
+    "repr",
+    "reversed",
+    "round",
+    # NOTE: setattr removed - allows modifying protected attributes
+    "slice",
+    "sorted",
+    "sum",
+    "zip",
+    # Exceptions
+    "Exception",
+    "ValueError",
+    "TypeError",
+    "KeyError",
+    "IndexError",
+    "RuntimeError",
+    "StopIteration",
+    "StopAsyncIteration",
+    "AttributeError",
+    "ImportError",
+    "IOError",
+    "OSError",
+    "FileNotFoundError",
+    "PermissionError",
+    "ConnectionError",
+    "TimeoutError",
+    "NotImplementedError",
+    "ZeroDivisionError",
+    "OverflowError",
+    "UnicodeError",
+    "UnicodeDecodeError",
+    "UnicodeEncodeError",
+    "ArithmeticError",
+    "LookupError",
+    # Constants
+    "True",
+    "False",
+    "None",
+}
+
+
+def create_safe_builtins(
+    allowed_modules: set[str] | None = None,
+) -> dict[str, Any]:
+    """Create a restricted builtins dict for safe code execution.
+
+    This is the single source of truth for sandbox builtins, used by both
+    PythonExecutor (tool execution via registry) and the /execute endpoint.
+
+    Args:
+        allowed_modules: Set of module names that can be imported.
+                        If None, uses DEFAULT_ALLOWED_MODULES.
+
+    Returns:
+        A dict suitable for use as __builtins__ in exec().
+    """
+    import builtins
+
+    if allowed_modules is None:
+        allowed_modules = DEFAULT_ALLOWED_MODULES
+
+    safe_builtins: dict[str, Any] = {}
+
+    for name in ALLOWED_BUILTIN_NAMES:
+        if hasattr(builtins, name):
+            safe_builtins[name] = getattr(builtins, name)
+
+    # Add safe __import__ that only allows whitelisted modules
+    if isinstance(__builtins__, dict):
+        real_import = __builtins__["__import__"]
+    else:
+        real_import = __builtins__.__import__
+
+    def safe_import(name, globals=None, locals=None, fromlist=(), level=0):
+        base_module = name.split(".")[0]
+
+        if name not in allowed_modules and base_module not in allowed_modules:
+            raise ImportError(
+                f"Import of '{name}' is not allowed. "
+                f"Allowed modules: {sorted(allowed_modules)}"
+            )
+
+        module = real_import(name, globals, locals, fromlist, level)
+
+        # Wrap regex module with timeout protection
+        if name == "regex":
+            return TimeoutProtectedRegex(module)
+
+        return module
+
+    safe_builtins["__import__"] = safe_import
+
+    return safe_builtins
+
+
 # NOTE: There is no FORBIDDEN_MODULES list. Admins have full control over
 # which modules are allowed via the global module whitelist in Settings.
 # If an admin chooses to allow potentially dangerous modules like 'os' or
@@ -368,10 +516,72 @@ FORBIDDEN_PATTERNS = [
 ]
 
 
+def _ast_validate(code: str, source_name: str) -> tuple[bool, str | None]:
+    """AST-based defense-in-depth validation.
+
+    Catches dunder attribute access that regex might miss (e.g. via Unicode
+    normalization, string concatenation, or creative formatting).
+
+    Returns (is_safe, error_message).
+    """
+    import ast
+
+    try:
+        tree = ast.parse(code, filename=source_name, mode="exec")
+    except SyntaxError:
+        # Syntax errors will be caught later during exec() — let them through
+        return True, None
+
+    # Forbidden attribute names accessed via dotted notation
+    forbidden_attrs = {
+        "__class__",
+        "__bases__",
+        "__mro__",
+        "__subclasses__",
+        "__globals__",
+        "__code__",
+        "__builtins__",
+        "__import__",
+        "__loader__",
+        "__spec__",
+        "__dict__",
+        "__init_subclass__",
+        "__set_name__",
+        "__del__",
+        "__reduce__",
+        "__reduce_ex__",
+    }
+
+    # Forbidden function calls
+    forbidden_calls = {"getattr", "setattr", "hasattr", "delattr", "vars", "dir"}
+
+    for node in ast.walk(tree):
+        # Check attribute access: something.__class__, etc.
+        if isinstance(node, ast.Attribute) and node.attr in forbidden_attrs:
+            return False, (
+                f"Security violation in {source_name}: "
+                f"Access to '.{node.attr}' is forbidden (line {node.lineno})."
+            )
+
+        # Check forbidden function calls: getattr(...), vars(...), etc.
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            if node.func.id in forbidden_calls:
+                return False, (
+                    f"Security violation in {source_name}: "
+                    f"Call to '{node.func.id}()' is forbidden (line {node.lineno})."
+                )
+
+    return True, None
+
+
 def validate_code_safety(
     code: str, source_name: str = "<tool>"
 ) -> tuple[bool, str | None]:
     """Validate that code doesn't contain sandbox escape patterns.
+
+    Uses two layers:
+    1. Regex-based pattern matching (catches string patterns)
+    2. AST-based validation (catches attribute access and forbidden calls)
 
     Args:
         code: Python source code to validate
@@ -382,7 +592,7 @@ def validate_code_safety(
     """
     import regex
 
-    # Check for forbidden dunder attributes
+    # Layer 1: Regex-based pattern matching
     for pattern in FORBIDDEN_PATTERNS:
         try:
             match = regex.search(pattern, code, timeout=REGEX_TIMEOUT)
@@ -401,7 +611,8 @@ def validate_code_safety(
                 f"Code pattern analysis timed out (possible ReDoS attempt)"
             )
 
-    return True, None
+    # Layer 2: AST-based validation (defense-in-depth)
+    return _ast_validate(code, source_name)
 
 
 class TimeoutProtectedRegex:
@@ -905,123 +1116,10 @@ class PythonExecutor:
     ) -> dict[str, Any]:
         """Create a restricted builtins dict for safe execution.
 
-        Args:
-            allowed_modules: Set of module names that can be imported.
-                            If None, uses DEFAULT_ALLOWED_MODULES.
-
-        Allows common operations but blocks dangerous functions.
+        Delegates to the module-level create_safe_builtins() which is the
+        single source of truth for sandbox builtins.
         """
-        # Use default allowed modules if not specified
-        if allowed_modules is None:
-            allowed_modules = DEFAULT_ALLOWED_MODULES
-
-        # Start with a copy of builtins
-        import builtins
-
-        safe_builtins = {}
-
-        # Allowed built-in functions
-        allowed_builtins = {
-            # Types
-            "bool",
-            "int",
-            "float",
-            "str",
-            "list",
-            "dict",
-            "tuple",
-            "set",
-            "frozenset",
-            "bytes",
-            "bytearray",
-            # NOTE: type() removed - allows sandbox escape via type().__bases__[0].__subclasses__()
-            # NOTE: object removed - allows sandbox escape via object.__subclasses__() which
-            # provides access to dangerous classes like _io._IOBase, subprocess.Popen, etc.
-            # Functions
-            "abs",
-            "all",
-            "any",
-            "ascii",
-            "bin",
-            "callable",
-            "chr",
-            "divmod",
-            "enumerate",
-            "filter",
-            "format",
-            # NOTE: getattr/setattr/hasattr removed - they allow sandbox escape via __class__, __bases__
-            # hasattr() internally calls getattr() which defeats the purpose of blocking getattr
-            "hash",
-            "hex",
-            "id",
-            "isinstance",
-            "issubclass",
-            "iter",
-            "len",
-            "map",
-            "max",
-            "min",
-            "next",
-            "oct",
-            "ord",
-            "pow",
-            "print",
-            "range",
-            "repr",
-            "reversed",
-            "round",
-            # NOTE: setattr removed - allows modifying protected attributes
-            "slice",
-            "sorted",
-            "sum",
-            "zip",
-            # Exceptions
-            "Exception",
-            "ValueError",
-            "TypeError",
-            "KeyError",
-            "IndexError",
-            "RuntimeError",
-            "StopIteration",
-            "AttributeError",
-            # Constants
-            "True",
-            "False",
-            "None",
-        }
-
-        for name in allowed_builtins:
-            if hasattr(builtins, name):
-                safe_builtins[name] = getattr(builtins, name)
-
-        # Add safe __import__ that only allows whitelisted modules
-        # Note: __builtins__ can be either a dict or a module depending on context
-        if isinstance(__builtins__, dict):
-            real_import = __builtins__["__import__"]
-        else:
-            real_import = __builtins__.__import__
-
-        def safe_import(name, globals=None, locals=None, fromlist=(), level=0):
-            base_module = name.split(".")[0]
-
-            # Check against allowed modules (admin-configured whitelist)
-            if name not in allowed_modules and base_module not in allowed_modules:
-                raise ImportError(
-                    f"Import of '{name}' is not allowed. "
-                    f"Allowed modules: {sorted(allowed_modules)}"
-                )
-
-            module = real_import(name, globals, locals, fromlist, level)
-
-            # Wrap regex module with timeout protection
-            if name == "regex":
-                return TimeoutProtectedRegex(module)
-
-            return module
-
-        safe_builtins["__import__"] = safe_import
-
-        return safe_builtins
+        return create_safe_builtins(allowed_modules=allowed_modules)
 
     def _create_execution_namespace(
         self,

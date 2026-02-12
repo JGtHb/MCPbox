@@ -8,13 +8,11 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, TypeVar
+from typing import Any, cast
 
 import httpx
 
 logger = logging.getLogger(__name__)
-
-T = TypeVar("T")
 
 
 class CircuitState(Enum):
@@ -157,7 +155,7 @@ class CircuitBreaker:
                 # Reset failure count on success
                 self._state.failure_count = 0
 
-    async def record_failure(self, exception: Exception) -> None:
+    async def record_failure(self, exception: BaseException) -> None:
         """Record a failed call."""
         # Don't count excluded exceptions
         if isinstance(exception, self.config.excluded_exceptions):
@@ -184,7 +182,9 @@ class CircuitBreaker:
         await self._check_state()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, _exc_tb) -> bool:
+    async def __aexit__(
+        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, _exc_tb: Any
+    ) -> bool:
         """Context manager exit - record success/failure."""
         if exc_type is None:
             await self.record_success()
@@ -210,10 +210,10 @@ def calculate_backoff_delay(
 
 async def retry_async(
     func: Callable[..., Any],
-    *args,
+    *args: Any,
     config: RetryConfig | None = None,
     circuit_breaker: CircuitBreaker | None = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> Any:
     """Execute an async function with retry logic.
 
@@ -285,7 +285,7 @@ def with_retry(
     config: RetryConfig | None = None,
     circuit_breaker_name: str | None = None,
     circuit_breaker_config: CircuitBreakerConfig | None = None,
-):
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator for adding retry logic to async functions.
 
     Args:
@@ -303,9 +303,9 @@ def with_retry(
             ...
     """
 
-    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(func)
-        async def wrapper(*args, **kwargs) -> T:
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             cb = None
             if circuit_breaker_name:
                 cb = CircuitBreaker.get_or_create(
@@ -366,34 +366,35 @@ class RetryableHTTPClient:
         self,
         method: str,
         url: str,
-        **kwargs,
+        **kwargs: Any,
     ) -> httpx.Response:
         """Make an HTTP request with retry and circuit breaker."""
 
-        async def do_request():
+        async def do_request() -> httpx.Response:
             client = await self._get_client()
             response = await client.request(method, url, **kwargs)
             response.raise_for_status()
             return response
 
-        return await retry_async(
+        result = await retry_async(
             do_request,
             config=self.retry_config,
             circuit_breaker=self.circuit_breaker,
         )
+        return cast(httpx.Response, result)
 
-    async def get(self, url: str, **kwargs) -> httpx.Response:
+    async def get(self, url: str, **kwargs: Any) -> httpx.Response:
         """Make a GET request."""
         return await self.request("GET", url, **kwargs)
 
-    async def post(self, url: str, **kwargs) -> httpx.Response:
+    async def post(self, url: str, **kwargs: Any) -> httpx.Response:
         """Make a POST request."""
         return await self.request("POST", url, **kwargs)
 
-    async def put(self, url: str, **kwargs) -> httpx.Response:
+    async def put(self, url: str, **kwargs: Any) -> httpx.Response:
         """Make a PUT request."""
         return await self.request("PUT", url, **kwargs)
 
-    async def delete(self, url: str, **kwargs) -> httpx.Response:
+    async def delete(self, url: str, **kwargs: Any) -> httpx.Response:
         """Make a DELETE request."""
         return await self.request("DELETE", url, **kwargs)

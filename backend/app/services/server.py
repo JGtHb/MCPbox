@@ -1,7 +1,6 @@
 """Server service - business logic for server management."""
 
-from __future__ import annotations
-
+import builtins
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -28,7 +27,9 @@ class ServerService:
         self.db.add(server)
         await self.db.flush()
         # Re-query with eager loading to get relationships
-        return await self.get(server.id)
+        result = await self.get(server.id)
+        assert result is not None, f"Server {server.id} not found after creation"
+        return result
 
     async def get(self, server_id: UUID) -> Server | None:
         """Get a server by ID with tools and credentials."""
@@ -47,7 +48,7 @@ class ServerService:
         result = await self.db.execute(select(Server).where(Server.name == name))
         return result.scalar_one_or_none()
 
-    async def list(self, page: int = 1, page_size: int = 50) -> tuple[list[Server], int]:
+    async def list(self, page: int = 1, page_size: int = 50) -> tuple[builtins.list[Server], int]:
         """List servers with tool counts and pagination.
 
         Returns a tuple of (servers, total_count).
@@ -79,7 +80,7 @@ class ServerService:
 
         return servers, total
 
-    async def list_with_tools(self) -> list[Server]:
+    async def list_with_tools(self) -> builtins.list[Server]:
         """List all servers with their tools eagerly loaded.
 
         Use this when you need to access server.tools to avoid N+1 queries.

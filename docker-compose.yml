@@ -33,6 +33,8 @@ services:
       - backend
     networks:
       - mcpbox-internal
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/nginx-health"]
       interval: 30s
@@ -66,6 +68,8 @@ services:
       - BACKEND_URL=${BACKEND_URL:-http://localhost:8000}
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - ./worker/src:/app/worker/src:ro  # Worker source for wrangler deploy
       - ./worker/package.json:/app/worker/package.json:ro  # Worker package.json for npm install
@@ -99,7 +103,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: ["python", "-m", "uvicorn", "app.mcp_only:app", "--host", "0.0.0.0", "--port", "8002", "--workers", "2"]
+    command: ["python", "-m", "uvicorn", "app.mcp_only:app", "--host", "0.0.0.0", "--port", "8002", "--workers", "2", "--timeout-graceful-shutdown", "30"]
     environment:
       - DATABASE_URL=postgresql+asyncpg://mcpbox:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/mcpbox
       - MCPBOX_ENCRYPTION_KEY=${MCPBOX_ENCRYPTION_KEY:?MCPBOX_ENCRYPTION_KEY is required}
@@ -108,6 +112,8 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_RETENTION_DAYS=${LOG_RETENTION_DAYS:-30}
       - MCP_CORS_ORIGINS=${MCP_CORS_ORIGINS:-https://mcp.claude.ai,https://claude.ai}
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       postgres:
         condition: service_healthy
@@ -142,6 +148,11 @@ services:
       - MCPBOX_ENCRYPTION_KEY=${MCPBOX_ENCRYPTION_KEY:?MCPBOX_ENCRYPTION_KEY is required}
       - BACKEND_URL=http://backend:8000
       - SANDBOX_PACKAGES_DIR=/app/site-packages
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M
     volumes:
       - mcpbox-sandbox-packages:/app/site-packages
     networks:

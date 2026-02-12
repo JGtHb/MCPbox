@@ -8,6 +8,7 @@ Accessible without authentication (Option B architecture - admin panel is local-
 """
 
 import logging
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -53,7 +54,7 @@ class TunnelStartResponse(BaseModel):
 @router.get("/status", response_model=TunnelStatusResponse)
 async def get_tunnel_status(
     tunnel_service: TunnelService = Depends(get_tunnel_service),
-):
+) -> TunnelStatusResponse:
     """Get current tunnel status.
 
     Returns connection status and URL (if connected).
@@ -71,7 +72,7 @@ async def start_tunnel(
     tunnel_service: TunnelService = Depends(get_tunnel_service),
     db: AsyncSession = Depends(get_db),
     audit_service: AuditService = Depends(get_audit_service),
-):
+) -> TunnelStartResponse:
     """Start the Cloudflare tunnel using the active configuration.
 
     Requires an active tunnel configuration with a valid Cloudflare tunnel token.
@@ -140,7 +141,7 @@ async def stop_tunnel(
     http_request: Request,
     tunnel_service: TunnelService = Depends(get_tunnel_service),
     audit_service: AuditService = Depends(get_audit_service),
-):
+) -> TunnelStatusResponse:
     """Stop the Cloudflare tunnel.
 
     Gracefully stops the cloudflared process.
@@ -173,7 +174,7 @@ async def list_tunnel_configurations(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     db: AsyncSession = Depends(get_db),
-):
+) -> TunnelConfigurationListPaginatedResponse:
     """List all saved tunnel configurations.
 
     Returns paginated list of tunnel profiles that can be activated.
@@ -192,7 +193,7 @@ async def create_tunnel_configuration(
     http_request: Request,
     db: AsyncSession = Depends(get_db),
     audit_service: AuditService = Depends(get_audit_service),
-):
+) -> TunnelConfigurationResponse:
     """Create a new tunnel configuration.
 
     Creates a new named tunnel profile. The configuration is NOT automatically
@@ -215,7 +216,13 @@ async def create_tunnel_configuration(
             actor_ip=get_client_ip(http_request),
         )
 
-        return await service.get_response(created.id)
+        response = await service.get_response(created.id)
+        if not response:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Configuration not found after creation",
+            )
+        return response
     except ValueError as e:
         # ValueError from service validation (e.g., duplicate name)
         raise HTTPException(
@@ -234,7 +241,7 @@ async def create_tunnel_configuration(
 async def get_tunnel_configuration(
     config_id: UUID,
     db: AsyncSession = Depends(get_db),
-):
+) -> TunnelConfigurationResponse:
     """Get a tunnel configuration by ID."""
     service = TunnelConfigurationService(db)
     response = await service.get_response(config_id)
@@ -255,7 +262,7 @@ async def update_tunnel_configuration(
     http_request: Request,
     db: AsyncSession = Depends(get_db),
     audit_service: AuditService = Depends(get_audit_service),
-):
+) -> TunnelConfigurationResponse | None:
     """Update a tunnel configuration.
 
     Updates the specified tunnel profile. If this is the active configuration,
@@ -293,7 +300,7 @@ async def delete_tunnel_configuration(
     http_request: Request,
     db: AsyncSession = Depends(get_db),
     audit_service: AuditService = Depends(get_audit_service),
-):
+) -> dict[str, Any]:
     """Delete a tunnel configuration.
 
     Cannot delete the currently active configuration.
@@ -346,7 +353,7 @@ async def activate_tunnel_configuration(
     http_request: Request,
     db: AsyncSession = Depends(get_db),
     audit_service: AuditService = Depends(get_audit_service),
-):
+) -> TunnelConfigurationActivateResponse:
     """Activate a tunnel configuration.
 
     Sets this configuration as the active one (deactivates all others).
@@ -375,6 +382,11 @@ async def activate_tunnel_configuration(
     )
 
     response = await service.get_response(config_id)
+    if not response:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tunnel configuration not found after activation",
+        )
     return TunnelConfigurationActivateResponse(
         message=f"Activated configuration '{activated.name}'. Restart tunnel for changes to take effect.",
         configuration=response,
@@ -384,7 +396,7 @@ async def activate_tunnel_configuration(
 @router.get("/configurations/active/current", response_model=TunnelConfigurationResponse | None)
 async def get_active_configuration(
     db: AsyncSession = Depends(get_db),
-):
+) -> TunnelConfigurationResponse | None:
     """Get the currently active tunnel configuration.
 
     Returns null if no configuration is active.

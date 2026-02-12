@@ -16,6 +16,7 @@ loaded at startup by ServiceTokenCache. No .env configuration needed.
 """
 
 from functools import lru_cache
+from typing import Any
 
 from pydantic import PostgresDsn, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -47,6 +48,7 @@ class Settings(BaseSettings):
 
     # Security - encryption key for credential storage
     mcpbox_encryption_key: str
+    mcpbox_encryption_key_old: str | None = None
 
     @field_validator("mcpbox_encryption_key")
     @classmethod
@@ -99,7 +101,7 @@ class Settings(BaseSettings):
 
     @field_validator("jwt_secret_key")
     @classmethod
-    def validate_jwt_secret_key(cls, v: str, info) -> str:
+    def validate_jwt_secret_key(cls, v: str, info: Any) -> str:
         """Validate or derive JWT secret key."""
         if v and len(v) < 32:
             raise ValueError(
@@ -135,6 +137,12 @@ class Settings(BaseSettings):
 
     # Log retention settings
     log_retention_days: int = 30
+
+    # Alerting - optional webhook URL for critical alerts (Discord, Slack, etc.)
+    alert_webhook_url: str = ""
+
+    # Metrics - enable Prometheus /metrics endpoint
+    enable_metrics: bool = True
 
     @field_validator("log_level")
     @classmethod
@@ -237,7 +245,7 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     """Get cached settings instance."""
-    return Settings()
+    return Settings()  # type: ignore[call-arg]
 
 
 # Global settings instance

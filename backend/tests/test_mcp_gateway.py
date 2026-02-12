@@ -10,10 +10,9 @@ Tests run in local mode by default (ServiceTokenCache has no token loaded).
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import jwt
 import pytest
 from httpx import AsyncClient
-from jose import jwk, jwt
-from jose.utils import long_to_base64
 
 from app.main import app
 from app.services.sandbox_client import get_sandbox_client
@@ -632,7 +631,6 @@ def _get_test_rsa_key():
     global _RSA_KEY
     if _RSA_KEY is None:
         from cryptography.hazmat.primitives.asymmetric import rsa
-        from cryptography.hazmat.primitives import serialization
 
         private_key = rsa.generate_private_key(
             public_exponent=65537,
@@ -640,6 +638,14 @@ def _get_test_rsa_key():
         )
         _RSA_KEY = private_key
     return _RSA_KEY
+
+
+def _int_to_base64url(n: int) -> str:
+    """Encode an integer as unpadded base64url (for JWKS n/e values)."""
+    import base64
+
+    byte_length = (n.bit_length() + 7) // 8
+    return base64.urlsafe_b64encode(n.to_bytes(byte_length, "big")).rstrip(b"=").decode()
 
 
 def _make_jwks_response(private_key, kid: str = "test-key-1") -> dict:
@@ -656,8 +662,8 @@ def _make_jwks_response(private_key, kid: str = "test-key-1") -> dict:
                 "kid": kid,
                 "alg": "RS256",
                 "use": "sig",
-                "n": long_to_base64(pub_numbers.n).decode(),
-                "e": long_to_base64(pub_numbers.e).decode(),
+                "n": _int_to_base64url(pub_numbers.n),
+                "e": _int_to_base64url(pub_numbers.e),
             }
         ]
     }
@@ -696,7 +702,7 @@ def _sign_jwt(
         payload,
         pem,
         algorithm="RS256",
-        headers={"kid": kid},
+        headers={"kid": kid, "alg": "RS256"},
     )
 
 
@@ -821,12 +827,9 @@ class TestJWTVerification:
         token = _sign_jwt(key, kid="wrong-key", team_domain=self.TEAM_DOMAIN, aud=self.PORTAL_AUD)
 
         with patch("app.api.auth_simple._get_jwks", new_callable=AsyncMock, return_value=jwks):
-            # python-jose tries all keys in JWKS regardless of kid, so this
-            # may still verify. But if the JWKS has no matching key, it should fail.
-            # The important thing is the function doesn't crash.
-            payload = await _verify_cf_access_jwt(token, self.TEAM_DOMAIN, self.PORTAL_AUD)
-            # python-jose actually tries all keys, so this may pass. That's acceptable.
-            # The key point is no crash and the behavior is defined.
+            # PyJWT matches by kid, so a wrong kid means no matching key → rejected.
+            result = await _verify_cf_access_jwt(token, self.TEAM_DOMAIN, self.PORTAL_AUD)
+            assert result is None
 
     @pytest.mark.asyncio
     async def test_jwks_unavailable_rejects_jwt(self):
@@ -977,7 +980,9 @@ class TestJWTIntegrationWithGateway:
                         "jsonrpc": "2.0",
                         "id": 1,
                         "method": method_name,
-                        "params": {"name": "test", "arguments": {}} if method_name == "tools/call" else {},
+                        "params": {"name": "test", "arguments": {}}
+                        if method_name == "tools/call"
+                        else {},
                     },
                     headers={"X-MCPbox-Service-Token": test_token},
                 )
@@ -1052,9 +1057,9 @@ class TestAuthRateLimiting:
 
         from app.api.auth_simple import (
             _FAILED_AUTH_MAX,
+            _check_auth_rate_limit,
             _failed_auth_attempts,
             _record_auth_failure,
-            _check_auth_rate_limit,
         )
 
         test_ip = "10.99.99.99"
@@ -1078,9 +1083,9 @@ class TestAuthRateLimiting:
         """Test that rate limiting allows requests under the threshold."""
         from app.api.auth_simple import (
             _FAILED_AUTH_MAX,
+            _check_auth_rate_limit,
             _failed_auth_attempts,
             _record_auth_failure,
-            _check_auth_rate_limit,
         )
 
         test_ip = "10.88.88.88"

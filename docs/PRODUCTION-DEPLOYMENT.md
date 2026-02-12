@@ -48,6 +48,9 @@ docker-compose up -d
 | `CORS_ORIGINS` | `http://localhost:3000` | Allowed CORS origins |
 | `LOG_RETENTION_DAYS` | `30` | Days to keep activity logs |
 | `RATE_LIMIT_REQUESTS_PER_MINUTE` | `100` | API rate limit |
+| `ENABLE_METRICS` | `true` | Enable Prometheus `/metrics` endpoint |
+| `ALERT_WEBHOOK_URL` | (none) | Webhook URL for critical alerts (Discord, Slack) |
+
 ### Remote Access
 
 For Claude Web access via Cloudflare, all tokens (tunnel token, service token) are
@@ -166,12 +169,41 @@ curl http://localhost:8000/health/services
 
 ### Prometheus Metrics
 
-Integrate with your monitoring stack by scraping the health endpoints. Key metrics to watch:
+MCPbox exposes a `/metrics` endpoint (enabled by default via `ENABLE_METRICS=true`).
 
-- Request latency (p50, p95, p99)
-- Error rates by endpoint
-- Database connection pool usage
-- Rate limiter bucket count
+```bash
+# Scrape metrics
+curl http://localhost:8000/metrics
+
+# MCP gateway metrics (internal network only)
+curl http://mcp-gateway:8002/metrics
+```
+
+Key metrics available:
+
+- `http_request_duration_seconds` — request latency histogram (p50, p95, p99)
+- `http_requests_total` — request count by method, handler, status
+- `http_request_size_bytes` — request body sizes
+- `http_response_size_bytes` — response body sizes
+
+To disable metrics, set `ENABLE_METRICS=false`.
+
+### Webhook Alerting
+
+Configure `ALERT_WEBHOOK_URL` to receive critical alerts via webhook. Supports Discord, Slack, and generic HTTP endpoints.
+
+```bash
+# Discord
+ALERT_WEBHOOK_URL=https://discord.com/api/webhooks/your-webhook-id/your-token
+
+# Slack
+ALERT_WEBHOOK_URL=https://hooks.slack.com/services/your/webhook/url
+
+# Generic HTTP
+ALERT_WEBHOOK_URL=https://your-service.com/webhook
+```
+
+Alerts are sent on `log_alert()` calls (circuit breaker trips, security events, etc.).
 
 ### Log Aggregation
 
@@ -296,6 +328,72 @@ docker-compose run --rm backend alembic upgrade head
 # Restart
 docker-compose up -d
 ```
+
+## Rollback
+
+If an upgrade introduces issues, roll back to the previous version:
+
+```bash
+# 1. Stop services
+docker-compose down
+
+# 2. Revert to previous code
+git checkout <previous-tag-or-commit>
+docker-compose build
+
+# 3. Downgrade database migrations (if the upgrade added new migrations)
+# First, identify the target revision:
+docker-compose run --rm backend alembic history
+# Then downgrade:
+docker-compose run --rm backend alembic downgrade <target-revision>
+
+# 4. Restore database from pre-upgrade backup (if schema changes are complex)
+docker-compose up -d postgres
+docker-compose exec -T postgres psql -U mcpbox mcpbox < backup_pre_upgrade.sql
+
+# 5. Restart all services
+docker-compose up -d
+
+# 6. Verify health
+curl http://localhost:8000/health/services
+```
+
+**Important:** Always take a database backup before upgrading. Alembic `downgrade` reverses schema changes but cannot restore deleted data.
+
+## Incident Response
+
+See [INCIDENT-RESPONSE.md](./INCIDENT-RESPONSE.md) for operational runbooks covering:
+
+- Database failure recovery
+- Sandbox failure and circuit breaker reset
+- Encryption key rotation
+- Tunnel disconnection
+- Rate limiting issues
+- Sandbox escape attempts
+
+## Configuration Reference
+
+Hardcoded limits and timeouts across the codebase:
+
+| Setting | Value | Location | Description |
+|---------|-------|----------|-------------|
+| Circuit breaker failure threshold | 5 | `core/retry.py` | Failures before circuit opens |
+| Circuit breaker recovery timeout | 60s | `core/retry.py` | Seconds before half-open attempt |
+| JWKS cache TTL | 300s (5 min) | `api/auth_simple.py` | Cloudflare Access JWKS cache duration |
+| Tool execution timeout | 30s default | `sandbox/app/routes.py` | Per-tool, configurable up to 300s |
+| Max SSE connections | 50 | `api/mcp_gateway.py` | Concurrent MCP SSE connections |
+| Sandbox memory limit | 256MB | `sandbox/app/executor.py` | RLIMIT_AS per process |
+| Sandbox CPU limit | 60s | `sandbox/app/executor.py` | RLIMIT_CPU (cumulative per worker) |
+| Sandbox FD limit | 64 | `sandbox/app/executor.py` | RLIMIT_NOFILE per process |
+| Code size limit | 100KB | `sandbox/app/routes.py` | Max python_code field size |
+| Stdout capture limit | 10KB | `sandbox/app/routes.py` | Max stdout returned in response |
+| SizeLimitedStringIO cap | 1MB | `sandbox/app/executor.py` | Max stdout buffer in memory |
+| DB pool size | 20 | `core/config.py` | `DB_POOL_SIZE` env var |
+| DB max overflow | 20 | `core/config.py` | `DB_MAX_OVERFLOW` env var |
+| DB pool timeout | 30s | `core/config.py` | `DB_POOL_TIMEOUT` env var |
+| Rate limit | 100/min | `core/config.py` | `RATE_LIMIT_REQUESTS_PER_MINUTE` env var |
+| Log retention | 30 days | `core/config.py` | `LOG_RETENTION_DAYS` env var |
+| pip install timeout | 300s | `package_installer.py` | Package installation timeout |
 
 ## Resource Requirements
 

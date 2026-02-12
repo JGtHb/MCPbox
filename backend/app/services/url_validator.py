@@ -200,7 +200,7 @@ def validate_url_with_pinning(url: str) -> ValidatedURL:
         # Get all IP addresses for the hostname
         addr_info = socket.getaddrinfo(hostname, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
         for _family, _, _, _, sockaddr in addr_info:
-            ip_str = sockaddr[0]
+            ip_str = str(sockaddr[0])
             if is_private_ip(ip_str):
                 raise SSRFError(
                     f"URL resolves to private IP address ({ip_str}). "

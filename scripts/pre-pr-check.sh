@@ -82,6 +82,38 @@ fi
 cd ..
 echo ""
 
+# 6. Frontend tests
+echo "6. Running frontend tests..."
+if [ -d frontend/node_modules ]; then
+    cd frontend
+    if npx vitest run --reporter=default 2>/dev/null; then
+        echo -e "   ${GREEN}✓ Frontend tests passed${NC}"
+    else
+        echo -e "   ${RED}✗ Frontend tests failed${NC}"
+        FAILED=1
+    fi
+    cd ..
+else
+    echo -e "   ${YELLOW}⚠ Skipped (run npm install in frontend/ first)${NC}"
+fi
+echo ""
+
+# 7. Worker tests
+echo "7. Running worker tests..."
+if [ -d worker/node_modules ]; then
+    cd worker
+    if npm test 2>/dev/null; then
+        echo -e "   ${GREEN}✓ Worker tests passed${NC}"
+    else
+        echo -e "   ${RED}✗ Worker tests failed${NC}"
+        FAILED=1
+    fi
+    cd ..
+else
+    echo -e "   ${YELLOW}⚠ Skipped (run npm install in worker/ first)${NC}"
+fi
+echo ""
+
 # Summary
 echo "=== Summary ==="
 if [ $FAILED -eq 0 ]; then

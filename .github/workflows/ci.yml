@@ -95,6 +95,54 @@ jobs:
           flags: sandbox
           fail_ci_if_error: false
 
+  test-frontend:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Run tests
+        run: |
+          cd frontend
+          npm run test -- --run
+
+  test-worker:
+    name: Worker Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd worker
+          npm ci
+
+      - name: Run tests
+        run: |
+          cd worker
+          npm test
+
   lint:
     name: Code Quality
     runs-on: ubuntu-latest
@@ -139,4 +187,40 @@ jobs:
       - name: Run mypy
         run: |
           cd backend
-          mypy app --ignore-missing-imports || true  # Don't fail on type errors yet
+          mypy app --ignore-missing-imports
+
+  audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Audit backend Python dependencies
+        run: |
+          pip install pip-audit
+          pip-audit -r backend/requirements.txt
+
+      - name: Audit sandbox Python dependencies
+        run: |
+          pip-audit -r sandbox/requirements.txt
+
+      - name: Audit frontend npm dependencies
+        run: |
+          cd frontend
+          npm audit --audit-level=high || true
+
+      - name: Audit worker npm dependencies
+        run: |
+          cd worker
+          npm audit --audit-level=high || true

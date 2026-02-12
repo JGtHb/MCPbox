@@ -396,3 +396,53 @@ class TestIsolatedOsSecurity:
         data = response.json()
         assert data["success"] is False
         assert "Cannot set" in data["error"] or "AttributeError" in data["error"]
+
+
+class TestErrorSanitization:
+    """Tests that error responses don't leak internal details."""
+
+    def test_known_exception_returns_details(self, client):
+        """Test that safe exceptions (ValueError, etc.) include details."""
+        response = client.post(
+            "/execute",
+            json={
+                "code": "raise ValueError('bad input')",
+                "arguments": {},
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+        assert "ValueError" in data["error"]
+        assert "bad input" in data["error"]
+
+    def test_zero_division_returns_details(self, client):
+        """Test that ZeroDivisionError includes details."""
+        response = client.post(
+            "/execute",
+            json={
+                "code": "result = 1 / 0",
+                "arguments": {},
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+        assert "ZeroDivisionError" in data["error"]
+
+    def test_unexpected_exception_returns_generic_message(self, client):
+        """Test that unexpected exceptions return a generic error message."""
+        response = client.post(
+            "/execute",
+            json={
+                "code": "raise RuntimeError('internal db connection string: postgres://user:pass@host/db')",
+                "arguments": {},
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+        assert "internal error" in data["error"].lower()
+        # Must NOT leak the connection string
+        assert "postgres://" not in data["error"]
+        assert "RuntimeError" not in data["error"]

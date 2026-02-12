@@ -1,6 +1,7 @@
 """MCPbox Backend - FastAPI Application Factory."""
 
 import asyncio
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -46,8 +47,17 @@ logger = get_logger("main")
 _rate_limit_cleanup_task: asyncio.Task | None = None
 
 
+def _task_done_callback(task: asyncio.Task[None]) -> None:
+    """Log unhandled exceptions from background tasks."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error(f"Background task {task.get_name()} failed: {exc}")
+
+
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan handler for startup/shutdown."""
     # Startup
     setup_logging(
@@ -82,6 +92,7 @@ async def lifespan(app: FastAPI):
     # Start rate limiter cleanup task
     global _rate_limit_cleanup_task
     _rate_limit_cleanup_task = asyncio.create_task(rate_limit_cleanup_loop())
+    _rate_limit_cleanup_task.add_done_callback(_task_done_callback)
 
     yield
 
@@ -156,9 +167,16 @@ def create_app() -> FastAPI:
             "Content-Type",
             "Accept",
             "X-Request-ID",
-            "X-Admin-API-Key",
         ],
     )
+
+    # Prometheus metrics (before routers so /metrics endpoint is registered first)
+    if settings.enable_metrics:
+        from prometheus_fastapi_instrumentator import Instrumentator
+
+        Instrumentator(
+            excluded_handlers=["/health", "/health/detail", "/health/services", "/metrics"],
+        ).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
     # Include routers
     app.include_router(health_router)  # Health at root level
@@ -169,7 +187,7 @@ def create_app() -> FastAPI:
 
     # Root endpoint
     @app.get("/")
-    async def root():
+    async def root() -> dict[str, str]:
         """Root endpoint with API information."""
         return {
             "name": settings.app_name,

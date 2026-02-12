@@ -2,14 +2,14 @@
 
 import ast
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-class ApprovalStatus(str, Enum):
+class ApprovalStatus(StrEnum):
     """Approval status for a tool."""
 
     DRAFT = "draft"
@@ -198,7 +198,7 @@ def validate_python_code(code: str) -> dict[str, Any]:
     - error: Optional[str] - error message if invalid
     - parameters: list[dict] - extracted parameters from main() signature
     """
-    result = {
+    result: dict[str, Any] = {
         "valid": False,
         "has_main": False,
         "error": None,

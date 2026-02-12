@@ -4,7 +4,6 @@ Tests the code safety validator directly without going through the HTTP API.
 This covers the regex-based pattern detection that prevents sandbox escapes.
 """
 
-import pytest
 
 from app.executor import validate_code_safety
 
@@ -146,3 +145,52 @@ result = z
         is_safe, error = validate_code_safety(code)
         assert is_safe is False
         assert "__class__" in error
+
+
+class TestASTValidation:
+    """Test the AST-based defense-in-depth validation layer."""
+
+    def test_ast_catches_getattr_call(self):
+        """AST layer catches getattr() even without dunder string arg."""
+        # Regex only catches getattr with dunder string, AST catches all getattr calls
+        is_safe, error = validate_code_safety("x = getattr(obj, name)")
+        assert is_safe is False
+        assert "getattr" in error
+
+    def test_ast_catches_setattr_call(self):
+        """AST layer catches setattr() calls."""
+        is_safe, error = validate_code_safety("setattr(obj, 'x', 1)")
+        assert is_safe is False
+        assert "setattr" in error
+
+    def test_ast_catches_hasattr_call(self):
+        """AST layer catches hasattr() calls."""
+        is_safe, error = validate_code_safety("hasattr(obj, 'x')")
+        assert is_safe is False
+        assert "hasattr" in error
+
+    def test_ast_catches_delattr_call(self):
+        """AST layer catches delattr() calls."""
+        is_safe, error = validate_code_safety("delattr(obj, 'x')")
+        assert is_safe is False
+        assert "delattr" in error
+
+    def test_ast_reports_line_number(self):
+        """AST validation includes line number in error message."""
+        # Use setattr which is only caught by AST (not regex)
+        code = "x = 1\nsetattr(obj, 'x', 1)"
+        is_safe, error = validate_code_safety(code)
+        assert is_safe is False
+        assert "line 2" in error
+
+    def test_ast_passes_safe_code(self):
+        """AST validation allows normal code."""
+        code = "result = sorted([3, 1, 2])"
+        is_safe, error = validate_code_safety(code)
+        assert is_safe is True
+        assert error is None
+
+    def test_ast_handles_syntax_errors_gracefully(self):
+        """Syntax errors don't crash AST validation (caught later by exec)."""
+        is_safe, error = validate_code_safety("def f(:\n  pass")
+        assert is_safe is True  # Let exec() report the syntax error

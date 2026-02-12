@@ -262,6 +262,32 @@ class TestEscapeViaBuiltins:
         data = response.json()
         assert data["success"] is False
 
+    def test_super_not_available(self, client):
+        """super() is removed (accesses __class__ and MRO implicitly)."""
+        response = client.post(
+            "/execute",
+            json={
+                "code": "class A:\n  def f(self): return super()\nresult = A().f()",
+                "arguments": {},
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+
+    def test_object_not_available(self, client):
+        """object is removed (exposes __subclasses__)."""
+        response = client.post(
+            "/execute",
+            json={
+                "code": "result = object",
+                "arguments": {},
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+
 
 class TestEscapeViaDiscovery:
     """Test that attribute discovery functions are blocked."""
@@ -422,3 +448,62 @@ class TestGetattStringEscape:
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is False
+
+
+class TestBuiltinsConsistency:
+    """Verify that both execution paths use the same builtins.
+
+    The /execute endpoint and PythonExecutor must share the same
+    create_safe_builtins() function to prevent security divergence.
+    """
+
+    def test_execute_and_executor_share_builtins(self):
+        """Both paths produce identical builtin names."""
+        from app.executor import PythonExecutor, create_safe_builtins
+
+        # Module-level function (used by /execute endpoint)
+        shared = create_safe_builtins()
+
+        # PythonExecutor method (used by tool execution)
+        executor = PythonExecutor()
+        executor_builtins = executor._create_safe_builtins()
+
+        # Same keys (ignoring __import__ which is a closure)
+        shared_keys = {k for k in shared if k != "__import__"}
+        executor_keys = {k for k in executor_builtins if k != "__import__"}
+        assert shared_keys == executor_keys, (
+            f"Builtin divergence detected!\n"
+            f"Only in shared: {shared_keys - executor_keys}\n"
+            f"Only in executor: {executor_keys - shared_keys}"
+        )
+
+    def test_dangerous_builtins_excluded(self):
+        """Verify known-dangerous builtins are absent from shared set."""
+        from app.executor import ALLOWED_BUILTIN_NAMES
+
+        dangerous = {
+            "type",
+            "object",
+            "super",
+            "getattr",
+            "setattr",
+            "hasattr",
+            "eval",
+            "exec",
+            "compile",
+            "open",
+            "__import__",
+            "globals",
+            "locals",
+            "vars",
+            "dir",
+            "delattr",
+            "memoryview",
+            "classmethod",
+            "staticmethod",
+            "property",
+            "breakpoint",
+            "input",
+        }
+        overlap = dangerous & ALLOWED_BUILTIN_NAMES
+        assert not overlap, f"Dangerous builtins found in allowlist: {overlap}"

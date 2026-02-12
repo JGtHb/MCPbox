@@ -3,6 +3,7 @@
 Accessible without authentication (Option B architecture - admin panel is local-only).
 """
 
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -36,7 +37,7 @@ def get_server_service(db: AsyncSession = Depends(get_db)) -> ServerService:
 async def create_server(
     data: ServerCreate,
     service: ServerService = Depends(get_server_service),
-):
+) -> ServerResponse:
     """Create a new MCP server."""
     server = await service.create(data)
     return _to_response(server)
@@ -47,7 +48,7 @@ async def list_servers(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(50, ge=1, le=100, description="Items per page"),
     service: ServerService = Depends(get_server_service),
-):
+) -> ServerListPaginatedResponse:
     """List all MCP servers with pagination."""
     servers, total = await service.list(page=page, page_size=page_size)
     items = [
@@ -76,7 +77,7 @@ async def list_servers(
 async def get_server(
     server_id: UUID,
     service: ServerService = Depends(get_server_service),
-):
+) -> ServerResponse:
     """Get a server by ID."""
     server = await service.get(server_id)
     if not server:
@@ -92,7 +93,7 @@ async def update_server(
     server_id: UUID,
     data: ServerUpdate,
     service: ServerService = Depends(get_server_service),
-):
+) -> ServerResponse:
     """Update a server."""
     server = await service.update(server_id, data)
     if not server:
@@ -107,7 +108,7 @@ async def update_server(
 async def delete_server(
     server_id: UUID,
     service: ServerService = Depends(get_server_service),
-):
+) -> None:
     """Delete a server and all associated data."""
     deleted = await service.delete(server_id)
     if not deleted:
@@ -118,7 +119,7 @@ async def delete_server(
     return None
 
 
-def _to_response(server) -> ServerResponse:
+def _to_response(server: Any) -> ServerResponse:
     """Convert server model to response schema."""
     tools = [
         ToolSummary(

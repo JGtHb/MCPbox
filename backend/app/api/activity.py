@@ -6,6 +6,7 @@ Accessible without authentication (Option B architecture - admin panel is local-
 import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
@@ -98,7 +99,7 @@ async def list_activity_logs(
     search: str | None = Query(None, description="Search in message text"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(50, ge=1, le=200, description="Items per page"),
-):
+) -> ActivityLogsListResponse:
     """List activity logs with filtering and pagination.
 
     Returns paginated list of activity logs matching the specified filters.
@@ -152,7 +153,7 @@ async def list_activity_logs(
 async def get_activity_log(
     log_id: UUID,
     db: AsyncSession = Depends(get_db),
-):
+) -> ActivityLogResponse:
     """Get a single activity log by ID."""
     result = await db.execute(select(ActivityLog).where(ActivityLog.id == log_id))
     log = result.scalar_one_or_none()
@@ -170,7 +171,7 @@ async def get_activity_stats(
     period: str = Query(
         "1h", description="Time period: 1h, 6h, 24h, 7d", pattern="^(1h|6h|24h|7d)$"
     ),
-):
+) -> ActivityStatsResponse:
     """Get aggregate activity statistics.
 
     Returns counts, error rates, and timing statistics for the specified period.
@@ -222,7 +223,7 @@ async def get_activity_stats(
         .group_by(ActivityLog.log_type)
     )
     type_result = await db.execute(type_query)
-    by_type = {r.log_type: r.count for r in type_result}
+    by_type: dict[str, int] = {r.log_type: r[1] for r in type_result}  # [log_type, count]
 
     # Get counts by level
     level_query = (
@@ -234,7 +235,7 @@ async def get_activity_stats(
         .group_by(ActivityLog.level)
     )
     level_result = await db.execute(level_query)
-    by_level = {r.level: r.count for r in level_result}
+    by_level: dict[str, int] = {r.level: r[1] for r in level_result}  # [level, count]
 
     # Calculate requests per minute
     total_minutes = period_map.get(period, timedelta(hours=1)).total_seconds() / 60
@@ -254,7 +255,7 @@ async def get_activity_stats(
 async def get_recent_activity(
     activity_logger: ActivityLoggerService = Depends(get_activity_logger),
     count: int = Query(100, ge=1, le=1000, description="Number of recent logs"),
-):
+) -> RecentActivityResponse:
     """Get recent activity from in-memory buffer.
 
     Returns the most recent logs from the broadcast buffer without database query.
@@ -269,7 +270,7 @@ async def cleanup_old_logs(
     db: AsyncSession = Depends(get_db),
     activity_logger: ActivityLoggerService = Depends(get_activity_logger),
     retention_days: int = Query(7, ge=1, le=90, description="Days to retain logs"),
-):
+) -> dict[str, Any]:
     """Delete logs older than retention period.
 
     Returns the number of deleted logs.
@@ -282,7 +283,7 @@ async def cleanup_old_logs(
 async def get_request_chain(
     request_id: str,
     db: AsyncSession = Depends(get_db),
-):
+) -> dict[str, Any]:
     """Get all logs for a specific request ID.
 
     Returns request and response logs for correlation/debugging.
@@ -335,7 +336,7 @@ class WebSocketConnection:
 _active_connections: list[WebSocketConnection] = []
 
 
-async def _broadcast_log(log_entry: dict) -> None:
+async def _broadcast_log(log_entry: dict[str, Any]) -> None:
     """Broadcast log entry to all matching WebSocket connections."""
     async with _connections_lock:
         connections_snapshot = _active_connections[:]
@@ -352,7 +353,7 @@ async def _broadcast_log(log_entry: dict) -> None:
                 logger.warning(f"Failed to queue log for WebSocket connection: {e}")
 
 
-def _register_websocket_listener():
+def _register_websocket_listener() -> None:
     """Register the broadcast function with the activity logger."""
     activity_logger = get_activity_logger()
     activity_logger.add_listener(_broadcast_log)
@@ -368,7 +369,7 @@ async def activity_stream(
     server_id: str | None = None,
     log_types: str | None = None,
     levels: str | None = None,
-):
+) -> None:
     """WebSocket endpoint for live activity log streaming.
 
     Query parameters:
@@ -413,7 +414,7 @@ async def activity_stream(
         )
 
         # Create tasks for receiving and sending
-        async def send_logs():
+        async def send_logs() -> None:
             """Send logs from queue to WebSocket."""
             while True:
                 log_entry = await conn.queue.get()
@@ -428,7 +429,7 @@ async def activity_stream(
                     logger.debug(f"WebSocket send failed, closing sender: {e}")
                     break
 
-        async def receive_messages():
+        async def receive_messages() -> None:
             """Handle incoming messages (for filter updates, ping/pong)."""
             while True:
                 try:

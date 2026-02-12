@@ -29,6 +29,18 @@ logger = logging.getLogger(__name__)
 # Management tool prefix - all tools starting with this are handled locally
 MANAGEMENT_TOOL_PREFIX = "mcpbox_"
 
+# Destructive management tools that are restricted to local access only.
+# These tools perform irreversible operations and must not be callable
+# through the remote tunnel (source="worker").
+LOCAL_ONLY_TOOLS = {
+    "mcpbox_delete_server",
+    "mcpbox_delete_tool",
+}
+
+# Maximum concurrent SSE connections to prevent resource exhaustion
+MAX_SSE_CONNECTIONS = 50
+_active_sse_connections = 0
+
 # MCP Gateway router - exposed at /mcp (not /api/mcp)
 router = APIRouter(tags=["mcp"])
 
@@ -72,7 +84,7 @@ class MCPResponse(BaseModel):
 async def mcp_sse(
     request: Request,
     _user: AuthenticatedUser = Depends(verify_mcp_auth),
-):
+) -> StreamingResponse:
     """MCP Streamable HTTP SSE endpoint for server-to-client streaming.
 
     Per the MCP Streamable HTTP transport spec, GET to the MCP endpoint
@@ -80,9 +92,19 @@ async def mcp_sse(
     We don't currently send server-initiated messages, so this returns a
     keep-alive stream that stays open until the client disconnects.
     """
-    logger.info("SSE stream opened")
+    global _active_sse_connections
 
-    async def event_generator():
+    if _active_sse_connections >= MAX_SSE_CONNECTIONS:
+        raise HTTPException(
+            status_code=503,
+            detail="Too many active SSE connections",
+        )
+
+    logger.info("SSE stream opened (active: %d)", _active_sse_connections + 1)
+
+    async def event_generator():  # type: ignore[no-untyped-def]
+        global _active_sse_connections
+        _active_sse_connections += 1
         try:
             # Send initial keepalive to confirm the stream is working
             yield ": keepalive\n\n"
@@ -91,6 +113,8 @@ async def mcp_sse(
                 yield ": keepalive\n\n"
         except asyncio.CancelledError:
             logger.info("SSE stream closed by client")
+        finally:
+            _active_sse_connections -= 1
 
     return StreamingResponse(
         event_generator(),
@@ -104,14 +128,14 @@ async def mcp_sse(
 # --- MCP Gateway Endpoint ---
 
 
-@router.post("/mcp")
+@router.post("/mcp", response_model=None)
 async def mcp_gateway(
     request: MCPRequest,
     _user: AuthenticatedUser = Depends(verify_mcp_auth),
     db: AsyncSession = Depends(get_db),
     activity_logger: ActivityLoggerService = Depends(get_activity_logger),
     sandbox_client: SandboxClient = Depends(get_sandbox_client),
-):
+) -> dict[str, Any] | Response | MCPResponse:
     """MCP JSON-RPC gateway endpoint.
 
     Handles MCP protocol requests. Routes tool requests to the shared
@@ -205,6 +229,7 @@ async def mcp_gateway(
                         tool_name=tool_name,
                         arguments=arguments,
                         sandbox_client=sandbox_client,
+                        user=_user,
                     )
                 else:
                     # Forward to sandbox for regular tools
@@ -372,8 +397,26 @@ async def _handle_management_tool_call(
     tool_name: str,
     arguments: dict[str, Any],
     sandbox_client: SandboxClient,
+    user: AuthenticatedUser | None = None,
 ) -> dict[str, Any]:
     """Handle a management tool call locally."""
+    # Block destructive tools from remote (tunnel) access
+    if tool_name in LOCAL_ONLY_TOOLS and user and user.source == "worker":
+        logger.warning(
+            "Blocked remote call to local-only tool %s from %s",
+            tool_name,
+            user.email or "unknown",
+        )
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"Error: {tool_name} is restricted to local access only",
+                }
+            ],
+            "isError": True,
+        }
+
     management_service = MCPManagementService(db)
 
     try:
@@ -425,7 +468,7 @@ async def _handle_management_tool_call(
 @router.get("/mcp/health")
 async def mcp_health(
     sandbox_client: SandboxClient = Depends(get_sandbox_client),
-):
+) -> dict[str, str]:
     """Health check endpoint for the MCP gateway.
 
     Used by cloudflared to verify the tunnel target is working.

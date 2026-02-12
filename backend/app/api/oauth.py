@@ -4,6 +4,7 @@ Accessible without authentication (Option B architecture - admin panel is local-
 """
 
 import logging
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -63,7 +64,7 @@ def get_oauth_service(db: AsyncSession = Depends(get_db)) -> OAuthService:
 
 
 @router.get("/providers", response_model=list[OAuthProvider])
-async def list_oauth_providers():
+async def list_oauth_providers() -> list[dict[str, Any]]:
     """List available OAuth provider presets.
 
     Returns common OAuth providers with their configuration URLs.
@@ -72,7 +73,7 @@ async def list_oauth_providers():
 
 
 @router.get("/providers/{provider_id}", response_model=OAuthProvider)
-async def get_provider(provider_id: str):
+async def get_provider(provider_id: str) -> dict[str, Any]:
     """Get OAuth provider preset by ID."""
     provider = get_oauth_provider(provider_id)
     if not provider:
@@ -91,7 +92,7 @@ async def start_oauth_flow(
     credential_id: UUID,
     credential_service: CredentialService = Depends(get_credential_service),
     oauth_service: OAuthService = Depends(get_oauth_service),
-):
+) -> OAuthStartResponse:
     """Start OAuth authorization code flow for a credential.
 
     Returns an authorization URL that the frontend should redirect the user to.
@@ -138,7 +139,7 @@ async def oauth_callback_redirect(
     code: str = Query(..., description="Authorization code from OAuth provider"),
     state: str = Query(..., description="State parameter for CSRF validation"),
     db: AsyncSession = Depends(get_db),
-):
+) -> RedirectResponse:
     """Handle OAuth callback from provider (browser redirect).
 
     This endpoint receives the redirect from the OAuth provider after user authorization.
@@ -199,7 +200,7 @@ async def oauth_callback_redirect(
 async def oauth_callback_api(
     data: OAuthCallbackRequest,
     db: AsyncSession = Depends(get_db),
-):
+) -> OAuthCallbackResponse:
     """Handle OAuth callback via API (for SPAs that handle the redirect themselves).
 
     This endpoint can be used by frontends that capture the OAuth callback
@@ -220,7 +221,7 @@ async def oauth_callback_api(
         )
 
     try:
-        result = await oauth_service.handle_callback(credential, data.code, data.state)
+        callback_result = await oauth_service.handle_callback(credential, data.code, data.state)
         # Note: handle_callback() already commits internally
 
         return OAuthCallbackResponse(
@@ -228,8 +229,8 @@ async def oauth_callback_api(
             credential_id=credential.id,
             message="OAuth authorization successful",
             has_access_token=True,
-            has_refresh_token=result.get("refresh_token_stored", False),
-            access_token_expires_at=result.get("expires_at"),
+            has_refresh_token=callback_result.get("refresh_token_stored", False),
+            access_token_expires_at=callback_result.get("expires_at"),
         )
     except OAuthStateError:
         raise HTTPException(
@@ -252,7 +253,7 @@ async def refresh_oauth_token(
     credential_service: CredentialService = Depends(get_credential_service),
     oauth_service: OAuthService = Depends(get_oauth_service),
     db: AsyncSession = Depends(get_db),
-):
+) -> OAuthRefreshResponse:
     """Refresh an OAuth access token.
 
     Uses the stored refresh token to obtain a new access token.
@@ -307,7 +308,7 @@ async def get_oauth_token_status(
     credential_id: UUID,
     credential_service: CredentialService = Depends(get_credential_service),
     oauth_service: OAuthService = Depends(get_oauth_service),
-):
+) -> dict[str, object]:
     """Get OAuth token status for a credential.
 
     Returns information about the token's validity and expiration.

@@ -119,14 +119,16 @@ class TestCodeResponse(BaseModel):
     """Response schema for Python code test execution."""
 
     success: bool = Field(..., description="Whether execution succeeded")
-    result: Any = Field(None, description="Return value from main() function")
-    error: str | None = Field(None, description="Error message if execution failed")
+    result: Any = Field(default=None, description="Return value from main() function")
+    error: str | None = Field(default=None, description="Error message if execution failed")
     error_detail: ErrorDetail | None = Field(
-        None, description="Detailed error info with line numbers"
+        default=None, description="Detailed error info with line numbers"
     )
-    stdout: str | None = Field(None, description="Captured stdout output")
-    duration_ms: int | None = Field(None, description="Execution time in milliseconds")
-    debug_info: DebugInfo | None = Field(None, description="Debug info (when debug_mode=true)")
+    stdout: str | None = Field(default=None, description="Captured stdout output")
+    duration_ms: int | None = Field(default=None, description="Execution time in milliseconds")
+    debug_info: DebugInfo | None = Field(
+        default=None, description="Debug info (when debug_mode=true)"
+    )
 
 
 @router.post(
@@ -226,7 +228,7 @@ async def test_code(
             server_id=test_server_id,
             server_name="Test Server",
             tools=[tool_def],
-            credentials={},
+            credentials=[],
             helper_code=data.helper_code,
         )
 
@@ -297,7 +299,7 @@ async def create_tool(
     data: ToolCreate,
     tool_service: ToolService = Depends(get_tool_service),
     server_service: ServerService = Depends(get_server_service),
-):
+) -> ToolResponse:
     """Create a new tool for a server.
 
     Tools use Python code with an async main() function.
@@ -321,7 +323,7 @@ async def list_tools(
     page_size: int = Query(50, ge=1, le=100, description="Items per page"),
     tool_service: ToolService = Depends(get_tool_service),
     server_service: ServerService = Depends(get_server_service),
-):
+) -> ToolListPaginatedResponse:
     """List all tools for a server with pagination."""
     # Verify server exists
     server = await server_service.get(server_id)
@@ -355,7 +357,7 @@ async def list_tools(
 async def get_tool(
     tool_id: UUID,
     tool_service: ToolService = Depends(get_tool_service),
-):
+) -> ToolResponse:
     """Get a tool by ID."""
     tool = await tool_service.get(tool_id)
     if not tool:
@@ -371,7 +373,7 @@ async def update_tool(
     tool_id: UUID,
     data: ToolUpdate,
     tool_service: ToolService = Depends(get_tool_service),
-):
+) -> ToolResponse:
     """Update a tool."""
     tool = await tool_service.update(tool_id, data)
     if not tool:
@@ -386,7 +388,7 @@ async def update_tool(
 async def delete_tool(
     tool_id: UUID,
     tool_service: ToolService = Depends(get_tool_service),
-):
+) -> None:
     """Delete a tool."""
     deleted = await tool_service.delete(tool_id)
     if not deleted:
@@ -397,7 +399,7 @@ async def delete_tool(
     return None
 
 
-def _to_response(tool) -> ToolResponse:
+def _to_response(tool: Any) -> ToolResponse:
     """Convert tool model to response schema."""
     return ToolResponse(
         id=tool.id,
@@ -428,7 +430,7 @@ async def list_tool_versions(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(50, ge=1, le=100, description="Items per page"),
     tool_service: ToolService = Depends(get_tool_service),
-):
+) -> ToolVersionListPaginatedResponse:
     """List all versions of a tool with pagination, newest first.
 
     Each version represents a snapshot of the tool's configuration
@@ -471,7 +473,7 @@ async def get_tool_version(
     tool_id: UUID,
     version_number: int,
     tool_service: ToolService = Depends(get_tool_service),
-):
+) -> ToolVersionResponse:
     """Get the full configuration of a specific tool version.
 
     Use this to view what the tool looked like at a point in history.
@@ -516,7 +518,7 @@ async def compare_tool_versions(
     from_version: int,
     to_version: int,
     tool_service: ToolService = Depends(get_tool_service),
-):
+) -> ToolVersionCompare:
     """Compare two versions of a tool and show the differences.
 
     Returns a list of fields that changed between versions.
@@ -560,7 +562,7 @@ async def rollback_tool(
     tool_id: UUID,
     version_number: int,
     tool_service: ToolService = Depends(get_tool_service),
-):
+) -> ToolResponse:
     """Rollback a tool to a previous version.
 
     This creates a NEW version with the state from the specified version.

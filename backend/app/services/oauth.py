@@ -11,7 +11,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Credential
-from app.services.crypto import decrypt, encrypt
+from app.services.crypto import decrypt, decrypt_from_base64, encrypt, encrypt_to_base64
 from app.services.url_validator import SSRFError, validate_url_with_pinning
 
 logger = logging.getLogger(__name__)
@@ -212,7 +212,7 @@ class OAuthService:
         # Use commit() to ensure persistence - state must survive process restarts
         # Encrypt code_verifier since it's sensitive (PKCE secret)
         credential.oauth_state = state
-        credential.oauth_code_verifier = encrypt(code_verifier)
+        credential.oauth_code_verifier = encrypt_to_base64(code_verifier)
         await self.db.commit()
 
         # Build authorization URL
@@ -286,7 +286,7 @@ class OAuthService:
 
         # Add PKCE verifier if available (decrypt since it's stored encrypted)
         if credential.oauth_code_verifier:
-            token_data["code_verifier"] = decrypt(credential.oauth_code_verifier)
+            token_data["code_verifier"] = decrypt_from_base64(credential.oauth_code_verifier)
 
         # Add client secret if available (some providers require it even with PKCE)
         if credential.oauth_client_secret:

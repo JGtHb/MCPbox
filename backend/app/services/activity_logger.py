@@ -40,15 +40,15 @@ class ActivityLoggerService:
     # Maximum concurrent notification tasks to prevent unbounded task creation
     MAX_NOTIFICATION_TASKS = 100
 
-    def __init__(self):
-        self._pending_logs: list[dict] = []
+    def __init__(self) -> None:
+        self._pending_logs: list[dict[str, Any]] = []
         self._batch_lock = asyncio.Lock()
-        self._batch_task: asyncio.Task | None = None
+        self._batch_task: asyncio.Task[None] | None = None
         self._batch_task_scheduled = False  # Flag to prevent race condition
-        self._listeners: list[Callable] = []
-        self._broadcast_buffer: deque = deque(maxlen=self.BROADCAST_BUFFER_SIZE)
-        self._db_session_factory: Callable | None = None
-        self._notification_tasks: set[asyncio.Task] = set()  # Track active notification tasks
+        self._listeners: list[Callable[..., Any]] = []
+        self._broadcast_buffer: deque[dict[str, Any]] = deque(maxlen=self.BROADCAST_BUFFER_SIZE)
+        self._db_session_factory: Callable[..., Any] | None = None
+        self._notification_tasks: set[asyncio.Task[None]] = set()  # Track active notification tasks
 
     @classmethod
     def get_instance(cls) -> "ActivityLoggerService":
@@ -275,7 +275,7 @@ class ActivityLoggerService:
         if method:
             message = f"{method} {message}"
 
-        details = {
+        details: dict[str, Any] = {
             "success": success,
             "duration_ms": duration_ms,
         }
@@ -303,7 +303,7 @@ class ActivityLoggerService:
         server_id: UUID | None = None,
         details: dict | None = None,
     ) -> None:
-        """Log an alert event.
+        """Log an alert event and send webhook notification.
 
         Args:
             alert_type: Type of alert (error_spike, high_latency, etc.)
@@ -318,6 +318,19 @@ class ActivityLoggerService:
             level="warning",
             details={"alert_type": alert_type, **(details or {})},
         )
+
+        # Fire-and-forget webhook notification
+        try:
+            from app.services.webhook_alerting import send_alert
+
+            await send_alert(
+                title=f"MCPbox Alert: {alert_type}",
+                message=message,
+                severity="warning",
+                details=details,
+            )
+        except Exception:
+            pass  # Alerting must never break normal operations
 
     async def log_error(
         self,
@@ -477,7 +490,7 @@ class ActivityLoggerService:
         result = await db.execute(delete(ActivityLog).where(ActivityLog.created_at < cutoff))
         await db.commit()
 
-        deleted_count = result.rowcount
+        deleted_count: int = result.rowcount  # type: ignore[attr-defined]
         if deleted_count > 0:
             logger.info(f"Cleaned up {deleted_count} logs older than {retention_days} days")
 

@@ -4,6 +4,7 @@ Accessible without authentication (Option B architecture - admin panel is local-
 """
 
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -48,7 +49,7 @@ async def create_credential(
     credential_service: CredentialService = Depends(get_credential_service),
     server_service: ServerService = Depends(get_server_service),
     audit_service: AuditService = Depends(get_audit_service),
-):
+) -> CredentialResponse:
     """Create a new credential for a server.
 
     Sensitive values (value, password, tokens) are encrypted at rest.
@@ -82,7 +83,7 @@ async def list_credentials(
     page_size: int = Query(50, ge=1, le=100, description="Items per page"),
     credential_service: CredentialService = Depends(get_credential_service),
     server_service: ServerService = Depends(get_server_service),
-):
+) -> CredentialListPaginatedResponse:
     """List all credentials for a server with pagination.
 
     Note: Sensitive values are never returned in responses.
@@ -121,7 +122,7 @@ async def list_credentials(
 async def get_credential(
     credential_id: UUID,
     credential_service: CredentialService = Depends(get_credential_service),
-):
+) -> CredentialResponse:
     """Get a credential by ID.
 
     Note: Sensitive values are never returned in responses.
@@ -142,7 +143,7 @@ async def update_credential(
     request: Request,
     credential_service: CredentialService = Depends(get_credential_service),
     audit_service: AuditService = Depends(get_audit_service),
-):
+) -> CredentialResponse:
     """Update a credential.
 
     Sensitive values can be updated; they will be re-encrypted.
@@ -188,7 +189,7 @@ async def delete_credential(
     request: Request,
     credential_service: CredentialService = Depends(get_credential_service),
     audit_service: AuditService = Depends(get_audit_service),
-):
+) -> None:
     """Delete a credential."""
     # Get credential info for audit before deletion
     credential = await credential_service.get(credential_id)
@@ -219,7 +220,7 @@ async def delete_credential(
     return None
 
 
-def _calculate_token_status(credential) -> tuple[TokenStatus | None, int | None]:
+def _calculate_token_status(credential: Any) -> tuple[TokenStatus | None, int | None]:
     """Calculate OAuth token status based on expiration time.
 
     Returns:
@@ -252,7 +253,7 @@ def _calculate_token_status(credential) -> tuple[TokenStatus | None, int | None]
         return "valid", expires_in
 
 
-def _to_response(credential) -> CredentialResponse:
+def _to_response(credential: Any) -> CredentialResponse:
     """Convert credential model to response schema.
 
     IMPORTANT: Never include decrypted sensitive values in responses.

@@ -16,8 +16,9 @@ from collections import defaultdict
 from typing import Annotated
 
 import httpx
+import jwt as pyjwt
 from fastapi import Header, HTTPException, Request, status
-from jose import JWTError, jwt
+from jwt.exceptions import PyJWTError
 from pydantic import BaseModel
 
 from app.services.service_token_cache import ServiceTokenCache
@@ -96,17 +97,30 @@ async def _verify_cf_access_jwt(jwt_token: str, team_domain: str, expected_aud: 
         return None
 
     try:
-        # python-jose handles RS256 verification, exp, nbf, iss checks
-        payload = jwt.decode(
+        # Get the signing key from JWKS using the JWT header's kid
+        header = pyjwt.get_unverified_header(jwt_token)
+        jwk_set = pyjwt.PyJWKSet.from_dict(jwks)  # type: ignore[attr-defined]
+
+        signing_key = None
+        for key in jwk_set.keys:
+            if key.key_id == header.get("kid"):
+                signing_key = key.key
+                break
+
+        if signing_key is None:
+            logger.warning("No matching key found in JWKS for kid=%s", header.get("kid"))
+            return None
+
+        payload = pyjwt.decode(
             jwt_token,
-            jwks,
+            signing_key,
             algorithms=["RS256"],
             audience=expected_aud,
             issuer=f"https://{team_domain}",
-            options={"leeway": 60},  # 60s clock skew tolerance
+            leeway=60,  # 60s clock skew tolerance
         )
         return payload
-    except JWTError as e:
+    except PyJWTError as e:
         logger.warning(f"JWT verification failed: {e}")
         return None
 

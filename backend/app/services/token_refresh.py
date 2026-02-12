@@ -28,7 +28,7 @@ class TokenRefreshService:
     _instance_lock: threading.Lock = threading.Lock()
     _task: asyncio.Task | None = None
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._running = False
 
     @classmethod
@@ -41,7 +41,7 @@ class TokenRefreshService:
                     cls._instance = cls()
         return cls._instance
 
-    async def start(self):
+    async def start(self) -> None:
         """Start the background token refresh task."""
         if self._running:
             logger.warning("Token refresh service is already running")
@@ -51,7 +51,7 @@ class TokenRefreshService:
         TokenRefreshService._task = asyncio.create_task(self._refresh_loop())
         logger.info("Token refresh service started")
 
-    async def stop(self):
+    async def stop(self) -> None:
         """Stop the background token refresh task."""
         self._running = False
         if TokenRefreshService._task:
@@ -63,7 +63,7 @@ class TokenRefreshService:
             TokenRefreshService._task = None
         logger.info("Token refresh service stopped")
 
-    async def _refresh_loop(self):
+    async def _refresh_loop(self) -> None:
         """Main loop that periodically checks and refreshes tokens."""
         consecutive_failures = 0
         max_consecutive_failures = 5
@@ -93,7 +93,7 @@ class TokenRefreshService:
             # Wait before next check
             await asyncio.sleep(CHECK_INTERVAL_SECONDS)
 
-    async def _refresh_expiring_tokens(self):
+    async def _refresh_expiring_tokens(self) -> None:
         """Find and refresh all tokens that are about to expire."""
         async with async_session_maker() as db:
             try:

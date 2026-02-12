@@ -1,7 +1,6 @@
 """Sandbox API routes."""
 
 import asyncio
-import io
 import json as json_module
 import logging
 import os
@@ -18,7 +17,8 @@ from slowapi.util import get_remote_address
 from app.auth import verify_api_key
 from app.executor import (
     DEFAULT_ALLOWED_MODULES,
-    TimeoutProtectedRegex,
+    SizeLimitedStringIO,
+    create_safe_builtins,
     validate_code_safety,
 )
 from app.registry import tool_registry
@@ -515,84 +515,8 @@ class ExecuteCodeResponse(BaseModel):
     stdout: Optional[str] = None
 
 
-# Safe builtins for code execution - mirrors PythonExecutor._create_safe_builtins()
-# NOTE: type(), object, getattr, setattr, hasattr are intentionally excluded
-# to prevent sandbox escape attacks via __class__.__mro__.__subclasses__()
-SAFE_BUILTINS = {
-    "abs": abs,
-    "all": all,
-    "any": any,
-    "bin": bin,
-    "bool": bool,
-    "bytearray": bytearray,
-    "bytes": bytes,
-    "callable": callable,
-    "chr": chr,
-    "complex": complex,
-    "dict": dict,
-    "divmod": divmod,
-    "enumerate": enumerate,
-    "filter": filter,
-    "float": float,
-    "format": format,
-    "frozenset": frozenset,
-    "hash": hash,
-    "hex": hex,
-    "id": id,
-    "int": int,
-    "isinstance": isinstance,
-    "issubclass": issubclass,
-    "iter": iter,
-    "len": len,
-    "list": list,
-    "map": map,
-    "max": max,
-    "min": min,
-    "next": next,
-    "oct": oct,
-    "ord": ord,
-    "pow": pow,
-    "print": print,
-    "range": range,
-    "repr": repr,
-    "reversed": reversed,
-    "round": round,
-    "set": set,
-    "slice": slice,
-    "sorted": sorted,
-    "str": str,
-    "sum": sum,
-    "super": super,
-    "tuple": tuple,
-    "zip": zip,
-    "True": True,
-    "False": False,
-    "None": None,
-    "StopIteration": StopIteration,
-    "StopAsyncIteration": StopAsyncIteration,
-    "ValueError": ValueError,
-    "TypeError": TypeError,
-    "KeyError": KeyError,
-    "IndexError": IndexError,
-    "AttributeError": AttributeError,
-    "RuntimeError": RuntimeError,
-    "Exception": Exception,
-    "IOError": IOError,
-    "OSError": OSError,
-    "ImportError": ImportError,
-    "NotImplementedError": NotImplementedError,
-    "ZeroDivisionError": ZeroDivisionError,
-    "OverflowError": OverflowError,
-    "UnicodeError": UnicodeError,
-    "UnicodeDecodeError": UnicodeDecodeError,
-    "UnicodeEncodeError": UnicodeEncodeError,
-    "ArithmeticError": ArithmeticError,
-    "LookupError": LookupError,
-    "FileNotFoundError": FileNotFoundError,
-    "PermissionError": PermissionError,
-    "TimeoutError": TimeoutError,
-    "ConnectionError": ConnectionError,
-}
+# Safe builtins are provided by create_safe_builtins() from executor.py
+# (single source of truth — do NOT duplicate the builtin list here)
 
 
 # SSRFProtectedHttpx (_BaseSsrfProtectedHttpx) is imported at the top of the file
@@ -743,34 +667,10 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
         set(body.allowed_modules) if body.allowed_modules else DEFAULT_ALLOWED_MODULES
     )
 
-    # Create safe import function that respects module whitelist
-    real_import = (
-        __builtins__["__import__"]
-        if isinstance(__builtins__, dict)
-        else __builtins__.__import__
+    # Create builtins using the shared function (single source of truth)
+    safe_builtins_with_import = create_safe_builtins(
+        allowed_modules=allowed_modules_set
     )
-
-    def safe_import(name, globals=None, locals=None, fromlist=(), level=0):
-        base_module = name.split(".")[0]
-
-        # Check against allowed modules (admin-configured whitelist)
-        if name not in allowed_modules_set and base_module not in allowed_modules_set:
-            raise ImportError(
-                f"Import of '{name}' is not allowed. "
-                f"Allowed modules: {sorted(allowed_modules_set)}"
-            )
-
-        module = real_import(name, globals, locals, fromlist, level)
-
-        # Wrap regex module with timeout protection to prevent ReDoS
-        if name == "regex" or (name == "re" and "regex" in allowed_modules_set):
-            return TimeoutProtectedRegex(module)
-
-        return module
-
-    # Create builtins with safe import
-    safe_builtins_with_import = dict(SAFE_BUILTINS)
-    safe_builtins_with_import["__import__"] = safe_import
 
     # Create isolated namespace
     # NOTE: httpx is wrapped with SSRF protection to prevent access to internal IPs
@@ -783,8 +683,8 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
         "result": None,
     }
 
-    # Capture stdout
-    stdout_capture = io.StringIO()
+    # Capture stdout (size-limited to prevent memory exhaustion)
+    stdout_capture = SizeLimitedStringIO()
 
     def execute_code_sync() -> None:
         """Execute code synchronously in a thread."""
@@ -841,11 +741,32 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
             error=f"Execution timed out after {timeout_seconds} seconds",
             stdout=stdout_capture.getvalue()[:10000],
         )
-    except Exception as e:
+    except (
+        ValueError,
+        TypeError,
+        KeyError,
+        AttributeError,
+        IndexError,
+        ZeroDivisionError,
+        SyntaxError,
+        ImportError,
+        NameError,
+        StopIteration,
+        ArithmeticError,
+        LookupError,
+    ) as e:
+        # Known safe exceptions — return details to help debugging
         return ExecuteCodeResponse(
             success=False,
             error=f"Execution error: {type(e).__name__}: {str(e)}",
-            stdout=stdout_capture.getvalue()[:10000],  # Limit stdout
+            stdout=stdout_capture.getvalue()[:10000],
+        )
+    except Exception:
+        # Unexpected exceptions — return generic message to avoid leaking internals
+        return ExecuteCodeResponse(
+            success=False,
+            error="Execution failed due to an internal error",
+            stdout=stdout_capture.getvalue()[:10000],
         )
 
     # Get result

@@ -6,9 +6,10 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
+import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
-from jose import JWTError, jwt
+from jwt.exceptions import PyJWTError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -87,11 +88,13 @@ def create_access_token(user_id: UUID, password_version: int) -> str:
         "type": "access",
         "pv": password_version,  # Password version for invalidation
     }
-    return jwt.encode(
+    token = jwt.encode(
         payload,
         settings.effective_jwt_secret_key,
         algorithm=settings.jwt_algorithm,
     )
+    # PyJWT 2.x returns str; older type stubs may declare bytes
+    return str(token)
 
 
 def create_refresh_token(user_id: UUID, password_version: int) -> str:
@@ -106,11 +109,13 @@ def create_refresh_token(user_id: UUID, password_version: int) -> str:
         "pv": password_version,
         "jti": jti,
     }
-    return jwt.encode(
+    token = jwt.encode(
         payload,
         settings.effective_jwt_secret_key,
         algorithm=settings.jwt_algorithm,
     )
+    # PyJWT 2.x returns str; older type stubs may declare bytes
+    return str(token)
 
 
 def decode_token(token: str) -> dict[str, Any]:
@@ -122,9 +127,9 @@ def decode_token(token: str) -> dict[str, Any]:
             algorithms=[settings.jwt_algorithm],
         )
         return payload
-    except JWTError as e:
-        if "expired" in str(e).lower():
-            raise TokenExpiredError("Token has expired") from e
+    except jwt.ExpiredSignatureError as e:
+        raise TokenExpiredError("Token has expired") from e
+    except PyJWTError as e:
         raise InvalidTokenError(f"Invalid token: {e}") from e
 
 
@@ -154,7 +159,7 @@ class AuthService:
         """Check if any admin user exists."""
         result = await self.session.execute(select(func.count(AdminUser.id)))
         count = result.scalar()
-        return count > 0
+        return (count or 0) > 0
 
     async def get_user_by_username(self, username: str) -> AdminUser | None:
         """Get user by username."""

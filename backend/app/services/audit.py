@@ -7,7 +7,7 @@ Logs security-relevant events for compliance and monitoring:
 
 import logging
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
@@ -16,7 +16,7 @@ from app.services.activity_logger import ActivityLoggerService, get_activity_log
 logger = logging.getLogger(__name__)
 
 
-class AuditAction(str, Enum):
+class AuditAction(StrEnum):
     """Security audit action types."""
 
     # Credential events (used by credentials API)
@@ -75,7 +75,7 @@ class AuditService:
         if resource_id:
             message += f" ({resource_id})"
 
-        audit_details = {
+        audit_details: dict[str, Any] = {
             "action": action.value,
             "resource_type": resource_type,
             "resource_id": str(resource_id) if resource_id else None,
@@ -114,7 +114,7 @@ class AuditService:
             "value",  # Generic credential value
         }
 
-        sanitized = {}
+        sanitized: dict[str, Any] = {}
         for key, value in details.items():
             key_lower = key.lower()
             if any(s in key_lower for s in sensitive_keys):

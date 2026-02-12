@@ -47,7 +47,7 @@ class CredentialCreate(BaseModel):
     oauth_authorization_url: str | None = None
 
     @model_validator(mode="after")
-    def validate_auth_fields(self):
+    def validate_auth_fields(self) -> "CredentialCreate":
         """Validate that required fields are present for each auth type."""
         if self.auth_type == "api_key_header":
             if not self.header_name or not self.value:

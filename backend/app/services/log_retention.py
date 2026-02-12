@@ -49,7 +49,7 @@ class LogRetentionService:
         self._retention_days = max(1, value)
         logger.info(f"Log retention period set to {self._retention_days} days")
 
-    async def start(self):
+    async def start(self) -> None:
         """Start the background log retention task."""
         if self._running:
             logger.warning("Log retention service is already running")
@@ -62,7 +62,7 @@ class LogRetentionService:
             f"interval: {CLEANUP_INTERVAL_SECONDS}s)"
         )
 
-    async def stop(self):
+    async def stop(self) -> None:
         """Stop the background log retention task."""
         self._running = False
         if LogRetentionService._task:
@@ -74,7 +74,7 @@ class LogRetentionService:
             LogRetentionService._task = None
         logger.info("Log retention service stopped")
 
-    async def _cleanup_loop(self):
+    async def _cleanup_loop(self) -> None:
         """Main loop that periodically cleans up old logs."""
         # Wait a bit before first cleanup to let the app start up
         await asyncio.sleep(60)
@@ -88,7 +88,7 @@ class LogRetentionService:
             # Wait before next cleanup
             await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
 
-    async def _run_cleanup(self):
+    async def _run_cleanup(self) -> None:
         """Execute a single cleanup run."""
         activity_logger = ActivityLoggerService.get_instance()
 

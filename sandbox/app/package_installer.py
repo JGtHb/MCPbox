@@ -127,6 +127,8 @@ async def install_package(
         "install",
         "--target",
         packages_dir,
+        "--only-binary",
+        ":all:",
         "--quiet",
         "--disable-pip-version-check",
         "--no-warn-script-location",
