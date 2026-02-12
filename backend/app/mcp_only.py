@@ -52,6 +52,15 @@ logger = get_logger("mcp_gateway")
 _rate_limit_cleanup_task: asyncio.Task | None = None
 
 
+def _task_done_callback(task: asyncio.Task[None]) -> None:
+    """Log unhandled exceptions from background tasks."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error(f"Background task {task.get_name()} failed: {exc}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan handler."""
@@ -86,6 +95,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     global _rate_limit_cleanup_task
     _rate_limit_cleanup_task = asyncio.create_task(rate_limit_cleanup_loop())
+    _rate_limit_cleanup_task.add_done_callback(_task_done_callback)
 
     yield
 

@@ -81,6 +81,9 @@ def decrypt(encrypted: bytes) -> str:
 
     Expects: IV (12 bytes) || ciphertext || tag (16 bytes)
 
+    Supports dual-key decryption for key rotation: tries the current key first,
+    then falls back to MCPBOX_ENCRYPTION_KEY_OLD if set.
+
     Raises:
         DecryptionError: If decryption fails or data is malformed.
     """
@@ -90,21 +93,30 @@ def decrypt(encrypted: bytes) -> str:
             f"minimum {MIN_ENCRYPTED_LENGTH} bytes required"
         )
 
+    iv = encrypted[:12]
+    ciphertext = encrypted[12:]
+
+    # Try current key first
     try:
         key = get_encryption_key()
         aesgcm = AESGCM(key)
-
-        # Extract IV and ciphertext
-        iv = encrypted[:12]
-        ciphertext = encrypted[12:]
-
-        # Decrypt
         plaintext = aesgcm.decrypt(iv, ciphertext, None)
         return plaintext.decode("utf-8")
     except InvalidKeyError:
         raise
-    except Exception as e:
-        raise DecryptionError(f"Decryption failed: {e}") from e
+    except Exception as primary_error:
+        # Try old key if configured (for key rotation transition)
+        old_key_hex = settings.mcpbox_encryption_key_old
+        if old_key_hex:
+            try:
+                old_key = bytes.fromhex(old_key_hex)
+                aesgcm_old = AESGCM(old_key)
+                plaintext = aesgcm_old.decrypt(iv, ciphertext, None)
+                logger.info("Decrypted with old key — run key rotation script to re-encrypt")
+                return plaintext.decode("utf-8")
+            except Exception:
+                pass  # Fall through to raise original error
+        raise DecryptionError(f"Decryption failed: {primary_error}") from primary_error
 
 
 def encrypt_to_base64(plaintext: str) -> str:

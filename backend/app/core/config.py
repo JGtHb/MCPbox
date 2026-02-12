@@ -48,6 +48,7 @@ class Settings(BaseSettings):
 
     # Security - encryption key for credential storage
     mcpbox_encryption_key: str
+    mcpbox_encryption_key_old: str | None = None
 
     @field_validator("mcpbox_encryption_key")
     @classmethod
