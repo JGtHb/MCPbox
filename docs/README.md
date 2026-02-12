@@ -2,19 +2,22 @@
 
 > **Start here:** For AI assistants, see [CLAUDE.md](../CLAUDE.md) in the project root.
 
-## Current Documents
-
-### Primary References
+## Documents
 
 | Document | Description |
 |----------|-------------|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Technical design, security model, database schema |
-| [FUTURE-EPICS.md](FUTURE-EPICS.md) | Roadmap for upcoming features (LLM integration, OAuth, etc.) |
+| [PRODUCTION-DEPLOYMENT.md](PRODUCTION-DEPLOYMENT.md) | Production deployment guide and checklist |
+| [REMOTE-ACCESS-SETUP.md](REMOTE-ACCESS-SETUP.md) | Remote access via Cloudflare Workers VPC |
+| [CLOUDFLARE-SETUP-WIZARD.md](CLOUDFLARE-SETUP-WIZARD.md) | Automated 7-step Cloudflare setup wizard |
+| [MCP-MANAGEMENT-TOOLS.md](MCP-MANAGEMENT-TOOLS.md) | MCP tools for programmatic management |
+| [INCIDENT-RESPONSE.md](INCIDENT-RESPONSE.md) | Operational runbooks for failure scenarios |
+| [FUTURE-EPICS.md](FUTURE-EPICS.md) | Feature roadmap |
 | [COMPETITIVE-ANALYSIS.md](COMPETITIVE-ANALYSIS.md) | Why code-first approach vs. visual builders |
 
 ## Project Status
 
-**Core epics are complete.** See [CLAUDE.md](../CLAUDE.md) for current status and next priorities.
+**Core epics are complete.** See [CLAUDE.md](../CLAUDE.md) for current status.
 
 | Epic | Status |
 |------|--------|

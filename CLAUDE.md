@@ -334,6 +334,7 @@ tool = await tool_factory(server_id=server.id, name="test_tool", python_code="as
 | **docs/MCP-MANAGEMENT-TOOLS.md** | MCP tools for management | Building with Claude |
 | **docs/CLOUDFLARE-SETUP-WIZARD.md** | Automated remote access setup | Cloudflare wizard |
 | **docs/ARCHITECTURE.md** | Technical deep-dive | Understanding design |
+| **docs/INCIDENT-RESPONSE.md** | Operational runbooks | Diagnosing failures |
 | **docs/FUTURE-EPICS.md** | Feature roadmap | Planning new features |
 | **docs/COMPETITIVE-ANALYSIS.md** | Strategic rationale | Understanding "why" decisions |
 
