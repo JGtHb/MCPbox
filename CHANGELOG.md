@@ -7,7 +7,7 @@ All notable changes to MCPbox will be documented in this file.
 ### Security
 - Add `.dev.vars` and `.dev.vars.*` to `.gitignore` to prevent accidental commit of Cloudflare Worker secrets
 - Remove internal review tracking files (REVIEW_PROGRESS.md, PRE-PRODUCTION-REVIEW*.md) from repository
-- Replace placeholder `security@example.com` in README.md with GitHub Security Advisory guidance
+- Replaced placeholder `security@example.com` in README.md with GitHub Security Advisory guidance
 
 ### Fixed
 - Fix unawaited `CircuitBreaker.reset_all()` in health endpoint — the `/health/circuits/reset` endpoint was silently doing nothing

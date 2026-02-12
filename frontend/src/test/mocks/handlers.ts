@@ -11,7 +11,7 @@ export const createMockServer = (overrides?: Partial<Server>): Server => ({
   name: 'Test Server',
   description: 'A test server',
   status: 'ready',
-  network_mode: 'monitored',
+  network_mode: 'isolated',
   tool_count: 2,
   created_at: '2024-01-01T00:00:00Z',
   updated_at: '2024-01-01T00:00:00Z',
@@ -20,7 +20,6 @@ export const createMockServer = (overrides?: Partial<Server>): Server => ({
 
 export const createMockServerDetail = (overrides?: Partial<ServerDetail>): ServerDetail => ({
   ...createMockServer(),
-  container_id: null,
   allowed_hosts: null,
   default_timeout_ms: 30000,
   helper_code: null,
@@ -127,11 +126,9 @@ export const handlers = [
   http.post(`${API_BASE}/api/servers/:id/start`, ({ params }) => {
     const status: ContainerStatus = {
       server_id: params.id as string,
-      container_id: `container-${params.id}`,
       status: 'running',
-      health: 'healthy',
-      started_at: new Date().toISOString(),
       registered_tools: 2,
+      message: 'Server started successfully',
     }
     return HttpResponse.json(status)
   }),
@@ -139,11 +136,9 @@ export const handlers = [
   http.post(`${API_BASE}/api/servers/:id/stop`, ({ params }) => {
     const status: ContainerStatus = {
       server_id: params.id as string,
-      container_id: null,
       status: 'stopped',
-      health: null,
-      started_at: null,
       registered_tools: 0,
+      message: 'Server stopped',
     }
     return HttpResponse.json(status)
   }),
@@ -151,11 +146,9 @@ export const handlers = [
   http.get(`${API_BASE}/api/servers/:id/status`, ({ params }) => {
     const status: ContainerStatus = {
       server_id: params.id as string,
-      container_id: null,
       status: 'ready',
-      health: null,
-      started_at: null,
       registered_tools: 0,
+      message: null,
     }
     return HttpResponse.json(status)
   }),

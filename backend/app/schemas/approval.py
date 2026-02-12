@@ -1,19 +1,9 @@
 """Pydantic schemas for approval workflow, module requests, and network access requests."""
 
 from datetime import datetime
-from enum import StrEnum
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
-
-
-class RequestStatus(StrEnum):
-    """Status for module and network access requests."""
-
-    PENDING = "pending"
-    APPROVED = "approved"
-    REJECTED = "rejected"
-
 
 # ============================================================================
 # Tool Approval Schemas
