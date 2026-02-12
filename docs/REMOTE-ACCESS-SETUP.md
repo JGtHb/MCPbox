@@ -699,7 +699,7 @@ For high-security deployments requiring replay protection, consider implementing
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md) - Overall MCPbox system architecture
 - [PRODUCTION-DEPLOYMENT.md](./PRODUCTION-DEPLOYMENT.md) - Production deployment checklist
-- [CLOUDFLARE-SETUP-WIZARD.md](./CLOUDFLARE-SETUP-WIZARD.md) - Automated setup wizard (planned)
+- [CLOUDFLARE-SETUP-WIZARD.md](./CLOUDFLARE-SETUP-WIZARD.md) - Automated setup wizard
 - [Cloudflare MCP Server Portals](https://developers.cloudflare.com/cloudflare-one/access-controls/ai-controls/mcp-portals/) - Official Cloudflare documentation
 - [Cloudflare Workers VPC](https://developers.cloudflare.com/workers-vpc/) - VPC binding documentation
 - [Cloudflare Access JWT Validation](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/) - JWT verification reference
