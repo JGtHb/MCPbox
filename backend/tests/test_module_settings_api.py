@@ -1,8 +1,9 @@
 """Tests for module settings API endpoints."""
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 from httpx import AsyncClient
-from unittest.mock import AsyncMock, MagicMock
 
 from app.main import app
 from app.services.sandbox_client import get_sandbox_client

@@ -45,8 +45,8 @@ class TestGetCircuitStates:
     async def test_get_circuits_after_creation(self, async_client: AsyncClient, admin_headers):
         """Get circuits after some are created."""
         # Create some circuit breakers
-        cb1 = CircuitBreaker.get_or_create("service_a")
-        cb2 = CircuitBreaker.get_or_create("service_b")
+        CircuitBreaker.get_or_create("service_a")
+        CircuitBreaker.get_or_create("service_b")
 
         response = await async_client.get("/health/circuits", headers=admin_headers)
 
@@ -57,7 +57,7 @@ class TestGetCircuitStates:
 
     async def test_circuit_state_fields(self, async_client: AsyncClient, admin_headers):
         """Circuit state includes expected fields."""
-        cb = CircuitBreaker.get_or_create("test_service")
+        CircuitBreaker.get_or_create("test_service")
 
         response = await async_client.get("/health/circuits", headers=admin_headers)
 
@@ -284,7 +284,7 @@ class TestCircuitBreakerIntegration:
         """Multiple circuits operate independently."""
         config = CircuitBreakerConfig(failure_threshold=1)
         cb_a = CircuitBreaker.get_or_create("independent_a", config=config)
-        cb_b = CircuitBreaker.get_or_create("independent_b", config=config)
+        CircuitBreaker.get_or_create("independent_b", config=config)
 
         # Trip only circuit A
         await cb_a.record_failure(Exception("test failure"))

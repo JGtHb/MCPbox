@@ -4,7 +4,6 @@ from uuid import uuid4
 
 import pytest
 
-from app.models import Tool, ToolVersion
 from app.schemas.tool import ToolCreate, ToolUpdate
 from app.services.tool import ToolService
 

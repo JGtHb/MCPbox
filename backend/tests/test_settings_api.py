@@ -1,9 +1,7 @@
 """Tests for settings API endpoints."""
 
 import pytest
-import pytest_asyncio
 from httpx import AsyncClient
-from unittest.mock import AsyncMock, MagicMock, patch
 
 
 class TestListSettings:
@@ -24,8 +22,8 @@ class TestListSettings:
         self, async_client: AsyncClient, db_session, admin_headers
     ):
         """Test listing settings with existing data."""
+
         from app.models.setting import Setting
-        from datetime import UTC, datetime
 
         # Create test settings
         setting1 = Setting(
@@ -122,8 +120,8 @@ class TestListSettings:
         self, async_client: AsyncClient, db_session, admin_headers
     ):
         """Test the structure of settings response."""
+
         from app.models.setting import Setting
-        from datetime import UTC, datetime
 
         setting = Setting(
             key="struct_test",

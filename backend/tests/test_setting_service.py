@@ -3,11 +3,10 @@
 from unittest.mock import patch
 
 import pytest
-import pytest_asyncio
 
 from app.models import Setting
+from app.services.crypto import InvalidKeyError
 from app.services.setting import SettingService
-from app.services.crypto import DecryptionError, InvalidKeyError
 
 pytestmark = pytest.mark.asyncio
 

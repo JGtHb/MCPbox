@@ -1,6 +1,5 @@
 """Tests for request utility functions."""
 
-import pytest
 from unittest.mock import MagicMock
 
 from app.core.request_utils import _is_valid_ip, get_client_ip

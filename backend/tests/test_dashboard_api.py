@@ -1,10 +1,6 @@
 """Tests for dashboard API endpoints."""
 
-from datetime import UTC, datetime, timedelta
-from uuid import uuid4
-
 import pytest
-import pytest_asyncio
 from httpx import AsyncClient
 
 
@@ -39,8 +35,8 @@ class TestDashboardEndpoint:
     ):
         """Test dashboard with servers in database."""
         # Create test servers
-        server1 = await server_factory(name="Server 1", status="running")
-        server2 = await server_factory(name="Server 2", status="stopped")
+        await server_factory(name="Server 1", status="running")
+        await server_factory(name="Server 2", status="stopped")
 
         response = await async_client.get("/api/dashboard", headers=admin_headers)
 
@@ -269,7 +265,7 @@ class TestDashboardEndpoint:
         server = await server_factory()
 
         # Create response logs with tool names
-        for i in range(5):
+        for _i in range(5):
             log = ActivityLog(
                 server_id=server.id,
                 log_type="mcp_response",
