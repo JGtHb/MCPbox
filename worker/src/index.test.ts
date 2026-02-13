@@ -7,9 +7,50 @@
  * - Request proxying
  * - JWT extraction
  * - Error handling
+ *
+ * The OAuthProvider is mocked to avoid cloudflare: protocol imports in Node.
+ * The mock routes '/' (apiRoute) to apiHandler and other paths to defaultHandler,
+ * matching real OAuthProvider behavior without OAuth token validation.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// Mock @cloudflare/workers-oauth-provider before importing index.
+// This prevents the cloudflare: protocol import error in Node's ESM loader.
+// vitest hoists vi.mock() calls above all imports automatically.
+vi.mock("@cloudflare/workers-oauth-provider", () => {
+  class MockOAuthProvider {
+    private apiHandler: any;
+    private defaultHandler: any;
+    private apiRoute: string;
+
+    constructor(opts: any) {
+      this.apiHandler = opts.apiHandler;
+      this.defaultHandler = opts.defaultHandler;
+      this.apiRoute = opts.apiRoute || "/";
+    }
+
+    async fetch(
+      request: Request,
+      env: any,
+      ctx: any
+    ): Promise<Response> {
+      const url = new URL(request.url);
+      if (url.pathname === this.apiRoute) {
+        // Simulate OAuth-validated request routed to apiHandler
+        const ctxWithProps = { ...ctx, props: { authMethod: "oauth" } };
+        return this.apiHandler.fetch(request, env, ctxWithProps);
+      }
+      // Other paths go to defaultHandler (OAuth flow endpoints)
+      return this.defaultHandler.fetch(request, env, ctx);
+    }
+  }
+
+  return {
+    default: MockOAuthProvider,
+  };
+});
+
 import worker, { Env } from "./index";
 
 // Mock execution context
@@ -31,7 +72,7 @@ const createMockVpcService = (responseBody: unknown, status = 200) => ({
 describe("MCPbox Proxy Worker", () => {
   describe("CORS Handling", () => {
     it("should handle OPTIONS preflight requests", async () => {
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "OPTIONS",
         headers: {
           Origin: "https://mcp.claude.ai",
@@ -62,7 +103,7 @@ describe("MCPbox Proxy Worker", () => {
     });
 
     it("should allow claude.ai origin", async () => {
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "OPTIONS",
         headers: {
           Origin: "https://claude.ai",
@@ -83,7 +124,7 @@ describe("MCPbox Proxy Worker", () => {
     });
 
     it("should fallback to mcp.claude.ai for unknown origins", async () => {
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "OPTIONS",
         headers: {
           Origin: "https://unknown-origin.com",
@@ -104,7 +145,7 @@ describe("MCPbox Proxy Worker", () => {
     });
 
     it("should use custom CORS origin when configured", async () => {
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "OPTIONS",
         headers: {
           Origin: "https://custom-origin.com",
@@ -128,7 +169,7 @@ describe("MCPbox Proxy Worker", () => {
 
   describe("Configuration Validation", () => {
     it("should return 503 when MCPBOX_TUNNEL is not configured", async () => {
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -154,7 +195,7 @@ describe("MCPbox Proxy Worker", () => {
     });
 
     it("should return 503 when MCPBOX_SERVICE_TOKEN is not configured", async () => {
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -188,7 +229,7 @@ describe("MCPbox Proxy Worker", () => {
         method: "tools/list",
       };
 
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -229,12 +270,18 @@ describe("MCPbox Proxy Worker", () => {
 
     it("should preserve query parameters in forwarded requests", async () => {
       const request = new Request(
-        "https://example.com/mcp/health?check=full",
+        "https://example.com/?check=full",
         {
-          method: "GET",
+          method: "POST",
           headers: {
+            "Content-Type": "application/json",
             Origin: "https://mcp.claude.ai",
           },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/list",
+          }),
         }
       );
 
@@ -250,11 +297,11 @@ describe("MCPbox Proxy Worker", () => {
       expect(response.status).toBe(200);
 
       const [targetUrl] = mockVpcService.fetch.mock.calls[0];
-      expect(targetUrl).toBe("http://mcp-gateway:8002/mcp/health?check=full");
+      expect(targetUrl).toBe("http://mcp-gateway:8002/mcp?check=full");
     });
 
     it("should add X-Forwarded headers", async () => {
-      const request = new Request("https://my-worker.workers.dev/mcp", {
+      const request = new Request("https://my-worker.workers.dev/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -283,7 +330,7 @@ describe("MCPbox Proxy Worker", () => {
     });
 
     it("should add CORS headers to proxied response", async () => {
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -321,15 +368,22 @@ describe("MCPbox Proxy Worker", () => {
 
   describe("JWT Extraction", () => {
     it("should extract user email from valid Cloudflare Access JWT", async () => {
-      // Create a mock JWT with email claim
+      // Create a properly structured mock JWT
+      const now = Math.floor(Date.now() / 1000);
+      const header = { alg: "RS256", kid: "test-kid", typ: "JWT" };
       const jwtPayload = {
-        email: "user@example.com",
         sub: "user123",
-        iat: Math.floor(Date.now() / 1000),
+        email: "user@example.com",
+        aud: "test-aud",
+        iss: "https://test.cloudflareaccess.com",
+        exp: now + 3600,
+        nbf: now - 60,
+        iat: now - 60,
       };
-      const mockJwt = `header.${btoa(JSON.stringify(jwtPayload))}.signature`;
+      const mockSignature = btoa("mocksignature");
+      const mockJwt = `${btoa(JSON.stringify(header))}.${btoa(JSON.stringify(jwtPayload))}.${mockSignature}`;
 
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -342,14 +396,36 @@ describe("MCPbox Proxy Worker", () => {
         }),
       });
 
+      // Mock JWKS endpoint and crypto verification
+      const originalFetch = global.fetch;
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            keys: [{ kid: "test-kid", kty: "RSA", n: "test-n", e: "AQAB" }],
+          }),
+      });
+      const importKeySpy = vi
+        .spyOn(crypto.subtle, "importKey")
+        .mockResolvedValue({} as CryptoKey);
+      const verifySpy = vi
+        .spyOn(crypto.subtle, "verify")
+        .mockResolvedValue(true);
+
       const mockVpcService = createMockVpcService({});
       const mockEnv = {
         MCPBOX_TUNNEL: mockVpcService,
         MCPBOX_SERVICE_TOKEN: "test-token",
+        CF_ACCESS_TEAM_DOMAIN: "test.cloudflareaccess.com",
+        CF_ACCESS_AUD: "test-aud",
       } as unknown as Env;
 
       const ctx = createExecutionContext();
       await worker.fetch(request, mockEnv, ctx as any);
+
+      global.fetch = originalFetch;
+      importKeySpy.mockRestore();
+      verifySpy.mockRestore();
 
       const [, options] = mockVpcService.fetch.mock.calls[0];
       expect(options.headers.get("X-MCPbox-User-Email")).toBe(
@@ -358,13 +434,14 @@ describe("MCPbox Proxy Worker", () => {
     });
 
     it("should handle JWT without email claim gracefully", async () => {
+      // Without CF_ACCESS env vars, JWT extraction is skipped entirely
       const jwtPayload = {
         sub: "user123",
         iat: Math.floor(Date.now() / 1000),
       };
       const mockJwt = `header.${btoa(JSON.stringify(jwtPayload))}.signature`;
 
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -392,7 +469,7 @@ describe("MCPbox Proxy Worker", () => {
     });
 
     it("should handle malformed JWT gracefully", async () => {
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -420,7 +497,7 @@ describe("MCPbox Proxy Worker", () => {
     });
 
     it("should handle JWT with invalid base64 payload", async () => {
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -449,7 +526,7 @@ describe("MCPbox Proxy Worker", () => {
 
   describe("Error Handling", () => {
     it("should return 502 when VPC connection fails", async () => {
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -479,7 +556,7 @@ describe("MCPbox Proxy Worker", () => {
     });
 
     it("should preserve upstream error status codes", async () => {
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -520,7 +597,7 @@ describe("MCPbox Proxy Worker", () => {
         params: {},
       };
 
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -572,7 +649,7 @@ describe("MCPbox Proxy Worker", () => {
         },
       };
 
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -619,7 +696,7 @@ describe("MCPbox Proxy Worker", () => {
         },
       };
 
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -653,7 +730,7 @@ describe("MCPbox Proxy Worker", () => {
 
   describe("Security", () => {
     it("should always include service token in forwarded requests", async () => {
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -681,7 +758,7 @@ describe("MCPbox Proxy Worker", () => {
     });
 
     it("should not expose service token in error responses", async () => {
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -710,7 +787,7 @@ describe("MCPbox Proxy Worker", () => {
     });
 
     it("should not forward potentially dangerous headers from client", async () => {
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -743,7 +820,7 @@ describe("MCPbox Proxy Worker", () => {
 
   describe("Edge Cases", () => {
     it("should handle requests without Origin header", async () => {
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -772,7 +849,7 @@ describe("MCPbox Proxy Worker", () => {
     });
 
     it("should handle empty request body", async () => {
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -804,7 +881,7 @@ describe("MCPbox Proxy Worker", () => {
         },
       };
 
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -827,8 +904,8 @@ describe("MCPbox Proxy Worker", () => {
   });
 
   describe("Path Validation", () => {
-    it("should allow /mcp path", async () => {
-      const request = new Request("https://example.com/mcp", {
+    it("should allow root path as MCP endpoint", async () => {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
@@ -847,23 +924,6 @@ describe("MCPbox Proxy Worker", () => {
       expect(mockVpcService.fetch).toHaveBeenCalled();
     });
 
-    it("should allow /mcp/health path", async () => {
-      const request = new Request("https://example.com/mcp/health", {
-        method: "GET",
-      });
-
-      const mockVpcService = createMockVpcService({ status: "ok" });
-      const mockEnv = {
-        MCPBOX_TUNNEL: mockVpcService,
-        MCPBOX_SERVICE_TOKEN: "test-token",
-      } as unknown as Env;
-
-      const ctx = createExecutionContext();
-      const response = await worker.fetch(request, mockEnv, ctx as any);
-
-      expect(response.status).toBe(200);
-    });
-
     it("should allow /health path", async () => {
       const request = new Request("https://example.com/health", {
         method: "GET",
@@ -879,6 +939,8 @@ describe("MCPbox Proxy Worker", () => {
       const response = await worker.fetch(request, mockEnv, ctx as any);
 
       expect(response.status).toBe(200);
+      // /health is handled directly by the worker, not proxied
+      expect(mockVpcService.fetch).not.toHaveBeenCalled();
     });
 
     it("should reject disallowed paths with 404", async () => {
@@ -896,14 +958,12 @@ describe("MCPbox Proxy Worker", () => {
       const response = await worker.fetch(request, mockEnv, ctx as any);
 
       expect(response.status).toBe(404);
-      const body = (await response.json()) as { error: string };
-      expect(body.error).toBe("Not found");
       // Should NOT have called the VPC service
       expect(mockVpcService.fetch).not.toHaveBeenCalled();
     });
 
-    it("should reject root path with 404", async () => {
-      const request = new Request("https://example.com/", {
+    it("should reject unknown paths with 404", async () => {
+      const request = new Request("https://example.com/random", {
         method: "GET",
       });
 
@@ -961,7 +1021,7 @@ describe("MCPbox Proxy Worker", () => {
 
   describe("CORS Headers in Error Responses", () => {
     it("should include CORS headers in 503 config error", async () => {
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -985,7 +1045,7 @@ describe("MCPbox Proxy Worker", () => {
     });
 
     it("should include CORS headers in 502 proxy error", async () => {
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1036,8 +1096,8 @@ describe("MCPbox Proxy Worker", () => {
       return `${base64url(header)}.${base64url(payload)}.${signature}`;
     };
 
-    it("should reject JWT with algorithm other than RS256", async () => {
-      // Create JWT with HS256 algorithm (algorithm confusion attack)
+    it("should not extract email from JWT with algorithm other than RS256", async () => {
+      // JWT with HS256 algorithm (algorithm confusion attack) — verifyAccessJwt rejects it
       const header = { alg: "HS256", kid: "test-kid", typ: "JWT" };
       const payload = {
         sub: "user123",
@@ -1050,7 +1110,7 @@ describe("MCPbox Proxy Worker", () => {
       };
       const mockJwt = createMockJwt(header, payload);
 
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1070,14 +1130,15 @@ describe("MCPbox Proxy Worker", () => {
       const ctx = createExecutionContext();
       const response = await worker.fetch(request, mockEnv, ctx as any);
 
-      expect(response.status).toBe(401);
-      const body = (await response.json()) as { error: string; details: string };
-      expect(body.error).toBe("Unauthorized");
-      expect(body.details).toContain("Invalid or expired JWT");
-      expect(mockVpcService.fetch).not.toHaveBeenCalled();
+      // Worker proxies with authMethod=oauth (no email extracted from HS256 JWT)
+      expect(response.status).toBe(200);
+      expect(mockVpcService.fetch).toHaveBeenCalled();
+      const [, options] = mockVpcService.fetch.mock.calls[0];
+      expect(options.headers.get("X-MCPbox-Auth-Method")).toBe("oauth");
+      expect(options.headers.get("X-MCPbox-User-Email")).toBeNull();
     });
 
-    it("should reject JWT with 'none' algorithm", async () => {
+    it("should not extract email from JWT with 'none' algorithm", async () => {
       const header = { alg: "none", kid: "test-kid", typ: "JWT" };
       const payload = {
         sub: "user123",
@@ -1088,7 +1149,7 @@ describe("MCPbox Proxy Worker", () => {
       };
       const mockJwt = createMockJwt(header, payload, "");
 
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1108,11 +1169,15 @@ describe("MCPbox Proxy Worker", () => {
       const ctx = createExecutionContext();
       const response = await worker.fetch(request, mockEnv, ctx as any);
 
-      expect(response.status).toBe(401);
-      expect(mockVpcService.fetch).not.toHaveBeenCalled();
+      // Worker proxies with authMethod=oauth (JWT with 'none' alg rejected)
+      expect(response.status).toBe(200);
+      expect(mockVpcService.fetch).toHaveBeenCalled();
+      const [, options] = mockVpcService.fetch.mock.calls[0];
+      expect(options.headers.get("X-MCPbox-Auth-Method")).toBe("oauth");
+      expect(options.headers.get("X-MCPbox-User-Email")).toBeNull();
     });
 
-    it("should reject JWT with missing sub claim", async () => {
+    it("should not extract email from JWT with missing sub claim", async () => {
       const header = { alg: "RS256", kid: "test-kid", typ: "JWT" };
       const payload = {
         // No sub claim
@@ -1125,7 +1190,7 @@ describe("MCPbox Proxy Worker", () => {
       };
       const mockJwt = createMockJwt(header, payload);
 
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1171,11 +1236,15 @@ describe("MCPbox Proxy Worker", () => {
       importKeySpy.mockRestore();
       verifySpy.mockRestore();
 
-      expect(response.status).toBe(401);
-      expect(mockVpcService.fetch).not.toHaveBeenCalled();
+      // Worker proxies with authMethod=oauth (JWT with missing sub rejected)
+      expect(response.status).toBe(200);
+      expect(mockVpcService.fetch).toHaveBeenCalled();
+      const [, options] = mockVpcService.fetch.mock.calls[0];
+      expect(options.headers.get("X-MCPbox-Auth-Method")).toBe("oauth");
+      expect(options.headers.get("X-MCPbox-User-Email")).toBeNull();
     });
 
-    it("should reject JWT with future iat claim beyond clock skew", async () => {
+    it("should not extract email from JWT with future iat claim beyond clock skew", async () => {
       const header = { alg: "RS256", kid: "test-kid", typ: "JWT" };
       const futureIat = Math.floor(Date.now() / 1000) + 120; // 2 minutes in future (beyond 60s tolerance)
       const payload = {
@@ -1189,7 +1258,7 @@ describe("MCPbox Proxy Worker", () => {
       };
       const mockJwt = createMockJwt(header, payload);
 
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1225,8 +1294,12 @@ describe("MCPbox Proxy Worker", () => {
       importKeySpy.mockRestore();
       verifySpy.mockRestore();
 
-      expect(response.status).toBe(401);
-      expect(mockVpcService.fetch).not.toHaveBeenCalled();
+      // Worker doesn't enforce JWT - it proxies with authMethod=oauth (gateway enforces)
+      expect(response.status).toBe(200);
+      expect(mockVpcService.fetch).toHaveBeenCalled();
+      const [, options] = mockVpcService.fetch.mock.calls[0];
+      expect(options.headers.get("X-MCPbox-Auth-Method")).toBe("oauth");
+      expect(options.headers.get("X-MCPbox-User-Email")).toBeNull();
     });
 
     it("should accept JWT with exp slightly in past (within clock skew)", async () => {
@@ -1243,7 +1316,7 @@ describe("MCPbox Proxy Worker", () => {
       };
       const mockJwt = createMockJwt(header, payload);
 
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1284,7 +1357,7 @@ describe("MCPbox Proxy Worker", () => {
       expect(mockVpcService.fetch).toHaveBeenCalled();
     });
 
-    it("should reject JWT expired beyond clock skew tolerance", async () => {
+    it("should not extract email from JWT expired beyond clock skew tolerance", async () => {
       const header = { alg: "RS256", kid: "test-kid", typ: "JWT" };
       const now = Math.floor(Date.now() / 1000);
       const payload = {
@@ -1298,7 +1371,7 @@ describe("MCPbox Proxy Worker", () => {
       };
       const mockJwt = createMockJwt(header, payload);
 
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1334,8 +1407,12 @@ describe("MCPbox Proxy Worker", () => {
       importKeySpy.mockRestore();
       verifySpy.mockRestore();
 
-      expect(response.status).toBe(401);
-      expect(mockVpcService.fetch).not.toHaveBeenCalled();
+      // Worker doesn't enforce JWT - it proxies with authMethod=oauth (gateway enforces)
+      expect(response.status).toBe(200);
+      expect(mockVpcService.fetch).toHaveBeenCalled();
+      const [, options] = mockVpcService.fetch.mock.calls[0];
+      expect(options.headers.get("X-MCPbox-Auth-Method")).toBe("oauth");
+      expect(options.headers.get("X-MCPbox-User-Email")).toBeNull();
     });
   });
 
@@ -1355,7 +1432,7 @@ describe("MCPbox Proxy Worker", () => {
       const ctx = createExecutionContext();
       const response = await worker.fetch(request, mockEnv, ctx as any);
 
-      // Should be rejected because path contains ..
+      // Should be rejected because path doesn't match any known route
       expect(response.status).toBe(404);
       expect(mockVpcService.fetch).not.toHaveBeenCalled();
     });
@@ -1376,15 +1453,17 @@ describe("MCPbox Proxy Worker", () => {
       const ctx = createExecutionContext();
       const response = await worker.fetch(request, mockEnv, ctx as any);
 
-      // URL parsing normalizes %2e%2e to .., then path validation rejects it
+      // URL parsing normalizes %2e%2e to .., then path doesn't match any route
       expect(response.status).toBe(404);
       expect(mockVpcService.fetch).not.toHaveBeenCalled();
     });
   });
 
   describe("JWT Authentication", () => {
-    it("should reject requests without JWT when auth is configured", async () => {
-      const request = new Request("https://example.com/mcp", {
+    it("should proxy requests without JWT when auth is configured (gateway enforces)", async () => {
+      // Worker doesn't enforce JWT - it proxies with authMethod=oauth
+      // and the gateway enforces JWT requirements
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
@@ -1401,16 +1480,16 @@ describe("MCPbox Proxy Worker", () => {
       const ctx = createExecutionContext();
       const response = await worker.fetch(request, mockEnv, ctx as any);
 
-      expect(response.status).toBe(401);
-      const body = (await response.json()) as { error: string; details: string };
-      expect(body.error).toBe("Unauthorized");
-      expect(body.details).toContain("Missing Cf-Access-Jwt-Assertion");
-      // Should NOT have called the VPC service
-      expect(mockVpcService.fetch).not.toHaveBeenCalled();
+      // Worker proxies the request - JWT enforcement is at the gateway
+      expect(response.status).toBe(200);
+      expect(mockVpcService.fetch).toHaveBeenCalled();
+      const [, options] = mockVpcService.fetch.mock.calls[0];
+      expect(options.headers.get("X-MCPbox-Auth-Method")).toBe("oauth");
+      expect(options.headers.get("X-MCPbox-User-Email")).toBeNull();
     });
 
     it("should allow requests without JWT when auth is not configured", async () => {
-      const request = new Request("https://example.com/mcp", {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
@@ -1430,8 +1509,9 @@ describe("MCPbox Proxy Worker", () => {
       expect(mockVpcService.fetch).toHaveBeenCalled();
     });
 
-    it("should reject requests with invalid JWT format when auth is configured", async () => {
-      const request = new Request("https://example.com/mcp", {
+    it("should proxy requests with invalid JWT format (gateway enforces)", async () => {
+      // Worker doesn't reject invalid JWTs - it proxies with authMethod=oauth
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1448,26 +1528,19 @@ describe("MCPbox Proxy Worker", () => {
         CF_ACCESS_AUD: "test-aud-12345",
       } as unknown as Env;
 
-      // Mock fetch for JWKS endpoint
-      const originalFetch = global.fetch;
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ keys: [] }),
-      });
-
       const ctx = createExecutionContext();
       const response = await worker.fetch(request, mockEnv, ctx as any);
 
-      global.fetch = originalFetch;
-
-      expect(response.status).toBe(401);
-      const body = (await response.json()) as { error: string; details: string };
-      expect(body.error).toBe("Unauthorized");
-      expect(body.details).toContain("Invalid or expired JWT");
+      // Worker proxies - JWT enforcement is at the gateway
+      expect(response.status).toBe(200);
+      expect(mockVpcService.fetch).toHaveBeenCalled();
+      const [, options] = mockVpcService.fetch.mock.calls[0];
+      expect(options.headers.get("X-MCPbox-Auth-Method")).toBe("oauth");
+      expect(options.headers.get("X-MCPbox-User-Email")).toBeNull();
     });
 
-    it("should include CORS headers in 401 response", async () => {
-      const request = new Request("https://example.com/mcp", {
+    it("should include CORS headers when proxying without valid JWT", async () => {
+      const request = new Request("https://example.com/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1487,7 +1560,7 @@ describe("MCPbox Proxy Worker", () => {
       const ctx = createExecutionContext();
       const response = await worker.fetch(request, mockEnv, ctx as any);
 
-      expect(response.status).toBe(401);
+      expect(response.status).toBe(200);
       expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
         "https://claude.ai"
       );
