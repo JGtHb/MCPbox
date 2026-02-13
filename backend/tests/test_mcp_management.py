@@ -278,9 +278,9 @@ class TestMCPManagementService:
             {
                 "server_id": server_id,
                 "name": "no_main_tool",
-                "python_code": '''def helper():
+                "python_code": """def helper():
     return 42
-''',
+""",
             },
         )
 
@@ -450,13 +450,17 @@ async def main(text: str) -> dict:
         )
 
         # Mock sandbox client for start/stop operations
-        mock_sandbox_client.register_server = AsyncMock(return_value={
-            "success": True,
-            "tools_registered": 1,
-        })
-        mock_sandbox_client.unregister_server = AsyncMock(return_value={
-            "success": True,
-        })
+        mock_sandbox_client.register_server = AsyncMock(
+            return_value={
+                "success": True,
+                "tools_registered": 1,
+            }
+        )
+        mock_sandbox_client.unregister_server = AsyncMock(
+            return_value={
+                "success": True,
+            }
+        )
 
         # Start the server (pass sandbox_client)
         start_result = await service.execute_tool(

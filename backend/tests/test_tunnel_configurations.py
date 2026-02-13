@@ -40,9 +40,7 @@ class TestListConfigurations:
 
     async def test_list_empty(self, async_client: AsyncClient, admin_headers):
         """Test listing configurations when none exist."""
-        response = await async_client.get(
-            "/api/tunnel/configurations", headers=admin_headers
-        )
+        response = await async_client.get("/api/tunnel/configurations", headers=admin_headers)
         assert response.status_code == 200
         data = response.json()
         assert data["items"] == []
@@ -56,9 +54,7 @@ class TestListConfigurations:
         await tunnel_config_factory(name="Config 1")
         await tunnel_config_factory(name="Config 2", is_active=True)
 
-        response = await async_client.get(
-            "/api/tunnel/configurations", headers=admin_headers
-        )
+        response = await async_client.get("/api/tunnel/configurations", headers=admin_headers)
         assert response.status_code == 200
         data = response.json()
         assert len(data["items"]) == 2
@@ -107,9 +103,7 @@ class TestCreateConfiguration:
         assert data["has_token"] is True
         assert data["is_active"] is False
 
-    async def test_create_without_token_fails(
-        self, async_client: AsyncClient, admin_headers
-    ):
+    async def test_create_without_token_fails(self, async_client: AsyncClient, admin_headers):
         """Test that creating without a token fails."""
         response = await async_client.post(
             "/api/tunnel/configurations",
@@ -120,9 +114,7 @@ class TestCreateConfiguration:
         )
         assert response.status_code == 422  # Validation error
 
-    async def test_create_normalizes_url(
-        self, async_client: AsyncClient, admin_headers
-    ):
+    async def test_create_normalizes_url(self, async_client: AsyncClient, admin_headers):
         """Test that URL is normalized (adds https://)."""
         response = await async_client.post(
             "/api/tunnel/configurations",
@@ -155,9 +147,7 @@ class TestGetConfiguration:
         assert data["name"] == "Test Config"
         assert data["id"] == str(config.id)
 
-    async def test_get_nonexistent_returns_404(
-        self, async_client: AsyncClient, admin_headers
-    ):
+    async def test_get_nonexistent_returns_404(self, async_client: AsyncClient, admin_headers):
         """Test getting a nonexistent configuration returns 404."""
         import uuid
 

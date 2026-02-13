@@ -35,6 +35,11 @@ services:
       - mcpbox-internal
     security_opt:
       - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=16M
+      - /var/cache/nginx:size=32M
+      - /var/run:size=1M
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/nginx-health"]
       interval: 30s
@@ -42,11 +47,17 @@ services:
       start_period: 10s
       retries: 3
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     deploy:
       resources:
         limits:
           cpus: '0.5'
           memory: 256M
+          pids: 64
 
   # ============================================================
   # Backend - Python FastAPI (Admin API - Local Only)
@@ -89,11 +100,17 @@ services:
       start_period: 15s
       retries: 3
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "25m"
+        max-file: "5"
     deploy:
       resources:
         limits:
           cpus: '2'
           memory: 1G
+          pids: 256
 
   # ============================================================
   # MCP Gateway - Tunnel-exposed MCP endpoint
@@ -114,6 +131,9 @@ services:
       - MCP_CORS_ORIGINS=${MCP_CORS_ORIGINS:-https://mcp.claude.ai,https://claude.ai}
     security_opt:
       - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M
     depends_on:
       postgres:
         condition: service_healthy
@@ -130,11 +150,17 @@ services:
       start_period: 15s
       retries: 3
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "25m"
+        max-file: "5"
     deploy:
       resources:
         limits:
           cpus: '1'
           memory: 512M
+          pids: 128
 
   # ============================================================
   # Sandbox - Isolated tool execution environment
@@ -165,11 +191,17 @@ services:
       start_period: 5s
       retries: 3
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     deploy:
       resources:
         limits:
           cpus: '1'
           memory: 512M
+          pids: 128
 
   # ============================================================
   # PostgreSQL - Configuration and State Storage
@@ -180,6 +212,8 @@ services:
       - POSTGRES_USER=mcpbox
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       - POSTGRES_DB=mcpbox
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - mcpbox-postgres:/var/lib/postgresql/data
     networks:
@@ -190,11 +224,17 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "25m"
+        max-file: "5"
     deploy:
       resources:
         limits:
           cpus: '1'
           memory: 512M
+          pids: 128
 
   # ============================================================
   # Cloudflare Tunnel (Optional) - For remote access
@@ -208,6 +248,11 @@ services:
     environment:
       - BACKEND_URL=http://backend:8000
       - SANDBOX_API_KEY=${SANDBOX_API_KEY:?SANDBOX_API_KEY is required}
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=16M
     depends_on:
       backend:
         condition: service_healthy
@@ -216,11 +261,17 @@ services:
     networks:
       - mcpbox-internal
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     deploy:
       resources:
         limits:
           cpus: '0.25'
           memory: 128M
+          pids: 32
 
 networks:
   mcpbox-internal:

@@ -97,9 +97,7 @@ async def test_list_servers_pagination(async_client: AsyncClient, admin_headers)
         )
 
     # Get page 1 with small page size
-    response = await async_client.get(
-        "/api/servers?page=1&page_size=2", headers=admin_headers
-    )
+    response = await async_client.get("/api/servers?page=1&page_size=2", headers=admin_headers)
     assert response.status_code == 200
     data = response.json()
     assert len(data["items"]) == 2
@@ -107,9 +105,7 @@ async def test_list_servers_pagination(async_client: AsyncClient, admin_headers)
     assert data["page_size"] == 2
 
     # Get page 2
-    response = await async_client.get(
-        "/api/servers?page=2&page_size=2", headers=admin_headers
-    )
+    response = await async_client.get("/api/servers?page=2&page_size=2", headers=admin_headers)
     assert response.status_code == 200
     data = response.json()
     assert len(data["items"]) == 2
@@ -128,9 +124,7 @@ async def test_get_server(async_client: AsyncClient, admin_headers):
     server_id = create_response.json()["id"]
 
     # Get the server
-    response = await async_client.get(
-        f"/api/servers/{server_id}", headers=admin_headers
-    )
+    response = await async_client.get(f"/api/servers/{server_id}", headers=admin_headers)
     assert response.status_code == 200
     data = response.json()
     assert data["name"] == "Get Test Server"
@@ -211,15 +205,11 @@ async def test_delete_server(async_client: AsyncClient, admin_headers):
     server_id = create_response.json()["id"]
 
     # Delete the server
-    response = await async_client.delete(
-        f"/api/servers/{server_id}", headers=admin_headers
-    )
+    response = await async_client.delete(f"/api/servers/{server_id}", headers=admin_headers)
     assert response.status_code == 204
 
     # Verify it's deleted
-    get_response = await async_client.get(
-        f"/api/servers/{server_id}", headers=admin_headers
-    )
+    get_response = await async_client.get(f"/api/servers/{server_id}", headers=admin_headers)
     assert get_response.status_code == 404
 
 

@@ -51,22 +51,28 @@ def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
 
 
 def _check_security_configuration():
-    """Check security configuration and log warnings."""
+    """Check security configuration and abort on critical issues.
+
+    Validates required environment variables at startup so misconfigurations
+    surface immediately rather than at runtime when a request hits.
+    """
     sandbox_api_key = os.environ.get("SANDBOX_API_KEY", "")
     encryption_key = os.environ.get("MCPBOX_ENCRYPTION_KEY", "")
     allow_missing_encryption = (
         os.environ.get("SANDBOX_ALLOW_MISSING_ENCRYPTION", "").lower() == "true"
     )
 
+    errors: list[str] = []
+
     if not sandbox_api_key:
-        logger.warning(
-            "SANDBOX_API_KEY not set. Requests will be rejected until configured. "
-            'Generate a key with: python -c "import secrets; print(secrets.token_hex(32))"'
+        errors.append(
+            "SANDBOX_API_KEY is required but not set. "
+            'Generate with: python -c "import secrets; print(secrets.token_hex(32))"'
         )
     elif len(sandbox_api_key) < 32:
-        logger.warning(
-            "SANDBOX_API_KEY appears weak (less than 32 characters). "
-            "Consider using a stronger key."
+        errors.append(
+            f"SANDBOX_API_KEY must be at least 32 characters, got {len(sandbox_api_key)}. "
+            'Generate with: python -c "import secrets; print(secrets.token_hex(32))"'
         )
 
     if not encryption_key:
@@ -76,26 +82,34 @@ def _check_security_configuration():
                 "Credentials cannot be decrypted - tools using credentials will fail."
             )
         else:
-            logger.error(
-                "MCPBOX_ENCRYPTION_KEY not set. Tools with credentials will fail. "
-                "Set SANDBOX_ALLOW_MISSING_ENCRYPTION=true to suppress this error in development."
+            errors.append(
+                "MCPBOX_ENCRYPTION_KEY is required but not set. "
+                "Set SANDBOX_ALLOW_MISSING_ENCRYPTION=true to suppress in development. "
+                'Generate with: python -c "import secrets; print(secrets.token_hex(32))"'
             )
     else:
         # Validate encryption key format (must match backend validation)
         import re
 
         if len(encryption_key) != 64:
-            logger.error(
+            errors.append(
                 f"MCPBOX_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes), "
-                f"got {len(encryption_key)} characters. Tools with credentials will fail. "
-                'Generate a key with: python -c "import secrets; print(secrets.token_hex(32))"'
+                f"got {len(encryption_key)} characters. "
+                'Generate with: python -c "import secrets; print(secrets.token_hex(32))"'
             )
         elif not re.fullmatch(r"[0-9a-fA-F]+", encryption_key):
-            logger.error(
+            errors.append(
                 "MCPBOX_ENCRYPTION_KEY must contain only hexadecimal characters (0-9, a-f). "
-                "Tools with credentials will fail. "
-                'Generate a key with: python -c "import secrets; print(secrets.token_hex(32))"'
+                'Generate with: python -c "import secrets; print(secrets.token_hex(32))"'
             )
+
+    if errors:
+        for error in errors:
+            logger.error(f"STARTUP FATAL: {error}")
+        raise SystemExit(
+            "Sandbox startup aborted due to configuration errors. "
+            f"Fix the {len(errors)} error(s) above and restart."
+        )
 
 
 @asynccontextmanager

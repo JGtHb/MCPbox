@@ -4,7 +4,6 @@ Tests the code safety validator directly without going through the HTTP API.
 This covers the regex-based pattern detection that prevents sandbox escapes.
 """
 
-
 from app.executor import validate_code_safety
 
 
