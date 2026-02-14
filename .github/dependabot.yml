@@ -1,0 +1,66 @@
+version: 2
+updates:
+  # Backend Python dependencies
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    reviewers:
+      - "JGtHb"
+    labels:
+      - "dependencies"
+      - "backend"
+    open-pull-requests-limit: 10
+
+  # Sandbox Python dependencies
+  - package-ecosystem: "pip"
+    directory: "/sandbox"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    reviewers:
+      - "JGtHb"
+    labels:
+      - "dependencies"
+      - "sandbox"
+    open-pull-requests-limit: 10
+
+  # Frontend npm dependencies
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    reviewers:
+      - "JGtHb"
+    labels:
+      - "dependencies"
+      - "frontend"
+    open-pull-requests-limit: 10
+
+  # Worker npm dependencies
+  - package-ecosystem: "npm"
+    directory: "/worker"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    reviewers:
+      - "JGtHb"
+    labels:
+      - "dependencies"
+      - "worker"
+    open-pull-requests-limit: 5
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    reviewers:
+      - "JGtHb"
+    labels:
+      - "dependencies"
+      - "ci"
+    open-pull-requests-limit: 5
