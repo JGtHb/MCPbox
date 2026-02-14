@@ -1,0 +1,17 @@
+# Development dependencies
+pytest==9.0.2
+pytest-asyncio==1.3.0
+pytest-cov==7.0.0
+httpx==0.28.1  # For TestClient
+aiosqlite==0.22.1  # For in-memory test database
+
+# Testcontainers for automatic PostgreSQL provisioning (optional but recommended)
+# Install with: pip install testcontainers[postgres]
+testcontainers[postgres]==4.14.1
+
+# Code quality
+ruff==0.15.0
+mypy==1.19.1
+
+# Type stubs
+types-PyJWT==1.7.1
