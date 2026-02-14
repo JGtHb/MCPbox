@@ -1078,16 +1078,16 @@ class TestJWTIntegrationWithGateway:
 
 
 class TestMCPGatewaySyncAuth:
-    """Regression tests for Cloudflare sync scenario.
+    """Regression tests for Cloudflare sync and Portal user scenarios.
 
-    Cloudflare's MCP server sync authenticates via OAuth (no JWT). All MCP
-    methods (initialize, tools/list, notifications, tools/call) are allowed
-    with a valid service token. Only unknown methods are blocked as
-    defense-in-depth.
+    Cloudflare's MCP server sync authenticates via OAuth (no JWT, no email).
+    Sync-only methods (initialize, tools/list, notifications) are allowed.
+    Tool execution (tools/call) and unknown methods require a verified user
+    identity (email from MCP Portal OAuth props or JWT).
 
     These tests mock ServiceTokenCache with a valid service token and no JWT
     verification config (team_domain=None, portal_aud=None), simulating the
-    Worker forwarding a sync request with a valid service token but no JWT.
+    Worker forwarding requests with a valid service token but no JWT.
     """
 
     @staticmethod
@@ -1173,8 +1173,8 @@ class TestMCPGatewaySyncAuth:
         assert response.status_code == 202
 
     @pytest.mark.asyncio
-    async def test_sync_tools_call_allowed(self, async_client: AsyncClient, mock_sandbox_client):
-        """Cloudflare sync can call tools/call (OAuth + service token sufficient)."""
+    async def test_sync_tools_call_blocked(self, async_client: AsyncClient, mock_sandbox_client):
+        """Cloudflare sync cannot call tools/call (no verified user identity)."""
         test_token = "a" * 32
         mock_cache = self._make_sync_cache(test_token)
 
@@ -1192,7 +1192,39 @@ class TestMCPGatewaySyncAuth:
 
         assert response.status_code == 200
         result = response.json()
-        # Should succeed - management tool call works with OAuth + service token
+        # Should be blocked - anonymous remote requests cannot execute tools
+        assert "error" in result
+        assert result["error"]["code"] == -32600
+        assert "authentication" in result["error"]["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_portal_user_tools_call_allowed(
+        self, async_client: AsyncClient, mock_sandbox_client
+    ):
+        """Portal user with verified email can call tools/call."""
+        test_token = "a" * 32
+        mock_cache = self._make_sync_cache(test_token)
+
+        headers = {
+            **self._make_sync_headers(test_token),
+            "X-MCPbox-User-Email": "user@example.com",
+        }
+
+        with patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache):
+            response = await async_client.post(
+                "/mcp",
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": "mcpbox_list_servers", "arguments": {}},
+                },
+                headers=headers,
+            )
+
+        assert response.status_code == 200
+        result = response.json()
+        # Should succeed - Portal user has verified email from OAuth props
         assert "result" in result
         assert "content" in result["result"]
 

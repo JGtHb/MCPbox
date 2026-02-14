@@ -157,26 +157,28 @@ Failed auth attempts are tracked per IP. After 10 failures in 60 seconds, the IP
 
 ## 4. Method Authorization
 
-The gateway uses `_is_unauthenticated_remote` flag to control per-method access:
+The gateway uses `_is_anonymous_remote` flag to control per-method access:
 
 ```python
-_is_unauthenticated_remote = _user.source == "worker" and _user.auth_method != "jwt"
+_is_anonymous_remote = _user.source == "worker" and not _user.email
 ```
+
+A remote request is "anonymous" when it has no verified user email — either from server-side JWT verification or from OAuth token props (email embedded at MCP Portal authorization time). This blocks both Cloudflare sync (no user context) and direct Worker access without Portal authentication.
 
 ### Per-Method Authorization Table
 
-| Method | Local User | Portal User (JWT) | OAuth + Service Token |
-|--------|-----------|-------------------|----------------------|
+| Method | Local User | Portal User (email) | Anonymous Remote (no email) |
+|--------|-----------|---------------------|----------------------------|
 | `initialize` | Allowed | Allowed | **Allowed** |
 | `tools/list` | Allowed | Allowed | **Allowed** |
 | `notifications/*` | Allowed (202) | Allowed (202) | **Allowed** (202) |
-| `tools/call` | Allowed | Allowed | **Allowed** |
+| `tools/call` | Allowed | Allowed | **Blocked** (-32600) |
 | Unknown methods | Allowed (forwarded) | Allowed (forwarded) | **Blocked** (-32600) |
 
-User email for audit logging comes from:
+User email for authorization and audit logging comes from:
 1. **JWT at request time** (strongest — verified on each request)
 2. **OAuth token props** (verified at authorization time, bounded by token TTL)
-3. **None** (Cloudflare sync without user context)
+3. **None** (Cloudflare sync or direct Worker access without Portal — blocked from tool execution)
 
 ### Destructive Tool Restrictions
 
@@ -215,8 +217,8 @@ Cloudflare sync sends requests to `/mcp`, not `/`. The URL rewriting must handle
 ### Redirect URI Allowlist (Bug #3, #6)
 The Cloudflare dashboard (`one.dash.cloudflare.com`) and the MCP Portal hostname must be in the redirect URI allowlist. The portal hostname is dynamic per deployment, so it's checked via the `MCP_PORTAL_HOSTNAME` env var.
 
-### All MCP Methods Work With OAuth + Service Token (Bug #5)
-Cloudflare's MCP server sync authenticates via OAuth only (no Cf-Access-Jwt-Assertion). The MCP Portal also does NOT forward JWTs on tool calls. All standard MCP methods (`initialize`, `tools/list`, `notifications/*`, `tools/call`) are allowed with a valid service token. Only unknown methods are blocked as defense-in-depth. User email for audit logging comes from encrypted OAuth token props (verified at authorization time).
+### Sync Methods Work Without Email, Tool Execution Requires Email (Bug #5)
+Cloudflare's MCP server sync authenticates via OAuth only (no Cf-Access-Jwt-Assertion, no email). Sync-only methods (`initialize`, `tools/list`, `notifications/*`) are allowed with a valid service token. Tool execution (`tools/call`) and unknown methods require a verified user email — either from server-side JWT verification or from OAuth token props (email embedded at MCP Portal authorization time). This prevents anonymous tool execution by users who bypass the MCP Portal's Access Policy.
 
 ### Service Token Must Return 403, Not 401
 Returning 401 for service token failures triggers Cloudflare's OAuth re-auth logic. Always return 403 for service token mismatches.

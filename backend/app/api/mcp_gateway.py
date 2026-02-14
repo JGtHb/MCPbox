@@ -168,13 +168,19 @@ async def mcp_gateway(
             _user.email,
         )
 
-        # SECURITY: Remote requests without any user identity (no JWT, no OAuth
-        # props email) are restricted to read-only methods. When a service token
-        # is valid, the Worker is trusted, and user email from OAuth props
-        # (verified at authorization time) is sufficient for tool execution.
-        # Only truly unauthenticated remote requests (Cloudflare sync) are gated.
-        # Local requests (source="local", auth_method=None) are always allowed.
-        _is_unauthenticated_remote = _user.source == "worker" and _user.auth_method != "jwt"
+        # SECURITY: Remote requests without a verified user identity are
+        # restricted to read-only/sync methods (initialize, tools/list,
+        # notifications). Tool execution (tools/call) requires a verified
+        # user email — either from server-side JWT verification or from
+        # OAuth token props (email embedded at authorization time when
+        # the user authenticated via the MCP Portal).
+        #
+        # This ensures that:
+        # - MCP Portal users (email in OAuth props) can execute tools
+        # - Cloudflare sync (no email) can discover tools but not execute
+        # - Direct Worker access without Portal auth cannot execute tools
+        # - Local requests (source="local") are always allowed
+        _is_anonymous_remote = _user.source == "worker" and not _user.email
 
         # Handle different MCP methods
         if method == "initialize":
@@ -211,8 +217,31 @@ async def mcp_gateway(
             response_result = await _handle_tools_list(sandbox_client, db)
 
         elif method == "tools/call":
-            # Tool execution. Service token + OAuth is sufficient (user email
-            # comes from OAuth props, verified at authorization time).
+            # Tool execution requires a verified user identity for remote
+            # requests. The email comes from either server-side JWT
+            # verification or OAuth token props (set when the user
+            # authenticated via the MCP Portal). Anonymous remote
+            # requests (Cloudflare sync, direct Worker access without
+            # Portal) are blocked from executing tools.
+            if _is_anonymous_remote:
+                logger.warning(
+                    "Blocked anonymous remote tools/call from %s",
+                    _user.source,
+                )
+                response_error = {
+                    "code": -32600,
+                    "message": "Tool execution requires user authentication via MCP Portal",
+                }
+                duration_ms = int((time.time() - start_time) * 1000)
+                await activity_logger.log_mcp_response(
+                    request_id=request_id,
+                    success=False,
+                    duration_ms=duration_ms,
+                    method=method,
+                    error=str(response_error),
+                )
+                return MCPResponse(id=request.id, error=response_error)
+
             tool_name = params.get("name", "")
             arguments = params.get("arguments", {})
 
@@ -241,8 +270,8 @@ async def mcp_gateway(
                     response_result = sandbox_response.get("result")
         else:
             # Unknown methods: forward to sandbox.
-            # Require JWT for remote requests as defense-in-depth.
-            if _is_unauthenticated_remote:
+            # Require authenticated user for remote requests as defense-in-depth.
+            if _is_anonymous_remote:
                 response_error = {
                     "code": -32600,
                     "message": "Requires user authentication via Cloudflare Access",
