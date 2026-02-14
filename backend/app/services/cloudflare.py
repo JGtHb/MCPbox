@@ -1,6 +1,7 @@
 """Cloudflare service - business logic for remote access wizard."""
 
 import base64
+import json
 import logging
 import os
 import re
@@ -26,6 +27,7 @@ from app.schemas.cloudflare import (
     SetApiTokenResponse,
     StartWithApiTokenResponse,
     TeardownResponse,
+    UpdateAccessPolicyResponse,
     WizardStatusResponse,
     Zone,
 )
@@ -107,6 +109,14 @@ class CloudflareService:
         if not config:
             return WizardStatusResponse()
 
+        # Parse stored access policy emails (JSON array or None)
+        access_policy_emails = None
+        if config.access_policy_emails:
+            try:
+                access_policy_emails = json.loads(config.access_policy_emails)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
         return WizardStatusResponse(
             config_id=config.id,
             status=config.status,
@@ -126,6 +136,9 @@ class CloudflareService:
             mcp_portal_id=config.mcp_portal_id,
             mcp_portal_hostname=config.mcp_portal_hostname,
             mcp_portal_aud=config.mcp_portal_aud,
+            access_policy_type=config.access_policy_type,
+            access_policy_emails=access_policy_emails,
+            access_policy_email_domain=config.access_policy_email_domain,
             created_at=config.created_at,
             updated_at=config.updated_at,
         )
@@ -1094,6 +1107,9 @@ export default {
                 # Sync may fail if Worker isn't accessible yet
                 pass
 
+            # Persist access policy to database for Worker sync
+            self._save_access_policy_to_config(config, access_policy)
+
             # Update config
             config.mcp_server_id = mcp_server_id
             config.completed_step = max(config.completed_step, 5)
@@ -1337,6 +1353,10 @@ export default {
             # Step 4: Create DNS record for the portal hostname
             await self._create_dns_record(api_token, mcp_portal_hostname)
 
+            # Persist access policy to database (may already be set from step 5)
+            if access_policy:
+                self._save_access_policy_to_config(config, access_policy)
+
             # Update config
             config.mcp_portal_id = mcp_portal_id
             config.mcp_portal_hostname = mcp_portal_hostname
@@ -1364,6 +1384,19 @@ export default {
                     if config.encrypted_service_token:
                         svc_token = decrypt_from_base64(config.encrypted_service_token)
 
+                    # Build access policy from DB fields for Worker sync
+                    sync_policy = access_policy
+                    if not sync_policy and config.access_policy_type:
+                        sync_policy = AccessPolicyConfig(
+                            policy_type=config.access_policy_type,  # type: ignore[arg-type]
+                            emails=(
+                                json.loads(config.access_policy_emails)
+                                if config.access_policy_emails
+                                else []
+                            ),
+                            email_domain=config.access_policy_email_domain,
+                        )
+
                     await self._sync_worker_secrets(
                         api_token,
                         config.account_id,
@@ -1372,6 +1405,7 @@ export default {
                         mcp_portal_aud,
                         service_token=svc_token,
                         portal_hostname=config.mcp_portal_hostname,
+                        access_policy=sync_policy,
                     )
                     jwt_configured = True
                     config.completed_step = 7
@@ -1484,6 +1518,137 @@ export default {
             logger.warning(f"Failed to create Access Policy: {e}")
             # Non-fatal - user can add policy manually
 
+    def _save_access_policy_to_config(
+        self,
+        config: CloudflareConfig,
+        access_policy: AccessPolicyConfig | None,
+    ) -> None:
+        """Persist access policy configuration to the database.
+
+        Stores the policy type, emails (as JSON), and email domain so they
+        can be synced to both Cloudflare Access and the Worker's ALLOWED_EMAILS.
+        """
+        if not access_policy:
+            return
+        config.access_policy_type = access_policy.policy_type
+        if access_policy.policy_type == "emails" and access_policy.emails:
+            config.access_policy_emails = json.dumps(access_policy.emails)
+        else:
+            config.access_policy_emails = None
+        if access_policy.policy_type == "email_domain":
+            config.access_policy_email_domain = access_policy.email_domain
+        else:
+            config.access_policy_email_domain = None
+
+    async def _replace_access_policy(
+        self,
+        api_token: str,
+        account_id: str,
+        access_app_id: str,
+        access_policy: AccessPolicyConfig,
+    ) -> None:
+        """Replace all existing Access Policies on an app with a new one.
+
+        Deletes all existing policies first, then creates the new one.
+        This is used when updating the access policy after initial setup.
+        """
+        # List existing policies
+        try:
+            policies_data = await self._cf_request(
+                "GET",
+                f"/accounts/{account_id}/access/apps/{access_app_id}/policies",
+                api_token,
+            )
+            existing_policies = policies_data.get("result", [])
+            for policy in existing_policies:
+                policy_id = policy.get("id")
+                if policy_id:
+                    try:
+                        await self._cf_request(
+                            "DELETE",
+                            f"/accounts/{account_id}/access/apps/{access_app_id}/policies/{policy_id}",
+                            api_token,
+                        )
+                        logger.info(f"Deleted existing Access Policy: {policy_id}")
+                    except CloudflareAPIError as e:
+                        logger.warning(f"Failed to delete policy {policy_id}: {e}")
+        except CloudflareAPIError as e:
+            logger.warning(f"Failed to list existing policies: {e}")
+
+        # Create the new policy
+        await self._create_access_policy(api_token, account_id, access_app_id, access_policy)
+
+    async def update_access_policy(
+        self,
+        config_id: UUID,
+        access_policy: AccessPolicyConfig,
+    ) -> UpdateAccessPolicyResponse:
+        """Update the access policy for both Cloudflare Access and the Worker.
+
+        1. Persists the new policy in the database
+        2. Replaces the Cloudflare Access Policy on the Access App
+        3. Syncs ALLOWED_EMAILS / ALLOWED_EMAIL_DOMAIN to the Worker
+        """
+        config = await self.get_config_by_id(config_id)
+        if not config:
+            raise ValueError("Configuration not found")
+
+        api_token = await self._get_decrypted_token(config)
+        if not api_token:
+            raise ValueError("API token not available")
+
+        # 1. Save to database
+        self._save_access_policy_to_config(config, access_policy)
+        await self.db.flush()
+
+        access_policy_synced = False
+        worker_synced = False
+        errors: list[str] = []
+
+        # 2. Update Cloudflare Access Policy
+        if config.access_app_id:
+            try:
+                await self._replace_access_policy(
+                    api_token, config.account_id, config.access_app_id, access_policy
+                )
+                access_policy_synced = True
+            except CloudflareAPIError as e:
+                errors.append(f"Access Policy update failed: {e}")
+                logger.warning(f"Failed to update Access Policy: {e}")
+
+        # 3. Sync to Worker
+        if config.worker_name and config.team_domain and config.mcp_portal_aud:
+            try:
+                svc_token = None
+                if config.encrypted_service_token:
+                    svc_token = decrypt_from_base64(config.encrypted_service_token)
+
+                await self._sync_worker_secrets(
+                    api_token,
+                    config.account_id,
+                    config.worker_name,
+                    config.team_domain,
+                    config.mcp_portal_aud,
+                    service_token=svc_token,
+                    portal_hostname=config.mcp_portal_hostname,
+                    access_policy=access_policy,
+                )
+                worker_synced = True
+            except Exception as e:
+                errors.append(f"Worker sync failed: {e}")
+                logger.warning(f"Failed to sync Worker secrets: {e}")
+
+        message = "Access policy updated"
+        if errors:
+            message += f" (warnings: {'; '.join(errors)})"
+
+        return UpdateAccessPolicyResponse(
+            success=True,
+            access_policy_synced=access_policy_synced,
+            worker_synced=worker_synced,
+            message=message,
+        )
+
     async def _create_dns_record(
         self,
         api_token: str,
@@ -1570,13 +1735,14 @@ export default {
         aud: str,
         service_token: str | None = None,
         portal_hostname: str | None = None,
+        access_policy: AccessPolicyConfig | None = None,
     ) -> None:
         """Sync all Worker secrets from the database using wrangler CLI.
 
         Pushes CF_ACCESS_TEAM_DOMAIN, CF_ACCESS_AUD, MCP_PORTAL_HOSTNAME,
-        and (if provided) MCPBOX_SERVICE_TOKEN to the Worker. This ensures
-        the Worker always has the current values from the database — the
-        single source of truth.
+        ALLOWED_EMAILS, ALLOWED_EMAIL_DOMAIN, and (if provided)
+        MCPBOX_SERVICE_TOKEN to the Worker. This ensures the Worker always
+        has the current values from the database — the single source of truth.
 
         Raises an exception if any secret fails to set.
         """
@@ -1614,6 +1780,20 @@ compatibility_flags = ["nodejs_compat"]
                 secrets_to_set["MCPBOX_SERVICE_TOKEN"] = service_token
             if portal_hostname:
                 secrets_to_set["MCP_PORTAL_HOSTNAME"] = portal_hostname
+
+            # Sync allowed emails/domain to Worker for authorization enforcement.
+            # Use a placeholder value "_none_" to clear secrets — wrangler
+            # doesn't support deleting secrets, and empty strings cause errors.
+            if access_policy:
+                if access_policy.policy_type == "emails" and access_policy.emails:
+                    secrets_to_set["ALLOWED_EMAILS"] = ",".join(access_policy.emails)
+                else:
+                    secrets_to_set["ALLOWED_EMAILS"] = "_none_"
+
+                if access_policy.policy_type == "email_domain" and access_policy.email_domain:
+                    secrets_to_set["ALLOWED_EMAIL_DOMAIN"] = access_policy.email_domain
+                else:
+                    secrets_to_set["ALLOWED_EMAIL_DOMAIN"] = "_none_"
 
             secrets_failed = []
 
@@ -1771,7 +1951,20 @@ compatibility_flags = ["nodejs_compat"]
             if config.encrypted_service_token:
                 svc_token = decrypt_from_base64(config.encrypted_service_token)
 
-            # Sync all Worker secrets (JWT + service token + portal hostname)
+            # Build access policy from DB for Worker sync
+            sync_policy = None
+            if config.access_policy_type:
+                sync_policy = AccessPolicyConfig(
+                    policy_type=config.access_policy_type,  # type: ignore[arg-type]
+                    emails=(
+                        json.loads(config.access_policy_emails)
+                        if config.access_policy_emails
+                        else []
+                    ),
+                    email_domain=config.access_policy_email_domain,
+                )
+
+            # Sync all Worker secrets (JWT + service token + portal hostname + access policy)
             await self._sync_worker_secrets(
                 api_token,
                 config.account_id,
@@ -1780,6 +1973,7 @@ compatibility_flags = ["nodejs_compat"]
                 mcp_portal_aud,
                 service_token=svc_token,
                 portal_hostname=config.mcp_portal_hostname,
+                access_policy=sync_policy,
             )
 
             # Wait a moment for secrets to propagate, then test direct Worker access

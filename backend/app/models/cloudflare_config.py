@@ -54,6 +54,11 @@ class CloudflareConfig(BaseModel):
     # Access Application ID (for JWT verification - created separately from MCP Portal)
     access_app_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
+    # Access policy configuration (synced to both Cloudflare Access and Worker ALLOWED_EMAILS)
+    access_policy_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    access_policy_emails: Mapped[str | None] = mapped_column(Text, nullable=True)
+    access_policy_email_domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     # Wizard step tracking (0-7, where 7 is complete)
     completed_step: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 

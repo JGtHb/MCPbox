@@ -1,5 +1,7 @@
 """Tests for internal service-to-service endpoints."""
 
+import json
+
 import pytest
 from httpx import AsyncClient
 
@@ -144,6 +146,9 @@ def cloudflare_config_factory(db_session):
         has_service_token: bool = True,
         completed_step: int = 7,
         kv_namespace_id: str | None = None,
+        access_policy_type: str | None = None,
+        access_policy_emails: list[str] | None = None,
+        access_policy_email_domain: str | None = None,
     ) -> CloudflareConfig:
         config = CloudflareConfig(
             encrypted_api_token=encrypt_to_base64("fake-api-token"),
@@ -158,6 +163,11 @@ def cloudflare_config_factory(db_session):
             encrypted_service_token=encrypt_to_base64("svc-token") if has_service_token else None,
             completed_step=completed_step,
             kv_namespace_id=kv_namespace_id,
+            access_policy_type=access_policy_type,
+            access_policy_emails=(
+                json.dumps(access_policy_emails) if access_policy_emails else None
+            ),
+            access_policy_email_domain=access_policy_email_domain,
         )
         db_session.add(config)
         await db_session.flush()
@@ -312,3 +322,65 @@ class TestGetActiveServiceToken:
             "/internal/active-service-token", headers=INTERNAL_AUTH_HEADER
         )
         assert response.status_code == 200
+
+
+class TestWorkerDeployConfigAccessPolicy:
+    """Tests for access policy fields in GET /internal/worker-deploy-config."""
+
+    async def test_returns_allowed_emails_when_configured(
+        self, async_client: AsyncClient, cloudflare_config_factory
+    ):
+        await cloudflare_config_factory(
+            access_policy_type="emails",
+            access_policy_emails=["user@example.com", "admin@example.com"],
+        )
+
+        response = await async_client.get(
+            "/internal/worker-deploy-config", headers=INTERNAL_AUTH_HEADER
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["allowed_emails"] == "user@example.com,admin@example.com"
+        assert data["allowed_email_domain"] == ""
+
+    async def test_returns_allowed_email_domain_when_configured(
+        self, async_client: AsyncClient, cloudflare_config_factory
+    ):
+        await cloudflare_config_factory(
+            access_policy_type="email_domain",
+            access_policy_email_domain="example.com",
+        )
+
+        response = await async_client.get(
+            "/internal/worker-deploy-config", headers=INTERNAL_AUTH_HEADER
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["allowed_emails"] == ""
+        assert data["allowed_email_domain"] == "example.com"
+
+    async def test_returns_empty_when_everyone_policy(
+        self, async_client: AsyncClient, cloudflare_config_factory
+    ):
+        await cloudflare_config_factory(access_policy_type="everyone")
+
+        response = await async_client.get(
+            "/internal/worker-deploy-config", headers=INTERNAL_AUTH_HEADER
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["allowed_emails"] == ""
+        assert data["allowed_email_domain"] == ""
+
+    async def test_returns_empty_when_no_policy_configured(
+        self, async_client: AsyncClient, cloudflare_config_factory
+    ):
+        await cloudflare_config_factory()
+
+        response = await async_client.get(
+            "/internal/worker-deploy-config", headers=INTERNAL_AUTH_HEADER
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["allowed_emails"] == ""
+        assert data["allowed_email_domain"] == ""

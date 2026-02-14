@@ -48,6 +48,11 @@ export interface Env {
   CF_ACCESS_AUD?: string;
   // MCP Portal hostname (e.g., "mcp.example.com") for redirect URI validation
   MCP_PORTAL_HOSTNAME?: string;
+  // Comma-separated list of allowed email addresses (e.g., "user@example.com,admin@example.com")
+  // When set, only these emails can authorize and execute tools. "_none_" means no restriction.
+  ALLOWED_EMAILS?: string;
+  // Allowed email domain (e.g., "example.com"). "_none_" means no restriction.
+  ALLOWED_EMAIL_DOMAIN?: string;
   // OAuthHelpers injected by OAuthProvider into defaultHandler
   OAUTH_PROVIDER: OAuthHelpers;
 }
@@ -130,6 +135,55 @@ function extractEmailFromJwt(jwt: string): string | null {
   const payload = decodeJwtPayload(jwt);
   if (!payload) return null;
   return typeof payload.email === 'string' ? payload.email : null;
+}
+
+/**
+ * Check if an email is allowed by the configured allowlist.
+ *
+ * Returns true if:
+ * - No ALLOWED_EMAILS and no ALLOWED_EMAIL_DOMAIN are configured (open access)
+ * - Both are set to "_none_" (explicitly no restriction)
+ * - The email matches one of the ALLOWED_EMAILS
+ * - The email domain matches ALLOWED_EMAIL_DOMAIN
+ *
+ * Returns false if restrictions are configured and the email doesn't match.
+ * Also returns false if restrictions are configured but no email is provided.
+ */
+function isEmailAllowed(email: string | null, env: Env): boolean {
+  const allowedEmails = env.ALLOWED_EMAILS?.trim();
+  const allowedDomain = env.ALLOWED_EMAIL_DOMAIN?.trim();
+
+  // No restrictions configured — allow all
+  const emailsEmpty = !allowedEmails || allowedEmails === '_none_';
+  const domainEmpty = !allowedDomain || allowedDomain === '_none_';
+  if (emailsEmpty && domainEmpty) {
+    return true;
+  }
+
+  // Restrictions configured but no email provided — deny
+  if (!email) {
+    return false;
+  }
+
+  const normalizedEmail = email.toLowerCase();
+
+  // Check specific email allowlist
+  if (!emailsEmpty) {
+    const emails = allowedEmails.split(',').map(e => e.trim().toLowerCase());
+    if (emails.includes(normalizedEmail)) {
+      return true;
+    }
+  }
+
+  // Check email domain allowlist
+  if (!domainEmpty) {
+    const domain = allowedDomain.toLowerCase();
+    if (normalizedEmail.endsWith(`@${domain}`)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -391,6 +445,21 @@ const apiHandler = {
       userEmail = ctx.props.email;
     }
 
+    // Defense-in-depth: re-check ALLOWED_EMAILS on every API request.
+    // This catches cases where the allowlist was updated after the OAuth
+    // token was issued, or tokens that were issued before restrictions
+    // were configured.
+    if (!isEmailAllowed(userEmail, env)) {
+      console.warn(`SECURITY: Blocked API request for email '${userEmail}' — not in ALLOWED_EMAILS`);
+      return new Response(JSON.stringify({
+        error: 'access_denied',
+        error_description: 'Your email is not authorized to access this server.',
+      }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      });
+    }
+
     // Build headers for MCPbox Gateway
     const headers = new Headers(request.headers);
     headers.set('X-MCPbox-Service-Token', env.MCPBOX_SERVICE_TOKEN);
@@ -473,6 +542,23 @@ const defaultHandler = {
               console.log(`OAuth authorize: JWT verified for ${userId}`);
             }
           }
+        }
+
+        // ALLOWED_EMAILS enforcement: reject users whose email is not in the
+        // allowlist. When the user has a verified JWT email, check it against
+        // ALLOWED_EMAILS / ALLOWED_EMAIL_DOMAIN. When no JWT is present
+        // (Cloudflare sync, direct OAuth), only block if restrictions are
+        // configured — sync uses userId 'mcpbox-user' (no email).
+        const authorizeEmail = userId !== 'mcpbox-user' ? userId : null;
+        if (!isEmailAllowed(authorizeEmail, env)) {
+          console.warn(`SECURITY: Blocked /authorize for email '${authorizeEmail}' — not in ALLOWED_EMAILS`);
+          return new Response(JSON.stringify({
+            error: 'access_denied',
+            error_description: 'Your email is not authorized to access this server.',
+          }), {
+            status: 403,
+            headers: { 'Content-Type': 'application/json', ...corsHeaders },
+          });
         }
 
         // Auto-register unknown clients. Clients may have been registered in a

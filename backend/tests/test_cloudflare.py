@@ -1,5 +1,6 @@
 """Tests for Cloudflare remote access wizard API."""
 
+import json
 from unittest.mock import AsyncMock, Mock, patch
 from uuid import uuid4
 
@@ -989,3 +990,189 @@ async def test_get_tunnel_token_not_found(async_client, admin_headers, cloudflar
         headers=admin_headers,
     )
     assert response.status_code == 404
+
+
+# --- Access Policy Persistence Tests ---
+
+
+@pytest.mark.asyncio
+async def test_create_mcp_server_persists_email_policy(
+    async_client, admin_headers, cloudflare_config_factory, mock_cloudflare_api, db_session
+):
+    """Test that creating MCP server with email policy persists it to database."""
+    config = await cloudflare_config_factory(
+        worker_url="https://mcpbox-proxy.test.workers.dev",
+        completed_step=4,
+    )
+
+    def mock_request(method, url, **kwargs):
+        response = Mock()
+        if "mcp/servers" in url and method == "POST":
+            if "/sync" in url:
+                response.json.return_value = {"success": True, "result": {"tools": []}}
+            else:
+                response.json.return_value = {"success": True, "result": {"id": "mcpbox"}}
+        elif "access/apps" in url and method == "POST" and "policies" not in url:
+            response.json.return_value = {"success": True, "result": {"id": "mcp-app-123"}}
+        else:
+            response.json.return_value = {"success": True, "result": {}}
+        return response
+
+    mock_cloudflare_api.request.side_effect = mock_request
+
+    response = await async_client.post(
+        "/api/cloudflare/mcp-server",
+        json={
+            "config_id": str(config.id),
+            "server_id": "mcpbox",
+            "server_name": "MCPbox",
+            "access_policy": {
+                "policy_type": "emails",
+                "emails": ["user@example.com", "admin@example.com"],
+            },
+        },
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+
+    # Verify policy was persisted to database
+    await db_session.refresh(config)
+    assert config.access_policy_type == "emails"
+    assert json.loads(config.access_policy_emails) == [
+        "user@example.com",
+        "admin@example.com",
+    ]
+    assert config.access_policy_email_domain is None
+
+
+@pytest.mark.asyncio
+async def test_wizard_status_includes_access_policy(
+    async_client, admin_headers, cloudflare_config_factory
+):
+    """Test that wizard status response includes access policy fields."""
+    await cloudflare_config_factory(
+        access_policy_type="emails",
+        access_policy_emails=json.dumps(["user@example.com"]),
+        access_policy_email_domain=None,
+    )
+
+    response = await async_client.get("/api/cloudflare/status", headers=admin_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["access_policy_type"] == "emails"
+    assert data["access_policy_emails"] == ["user@example.com"]
+    assert data["access_policy_email_domain"] is None
+
+
+@pytest.mark.asyncio
+async def test_wizard_status_access_policy_domain(
+    async_client, admin_headers, cloudflare_config_factory
+):
+    """Test wizard status with email domain access policy."""
+    await cloudflare_config_factory(
+        access_policy_type="email_domain",
+        access_policy_email_domain="company.com",
+    )
+
+    response = await async_client.get("/api/cloudflare/status", headers=admin_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["access_policy_type"] == "email_domain"
+    assert data["access_policy_emails"] is None
+    assert data["access_policy_email_domain"] == "company.com"
+
+
+# --- Update Access Policy Tests ---
+
+
+@pytest.mark.asyncio
+async def test_update_access_policy_success(
+    async_client, admin_headers, cloudflare_config_factory, mock_cloudflare_api, db_session
+):
+    """Test updating access policy syncs to Cloudflare Access and database."""
+    config = await cloudflare_config_factory(
+        status="active",
+        access_app_id="app-123",
+        worker_name="mcpbox-proxy",
+        team_domain="test.cloudflareaccess.com",
+        mcp_portal_aud="aud-123",
+        completed_step=7,
+    )
+
+    policies_deleted = []
+    new_policy_body = None
+
+    def mock_request(method, url, **kwargs):
+        nonlocal new_policy_body
+        response = Mock()
+        if "policies" in url and method == "GET":
+            response.json.return_value = {
+                "success": True,
+                "result": [{"id": "old-policy-1"}, {"id": "old-policy-2"}],
+            }
+        elif "policies" in url and method == "DELETE":
+            policies_deleted.append(url)
+            response.json.return_value = {"success": True, "result": {}}
+        elif "policies" in url and method == "POST":
+            new_policy_body = kwargs.get("json", {})
+            response.json.return_value = {"success": True, "result": {}}
+        else:
+            response.json.return_value = {"success": True, "result": {}}
+        return response
+
+    mock_cloudflare_api.request.side_effect = mock_request
+
+    # Mock wrangler for Worker secret sync
+    def mock_subprocess_run(*args, **kwargs):
+        result = Mock()
+        result.returncode = 0
+        result.stderr = ""
+        result.stdout = "Success"
+        return result
+
+    with patch("app.services.cloudflare.subprocess.run", side_effect=mock_subprocess_run):
+        response = await async_client.put(
+            "/api/cloudflare/access-policy",
+            json={
+                "config_id": str(config.id),
+                "access_policy": {
+                    "policy_type": "emails",
+                    "emails": ["new-user@example.com"],
+                },
+            },
+            headers=admin_headers,
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["access_policy_synced"] is True
+    assert data["worker_synced"] is True
+
+    # Old policies should have been deleted
+    assert len(policies_deleted) == 2
+
+    # New policy should have been created with correct emails
+    assert new_policy_body is not None
+    assert new_policy_body["include"] == [{"email": {"email": "new-user@example.com"}}]
+
+    # Database should be updated
+    await db_session.refresh(config)
+    assert config.access_policy_type == "emails"
+    assert json.loads(config.access_policy_emails) == ["new-user@example.com"]
+
+
+@pytest.mark.asyncio
+async def test_update_access_policy_config_not_found(async_client, admin_headers):
+    """Test updating access policy with non-existent config."""
+    response = await async_client.put(
+        "/api/cloudflare/access-policy",
+        json={
+            "config_id": str(uuid4()),
+            "access_policy": {
+                "policy_type": "everyone",
+            },
+        },
+        headers=admin_headers,
+    )
+    assert response.status_code == 400

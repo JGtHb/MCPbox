@@ -365,9 +365,39 @@ class WizardStatusResponse(BaseModel):
     mcp_portal_hostname: str | None = None
     mcp_portal_aud: str | None = None
 
+    # Access policy
+    access_policy_type: str | None = None
+    access_policy_emails: list[str] | None = None
+    access_policy_email_domain: str | None = None
+
     # Timestamps
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+class UpdateAccessPolicyRequest(BaseModel):
+    """Request to update the access policy for both Cloudflare Access and Worker."""
+
+    config_id: UUID
+    access_policy: AccessPolicyConfig = Field(
+        ...,
+        description="New access policy configuration",
+    )
+
+
+class UpdateAccessPolicyResponse(BaseModel):
+    """Response from updating access policy."""
+
+    success: bool
+    access_policy_synced: bool = Field(
+        default=False,
+        description="Whether the Cloudflare Access Policy was updated",
+    )
+    worker_synced: bool = Field(
+        default=False,
+        description="Whether the Worker ALLOWED_EMAILS secret was updated",
+    )
+    message: str | None = None
 
 
 class TeardownResponse(BaseModel):

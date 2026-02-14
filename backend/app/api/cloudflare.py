@@ -35,6 +35,8 @@ from app.schemas.cloudflare import (
     StartWithApiTokenRequest,
     StartWithApiTokenResponse,
     TeardownResponse,
+    UpdateAccessPolicyRequest,
+    UpdateAccessPolicyResponse,
     WizardStatusResponse,
     Zone,
 )
@@ -416,6 +418,45 @@ async def configure_worker_jwt(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to configure Worker JWT. Check server logs for details.",
+        ) from None
+
+
+# =============================================================================
+# Update Access Policy
+# =============================================================================
+
+
+@router.put("/access-policy", response_model=UpdateAccessPolicyResponse)
+async def update_access_policy(
+    request: UpdateAccessPolicyRequest,
+    db: AsyncSession = Depends(get_db),
+    service: CloudflareService = Depends(get_cloudflare_service),
+) -> UpdateAccessPolicyResponse:
+    """Update the access policy for both Cloudflare Access and the Worker.
+
+    Syncs the allowed emails/domain to:
+    1. The Cloudflare Access Policy on the MCP Portal's Access Application
+    2. The Worker's ALLOWED_EMAILS / ALLOWED_EMAIL_DOMAIN secrets
+
+    This ensures both layers enforce the same access restrictions.
+    """
+    try:
+        result = await service.update_access_policy(
+            request.config_id,
+            request.access_policy,
+        )
+        await db.commit()
+        return result
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from None
+    except CloudflareAPIError as e:
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(e),
         ) from None
 
 

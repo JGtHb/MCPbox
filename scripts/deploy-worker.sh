@@ -52,6 +52,8 @@ TEAM_DOMAIN=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sy
 MCP_PORTAL_AUD=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('mcp_portal_aud') or '')")
 MCP_PORTAL_HOSTNAME=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('mcp_portal_hostname') or '')")
 KV_NAMESPACE_ID=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('kv_namespace_id') or '')")
+ALLOWED_EMAILS=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('allowed_emails') or '')")
+ALLOWED_EMAIL_DOMAIN=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('allowed_email_domain') or '')")
 
 echo "    Worker name:     $WORKER_NAME"
 echo "    VPC service ID:  $VPC_SERVICE_ID"
@@ -59,6 +61,8 @@ echo "    KV namespace ID: ${KV_NAMESPACE_ID:-'(not set)'}"
 echo "    Team domain:     ${TEAM_DOMAIN:-'(not set)'}"
 echo "    MCP Portal AUD:  ${MCP_PORTAL_AUD:0:16}${MCP_PORTAL_AUD:+...}"
 echo "    Portal hostname: ${MCP_PORTAL_HOSTNAME:-'(not set)'}"
+echo "    Allowed emails:  ${ALLOWED_EMAILS:-'(not set)'}"
+echo "    Allowed domain:  ${ALLOWED_EMAIL_DOMAIN:-'(not set)'}"
 
 echo ""
 echo "==> Generating worker/wrangler.toml..."
@@ -150,6 +154,20 @@ if [ "$SET_SECRETS" = true ]; then
         echo "    Set MCP_PORTAL_HOSTNAME"
     else
         echo "    Skipping MCP_PORTAL_HOSTNAME (not configured)"
+    fi
+
+    if [ -n "$ALLOWED_EMAILS" ]; then
+        echo "$ALLOWED_EMAILS" | npx wrangler secret put ALLOWED_EMAILS
+        echo "    Set ALLOWED_EMAILS"
+    else
+        echo "    Skipping ALLOWED_EMAILS (not configured)"
+    fi
+
+    if [ -n "$ALLOWED_EMAIL_DOMAIN" ]; then
+        echo "$ALLOWED_EMAIL_DOMAIN" | npx wrangler secret put ALLOWED_EMAIL_DOMAIN
+        echo "    Set ALLOWED_EMAIL_DOMAIN"
+    else
+        echo "    Skipping ALLOWED_EMAIL_DOMAIN (not configured)"
     fi
 fi
 
