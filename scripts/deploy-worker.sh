@@ -50,6 +50,7 @@ VPC_SERVICE_ID=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load
 WORKER_NAME=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['worker_name'])")
 TEAM_DOMAIN=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('team_domain') or '')")
 MCP_PORTAL_AUD=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('mcp_portal_aud') or '')")
+MCP_PORTAL_HOSTNAME=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('mcp_portal_hostname') or '')")
 KV_NAMESPACE_ID=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('kv_namespace_id') or '')")
 
 echo "    Worker name:     $WORKER_NAME"
@@ -57,6 +58,7 @@ echo "    VPC service ID:  $VPC_SERVICE_ID"
 echo "    KV namespace ID: ${KV_NAMESPACE_ID:-'(not set)'}"
 echo "    Team domain:     ${TEAM_DOMAIN:-'(not set)'}"
 echo "    MCP Portal AUD:  ${MCP_PORTAL_AUD:0:16}${MCP_PORTAL_AUD:+...}"
+echo "    Portal hostname: ${MCP_PORTAL_HOSTNAME:-'(not set)'}"
 
 echo ""
 echo "==> Generating worker/wrangler.toml..."
@@ -141,6 +143,13 @@ if [ "$SET_SECRETS" = true ]; then
         echo "    Set CF_ACCESS_AUD"
     else
         echo "    Skipping CF_ACCESS_AUD (not configured)"
+    fi
+
+    if [ -n "$MCP_PORTAL_HOSTNAME" ]; then
+        echo "$MCP_PORTAL_HOSTNAME" | npx wrangler secret put MCP_PORTAL_HOSTNAME
+        echo "    Set MCP_PORTAL_HOSTNAME"
+    else
+        echo "    Skipping MCP_PORTAL_HOSTNAME (not configured)"
     fi
 fi
 

@@ -71,6 +71,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     logger.info("Starting MCP Gateway")
 
+    # Wire up activity logger with database session factory
+    # (mirrors main.py lifespan — without this, activity logs are not persisted)
+    from app.core.database import async_session_maker
+    from app.services.activity_logger import ActivityLoggerService
+
+    activity_logger = ActivityLoggerService.get_instance()
+    activity_logger.set_db_session_factory(async_session_maker)
+
     # Load service token from database
     service_token_cache = ServiceTokenCache.get_instance()
     await service_token_cache.load()
@@ -164,7 +172,7 @@ def create_mcp_app() -> FastAPI:
         """Root endpoint — minimal response, no service identification."""
         return {"status": "ok"}
 
-    @app.get("/health")
+    @app.get("/health", response_model=None)
     async def health(request: Request) -> dict[str, str] | JSONResponse:
         """Health check — only responds to localhost (Docker healthcheck).
 

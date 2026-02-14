@@ -1371,6 +1371,7 @@ export default {
                         config.team_domain,
                         mcp_portal_aud,
                         service_token=svc_token,
+                        portal_hostname=config.mcp_portal_hostname,
                     )
                     jwt_configured = True
                     config.completed_step = 7
@@ -1568,12 +1569,14 @@ export default {
         team_domain: str,
         aud: str,
         service_token: str | None = None,
+        portal_hostname: str | None = None,
     ) -> None:
         """Sync all Worker secrets from the database using wrangler CLI.
 
-        Pushes CF_ACCESS_TEAM_DOMAIN, CF_ACCESS_AUD, and (if provided)
-        MCPBOX_SERVICE_TOKEN to the Worker. This ensures the Worker always
-        has the current values from the database — the single source of truth.
+        Pushes CF_ACCESS_TEAM_DOMAIN, CF_ACCESS_AUD, MCP_PORTAL_HOSTNAME,
+        and (if provided) MCPBOX_SERVICE_TOKEN to the Worker. This ensures
+        the Worker always has the current values from the database — the
+        single source of truth.
 
         Raises an exception if any secret fails to set.
         """
@@ -1609,6 +1612,8 @@ compatibility_flags = ["nodejs_compat"]
             }
             if service_token:
                 secrets_to_set["MCPBOX_SERVICE_TOKEN"] = service_token
+            if portal_hostname:
+                secrets_to_set["MCP_PORTAL_HOSTNAME"] = portal_hostname
 
             secrets_failed = []
 
@@ -1766,7 +1771,7 @@ compatibility_flags = ["nodejs_compat"]
             if config.encrypted_service_token:
                 svc_token = decrypt_from_base64(config.encrypted_service_token)
 
-            # Sync all Worker secrets (JWT + service token)
+            # Sync all Worker secrets (JWT + service token + portal hostname)
             await self._sync_worker_secrets(
                 api_token,
                 config.account_id,
@@ -1774,6 +1779,7 @@ compatibility_flags = ["nodejs_compat"]
                 team_domain,
                 mcp_portal_aud,
                 service_token=svc_token,
+                portal_hostname=config.mcp_portal_hostname,
             )
 
             # Wait a moment for secrets to propagate, then test direct Worker access

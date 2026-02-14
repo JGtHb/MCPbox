@@ -310,9 +310,9 @@ tool = await tool_factory(server_id=server.id, name="test_tool", python_code="as
 ### Security Considerations
 
 - **OAuth 2.1 Worker Protection** - Worker wrapped with `@cloudflare/workers-oauth-provider`, all requests to `/` (MCP endpoint) require a valid OAuth token. Cloudflare sync and MCP Portal users both authenticate via OAuth.
-- **OAuth-only is blocked** - OAuth-only requests (no valid Cf-Access-Jwt-Assertion) are rejected for ALL MCP methods including `initialize`, `tools/list`, `tools/call`, and `notifications/*`. Only Cloudflare sync (service token bypass) can operate without a JWT.
+- **OAuth + service token allows all MCP methods** - Requests with a valid service token can call all MCP methods including `tools/call`. User email is stored in encrypted OAuth token props at authorization time (when JWT is available) and forwarded by the Worker. Only unknown methods are gated as defense-in-depth. See `docs/AUTH-FLOW.md` for the complete method authorization table.
 - **MCP Server uses OAuth auth** - Created with `auth_type: "oauth"` at the Worker's origin (no `/mcp` subpath), so Cloudflare performs full OAuth 2.1 discovery+flow against the Worker's OAuthProvider
-- **Server-side JWT verification** - Gateway verifies Cf-Access-Jwt-Assertion using JWKS from Cloudflare Access (RS256 signature, audience, issuer). Does NOT trust Worker-supplied X-MCPbox-Auth-Method or X-MCPbox-User-Email headers.
+- **Server-side JWT verification** - Gateway verifies Cf-Access-Jwt-Assertion using JWKS from Cloudflare Access (RS256 signature, audience, issuer). JWT-verified email takes precedence. Falls back to Worker-supplied X-MCPbox-User-Email (from OAuth token props) when a valid service token is present — the Worker verified the JWT at OAuth authorization time, and email freshness is bounded by the OAuth token TTL.
 - **Service Token Authentication** - Shared secret between Worker and MCPbox gateway (defense-in-depth via `X-MCPbox-Service-Token`, returns 403 on mismatch). Fail-closed on database errors.
 - **Internal Endpoint Auth** - `/internal/*` endpoints require `Authorization: Bearer <SANDBOX_API_KEY>` for defense-in-depth
 - **OAuth Client Registration** - Redirect URIs validated against allowlist (claude.ai, localhost)
@@ -333,6 +333,7 @@ tool = await tool_factory(server_id=server.id, name="test_tool", python_code="as
 | **docs/REMOTE-ACCESS-SETUP.md** | Remote access via Cloudflare | Setting up Claude Web access |
 | **docs/MCP-MANAGEMENT-TOOLS.md** | MCP tools for management | Building with Claude |
 | **docs/CLOUDFLARE-SETUP-WIZARD.md** | Automated remote access setup | Cloudflare wizard |
+| **docs/AUTH-FLOW.md** | Worker + Gateway auth flow | Debugging auth issues |
 | **docs/ARCHITECTURE.md** | Technical deep-dive | Understanding design |
 | **docs/INCIDENT-RESPONSE.md** | Operational runbooks | Diagnosing failures |
 | **docs/FUTURE-EPICS.md** | Feature roadmap | Planning new features |

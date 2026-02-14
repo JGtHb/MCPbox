@@ -314,6 +314,50 @@ class TunnelService:
         async with self._get_lock():
             return await self._stop_internal()
 
+    async def get_effective_status(self) -> dict:
+        """Get tunnel status, checking Docker-based tunnel if subprocess not running.
+
+        The subprocess-based tunnel is managed by TunnelService.start()/stop().
+        Docker-based tunnels (started via docker compose with cloudflared) are
+        invisible to TunnelService. This method checks the database for an active
+        TunnelConfiguration to detect Docker-based tunnels.
+
+        Note: cloudflared metrics bind to 127.0.0.1:20241 (container-local),
+        so we can't probe from the backend. The config-based check is reliable
+        because cloudflared is restart: unless-stopped with Docker healthchecks.
+        """
+        # If subprocess tunnel is connected, use that
+        if self._status == "connected" and self._process:
+            await self.health_check()
+            return self.get_status()
+
+        # Check for Docker-based tunnel (wizard-configured)
+        from app.core.database import async_session_maker
+        from app.models.tunnel_configuration import TunnelConfiguration
+
+        try:
+            from sqlalchemy import select
+
+            async with async_session_maker() as session:
+                result = await session.execute(
+                    select(TunnelConfiguration).where(
+                        TunnelConfiguration.is_active == True  # noqa: E712
+                    )
+                )
+                config = result.scalar_one_or_none()
+        except Exception:
+            return self.get_status()  # Fall back to subprocess status
+
+        if config:
+            return {
+                "status": "connected",
+                "url": config.public_url,
+                "started_at": config.created_at.isoformat() if config.created_at else None,
+                "error": None,
+            }
+
+        return self.get_status()
+
     async def health_check(self) -> bool:
         """Check if tunnel process is still running.
 

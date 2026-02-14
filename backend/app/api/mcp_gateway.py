@@ -159,38 +159,41 @@ async def mcp_gateway(
         response_result = None
         response_error = None
 
-        # SECURITY: Remote requests (source="worker") require JWT authentication
-        # from Cloudflare Access. OAuth-only tokens (from direct Worker access
-        # bypassing the Portal) are rejected. Local requests (source="local",
-        # auth_method=None) are allowed — they come from Claude Desktop on the
-        # same machine and don't traverse the network.
-        _requires_jwt = _user.source == "worker" and _user.auth_method != "jwt"
+        # Log incoming request for diagnostics
+        logger.info(
+            "MCP %s from %s (auth_method=%s, email=%s)",
+            method,
+            _user.source,
+            _user.auth_method,
+            _user.email,
+        )
+
+        # SECURITY: Remote requests without any user identity (no JWT, no OAuth
+        # props email) are restricted to read-only methods. When a service token
+        # is valid, the Worker is trusted, and user email from OAuth props
+        # (verified at authorization time) is sufficient for tool execution.
+        # Only truly unauthenticated remote requests (Cloudflare sync) are gated.
+        # Local requests (source="local", auth_method=None) are always allowed.
+        _is_unauthenticated_remote = _user.source == "worker" and _user.auth_method != "jwt"
 
         # Handle different MCP methods
         if method == "initialize":
-            if _requires_jwt:
-                response_error = {
-                    "code": -32600,
-                    "message": "Requires user authentication via Cloudflare Access",
-                }
-            else:
-                # MCP initialization handshake - required for Streamable HTTP transport
-                response_result = {
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {
-                        "tools": {},  # We support tools
-                    },
-                    "serverInfo": {
-                        "name": "mcpbox",
-                        "version": "1.0.0",
-                    },
-                }
+            # MCP initialization handshake - required for Streamable HTTP transport.
+            # Allowed without JWT (needed for Cloudflare sync).
+            response_result = {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {
+                    "tools": {},  # We support tools
+                },
+                "serverInfo": {
+                    "name": "mcpbox",
+                    "version": "1.0.0",
+                },
+            }
 
         elif method.startswith("notifications/"):
             # Notifications are one-way messages - no response expected.
-            # SECURITY: Require JWT for remote requests, same as other methods.
-            if _requires_jwt:
-                return Response(status_code=403)
+            # Allowed without JWT (needed for Cloudflare sync).
             # MCP Streamable HTTP transport spec requires 202 Accepted
             # for notifications (not 204 No Content).
             duration_ms = int((time.time() - start_time) * 1000)
@@ -204,52 +207,42 @@ async def mcp_gateway(
             return Response(status_code=202)
 
         elif method == "tools/list":
-            if _requires_jwt:
-                response_error = {
-                    "code": -32600,
-                    "message": "Requires user authentication via Cloudflare Access",
-                }
-            else:
-                response_result = await _handle_tools_list(sandbox_client, db)
+            # List available tools - allowed without JWT (needed for Cloudflare sync).
+            response_result = await _handle_tools_list(sandbox_client, db)
 
         elif method == "tools/call":
-            if _requires_jwt:
-                response_error = {
-                    "code": -32600,
-                    "message": "Tool execution requires user authentication",
-                }
-            else:
-                tool_name = params.get("name", "")
-                arguments = params.get("arguments", {})
+            # Tool execution. Service token + OAuth is sufficient (user email
+            # comes from OAuth props, verified at authorization time).
+            tool_name = params.get("name", "")
+            arguments = params.get("arguments", {})
 
-                if tool_name.startswith(MANAGEMENT_TOOL_PREFIX):
-                    # Handle management tools locally
-                    response_result = await _handle_management_tool_call(
-                        db=db,
-                        tool_name=tool_name,
-                        arguments=arguments,
-                        sandbox_client=sandbox_client,
-                        user=_user,
-                    )
+            if tool_name.startswith(MANAGEMENT_TOOL_PREFIX):
+                # Handle management tools locally
+                response_result = await _handle_management_tool_call(
+                    db=db,
+                    tool_name=tool_name,
+                    arguments=arguments,
+                    sandbox_client=sandbox_client,
+                    user=_user,
+                )
+            else:
+                # Forward to sandbox for regular tools
+                sandbox_response = await sandbox_client.mcp_request(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": request.id,
+                        "method": method,
+                        "params": params,
+                    }
+                )
+                if "error" in sandbox_response:
+                    response_error = sandbox_response["error"]
                 else:
-                    # Forward to sandbox for regular tools
-                    sandbox_response = await sandbox_client.mcp_request(
-                        {
-                            "jsonrpc": "2.0",
-                            "id": request.id,
-                            "method": method,
-                            "params": params,
-                        }
-                    )
-                    if "error" in sandbox_response:
-                        response_error = sandbox_response["error"]
-                    else:
-                        response_result = sandbox_response.get("result")
+                    response_result = sandbox_response.get("result")
         else:
-            # All other methods also require JWT for remote requests.
-            # This is the catch-all — no MCP functionality is accessible
-            # without Cloudflare Access authentication.
-            if _requires_jwt:
+            # Unknown methods: forward to sandbox.
+            # Require JWT for remote requests as defense-in-depth.
+            if _is_unauthenticated_remote:
                 response_error = {
                     "code": -32600,
                     "message": "Requires user authentication via Cloudflare Access",

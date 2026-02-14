@@ -30,6 +30,7 @@ interface VpcService {
 // Props stored in OAuth token (encrypted, set during authorization)
 interface Props {
   authMethod: string;
+  email?: string;  // User email verified by JWT at authorization time
 }
 
 export interface Env {
@@ -45,6 +46,8 @@ export interface Env {
   CF_ACCESS_TEAM_DOMAIN?: string;
   // Cloudflare Access Application AUD (audience) for JWT verification
   CF_ACCESS_AUD?: string;
+  // MCP Portal hostname (e.g., "mcp.example.com") for redirect URI validation
+  MCP_PORTAL_HOSTNAME?: string;
   // OAuthHelpers injected by OAuthProvider into defaultHandler
   OAUTH_PROVIDER: OAuthHelpers;
 }
@@ -82,6 +85,7 @@ function getCorsOrigin(env: Env, requestOrigin: string | null): string {
   const allowedOrigins = [
     'https://mcp.claude.ai',
     'https://claude.ai',
+    'https://one.dash.cloudflare.com',
   ];
 
   if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
@@ -97,7 +101,7 @@ function getCorsOrigin(env: Env, requestOrigin: string | null): string {
 function getCorsHeaders(corsOrigin: string): Record<string, string> {
   return {
     'Access-Control-Allow-Origin': corsOrigin,
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': CORS_HEADERS_LIST,
   };
 }
@@ -284,23 +288,43 @@ async function verifyAccessJwt(
   }
 }
 
-// Allowed redirect URI patterns for OAuth client registration
+// Static allowed redirect URI patterns for OAuth client registration
 const ALLOWED_REDIRECT_PATTERNS = [
   /^https:\/\/mcp\.claude\.ai\//,
   /^https:\/\/claude\.ai\//,
+  /^https:\/\/one\.dash\.cloudflare\.com\//,
   /^http:\/\/localhost(:\d+)?\//,
   /^http:\/\/127\.0\.0\.1(:\d+)?\//,
 ];
 
 /**
  * Validate that a redirect URI matches an allowed pattern.
+ * Checks static patterns plus the dynamic MCP Portal hostname (if configured).
  */
-function isRedirectUriAllowed(redirectUri: string): boolean {
-  return ALLOWED_REDIRECT_PATTERNS.some(pattern => pattern.test(redirectUri));
+function isRedirectUriAllowed(redirectUri: string, portalHostname?: string): boolean {
+  if (ALLOWED_REDIRECT_PATTERNS.some(pattern => pattern.test(redirectUri))) {
+    return true;
+  }
+  // Allow the deployment's own MCP Portal hostname (e.g., mcp.example.com)
+  if (portalHostname) {
+    const escaped = portalHostname.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const portalPattern = new RegExp(`^https:\\/\\/${escaped}\\/`);
+    if (portalPattern.test(redirectUri)) {
+      return true;
+    }
+  }
+  return false;
 }
 
+// Internal path used for URL rewriting. MCP requests to '/' are rewritten to
+// this path before being passed to OAuthProvider, so that apiRoute matching
+// doesn't accidentally catch OAuth flow endpoints like /authorize.
+// OAuthProvider's matchApiRoute uses startsWith(), so apiRoute: '/' would
+// match every path. This dummy path avoids that conflict.
+const INTERNAL_API_ROUTE = '/oauth-protected-api';
+
 // =============================================================================
-// API Handler (OAuth-protected MCP endpoint at /)
+// API Handler (OAuth-protected MCP endpoint)
 // =============================================================================
 // Only receives requests with valid OAuth tokens (validated by OAuthProvider).
 // Additionally checks for Cf-Access-Jwt-Assertion for user identity.
@@ -339,9 +363,9 @@ const apiHandler = {
       });
     }
 
-    // Path validation — only the MCP endpoint (/) is allowed through apiHandler.
-    // All other paths (health, PRM, etc.) are handled before OAuthProvider.
-    if (path !== '/') {
+    // Path validation — only the rewritten MCP endpoint is allowed through apiHandler.
+    // Requests arrive here as INTERNAL_API_ROUTE after URL rewriting in the outer handler.
+    if (path !== INTERNAL_API_ROUTE) {
       return new Response(JSON.stringify({ error: 'Not found' }), {
         status: 404,
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
@@ -360,6 +384,11 @@ const apiHandler = {
         userEmail = typeof jwtPayload.email === 'string' ? jwtPayload.email : null;
         authMethod = 'jwt';
       }
+    }
+
+    // Fallback: OAuth props email (verified by JWT at authorization time, bounded by token TTL)
+    if (!userEmail && ctx.props?.email) {
+      userEmail = ctx.props.email;
     }
 
     // Build headers for MCPbox Gateway
@@ -452,7 +481,7 @@ const defaultHandler = {
         const clientId = url.searchParams.get('client_id');
         const redirectUri = url.searchParams.get('redirect_uri');
         if (clientId && redirectUri) {
-          if (!isRedirectUriAllowed(redirectUri)) {
+          if (!isRedirectUriAllowed(redirectUri, env.MCP_PORTAL_HOSTNAME)) {
             console.error(`OAuth authorize: rejected redirect_uri: ${redirectUri}`);
             return new Response(JSON.stringify({ error: 'Invalid redirect_uri' }), {
               status: 400,
@@ -491,7 +520,10 @@ const defaultHandler = {
           userId,
           metadata: { label: 'MCPbox' },
           scope: oauthReqInfo.scope,
-          props: { authMethod: 'oauth' } as Props,
+          props: {
+            authMethod: 'oauth',
+            email: userId !== 'mcpbox-user' ? userId : undefined,
+          } as Props,
         });
 
         return Response.redirect(redirectTo, 302);
@@ -518,13 +550,13 @@ const defaultHandler = {
 // =============================================================================
 // Export OAuth-wrapped Worker
 // =============================================================================
-// apiRoute: '/' — OAuthProvider protects the root path (MCP endpoint).
-// This eliminates the audience mismatch that previously required the Bug #108
-// workaround. With the MCP server hostname at the Worker's origin (no /mcp
-// subpath), OAuthProvider's origin-based audience computation matches naturally.
+// apiRoute uses a dummy internal path that real requests never match directly.
+// MCP requests to '/' are rewritten to INTERNAL_API_ROUTE in the outer handler
+// before being passed to OAuthProvider. This prevents OAuthProvider's prefix-
+// based matching (startsWith) from catching OAuth flow endpoints like /authorize.
 
 const oauthProvider = new OAuthProvider({
-  apiRoute: '/',
+  apiRoute: INTERNAL_API_ROUTE,
   apiHandler: apiHandler,
   defaultHandler: defaultHandler,
   authorizeEndpoint: '/authorize',
@@ -535,18 +567,17 @@ const oauthProvider = new OAuthProvider({
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    const originalPathname = url.pathname;
     console.log(`Worker request: ${request.method} ${url.pathname}${url.search} [${request.headers.get('User-Agent') || 'no-ua'}]`);
 
     const corsOrigin = getCorsOrigin(env, request.headers.get('Origin'));
     const corsHeaders = getCorsHeaders(corsOrigin);
 
     // =================================================================
-    // Pre-OAuth endpoints — must be accessible without OAuth tokens.
-    // These are handled before OAuthProvider because apiRoute: '/'
-    // would otherwise route them through OAuth validation.
+    // Pre-OAuth endpoints — handled before OAuthProvider.
     // =================================================================
 
-    // CORS preflight for any path
+    // CORS preflight for any path (no OAuth needed, no URL rewriting)
     if (request.method === 'OPTIONS') {
       return new Response(null, {
         headers: { ...corsHeaders, 'Access-Control-Max-Age': '86400' },
@@ -563,9 +594,17 @@ export default {
 
     // Protected Resource Metadata (RFC 9728) — required for MCP authorization.
     // Cloudflare's MCP sync probes this to discover OAuth requirements.
-    if (url.pathname === '/.well-known/oauth-protected-resource') {
+    // Serve at both root and /mcp paths:
+    //   /.well-known/oauth-protected-resource      → resource: origin (hostname-only)
+    //   /.well-known/oauth-protected-resource/mcp   → resource: origin/mcp
+    // Claude.ai users add the URL as https://worker.workers.dev/mcp, which
+    // triggers a PRM lookup at the /mcp path variant.
+    if (url.pathname === '/.well-known/oauth-protected-resource' ||
+        url.pathname === '/.well-known/oauth-protected-resource/mcp') {
+      const isMcpPath = url.pathname.endsWith('/mcp');
+      const resource = isMcpPath ? `${url.origin}/mcp` : url.origin;
       const prmResponse = {
-        resource: url.origin,
+        resource,
         authorization_servers: [url.origin],
         bearer_methods_supported: ['header'],
         scopes_supported: [],
@@ -588,12 +627,21 @@ export default {
         const body = await request.text();
         const params = new URLSearchParams(body);
         const tokenClientId = params.get('client_id');
+        const tokenRedirectUri = params.get('redirect_uri');
         if (tokenClientId) {
+          // Validate redirect_uri if present
+          if (tokenRedirectUri && !isRedirectUriAllowed(tokenRedirectUri, env.MCP_PORTAL_HOSTNAME)) {
+            console.error(`SECURITY: Rejected /token auto-registration with invalid redirect_uri: ${tokenRedirectUri}`);
+            return new Response(JSON.stringify({ error: 'invalid_redirect_uri' }), {
+              status: 400,
+              headers: { 'Content-Type': 'application/json', ...corsHeaders },
+            });
+          }
           const existing = await env.OAUTH_KV.get(`client:${tokenClientId}`);
           if (!existing) {
             const clientData = {
               clientId: tokenClientId,
-              redirectUris: [],
+              redirectUris: tokenRedirectUri ? [tokenRedirectUri] : [],
               grantTypes: ['authorization_code', 'refresh_token'],
               responseTypes: ['code'],
               tokenEndpointAuthMethod: 'none',
@@ -613,21 +661,70 @@ export default {
     }
 
     // =================================================================
+    // Validate redirect URIs in /register requests.
+    // OAuthProvider handles /register as a built-in, but doesn't validate
+    // redirect URIs against our allowlist. Intercept to prevent open-redirect.
+    // =================================================================
+    if (url.pathname === '/register' && request.method === 'POST') {
+      try {
+        const registerBody = await request.text();
+        const registerData = JSON.parse(registerBody);
+        const redirectUris: string[] = registerData.redirect_uris || [];
+        for (const uri of redirectUris) {
+          if (!isRedirectUriAllowed(uri, env.MCP_PORTAL_HOSTNAME)) {
+            console.error(`SECURITY: Rejected /register with invalid redirect_uri: ${uri}`);
+            return new Response(JSON.stringify({ error: 'invalid_redirect_uri' }), {
+              status: 400,
+              headers: { 'Content-Type': 'application/json', ...corsHeaders },
+            });
+          }
+        }
+        // Reconstruct request since we consumed the body
+        request = new Request(request.url, {
+          method: request.method,
+          headers: request.headers,
+          body: registerBody,
+        });
+      } catch (error) {
+        // Let OAuthProvider handle malformed JSON
+        console.warn('/register body parse error, deferring to OAuthProvider:', error);
+      }
+    }
+
+    // =================================================================
+    // URL rewriting for MCP endpoint.
+    // Rewrite '/' and '/mcp' to INTERNAL_API_ROUTE so OAuthProvider's
+    // prefix-based matching routes them to apiHandler for OAuth validation.
+    // Without this, apiRoute: '/' would catch every path (/authorize, etc).
+    // Cloudflare's MCP sync sends requests to '/mcp', while Claude.ai
+    // clients may use '/' — both must be rewritten.
+    // OPTIONS is excluded (handled above), POST/GET/DELETE are rewritten.
+    // =================================================================
+    if (url.pathname === '/' || url.pathname === '/mcp') {
+      const rewrittenUrl = new URL(request.url);
+      rewrittenUrl.pathname = INTERNAL_API_ROUTE;
+      request = new Request(rewrittenUrl.toString(), request);
+      console.log(`Rewrote ${originalPathname} -> ${INTERNAL_API_ROUTE} for OAuth validation`);
+    }
+
+    // =================================================================
     // OAuthProvider handles everything else:
     // - /.well-known/oauth-authorization-server (built-in)
     // - /token (built-in)
     // - /register (built-in)
     // - /authorize (via defaultHandler)
-    // - / (via apiHandler, requires valid OAuth token)
+    // - INTERNAL_API_ROUTE (via apiHandler, requires valid OAuth token)
     // =================================================================
     const response = await oauthProvider.fetch(request, env, ctx);
-    console.log(`Worker response: ${response.status} for ${url.pathname}`);
+    console.log(`Worker response: ${response.status} for ${originalPathname}`);
 
     // Add resource_metadata to 401 responses for MCP endpoint (RFC 9728).
     // This tells MCP clients where to find the OAuth authorization server.
-    if (response.status === 401 && url.pathname === '/') {
+    // Use originalPathname since the request URL may have been rewritten.
+    if (response.status === 401 && (originalPathname === '/' || originalPathname === '/mcp')) {
       const newHeaders = new Headers(response.headers);
-      const prmUrl = `${url.origin}/.well-known/oauth-protected-resource`;
+      const prmSuffix = originalPathname === '/mcp' ? '/mcp' : '';
+      const prmUrl = `${url.origin}/.well-known/oauth-protected-resource${prmSuffix}`;
       const existing = newHeaders.get('WWW-Authenticate') || '';
       if (existing) {
         newHeaders.set('WWW-Authenticate',
@@ -638,7 +735,7 @@ export default {
           `Bearer resource_metadata="${prmUrl}"`
         );
       }
-      console.log(`401 for / -- WWW-Authenticate: ${newHeaders.get('WWW-Authenticate')}`);
+      console.log(`401 for ${originalPathname} -- WWW-Authenticate: ${newHeaders.get('WWW-Authenticate')}`);
       return new Response(response.body, {
         status: response.status,
         statusText: response.statusText,

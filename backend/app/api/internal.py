@@ -108,6 +108,7 @@ async def get_worker_deploy_config(
         "worker_name": config.worker_name or "mcpbox-proxy",
         "team_domain": config.team_domain,
         "mcp_portal_aud": config.mcp_portal_aud,
+        "mcp_portal_hostname": config.mcp_portal_hostname,
         "has_service_token": config.encrypted_service_token is not None,
         "kv_namespace_id": config.kv_namespace_id,
     }

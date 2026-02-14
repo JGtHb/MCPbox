@@ -59,10 +59,7 @@ async def get_tunnel_status(
 
     Returns connection status and URL (if connected).
     """
-    # Do a health check to update status
-    await tunnel_service.health_check()
-
-    status_dict = tunnel_service.get_status()
+    status_dict = await tunnel_service.get_effective_status()
     return TunnelStatusResponse(**status_dict)
 
 
