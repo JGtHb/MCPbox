@@ -42,13 +42,11 @@ class TestGetCircuitStates:
         assert "circuits" in data
         # Note: sandbox circuit may exist from app initialization
 
-    async def test_get_circuits_after_creation(
-        self, async_client: AsyncClient, admin_headers
-    ):
+    async def test_get_circuits_after_creation(self, async_client: AsyncClient, admin_headers):
         """Get circuits after some are created."""
         # Create some circuit breakers
-        cb1 = CircuitBreaker.get_or_create("service_a")
-        cb2 = CircuitBreaker.get_or_create("service_b")
+        CircuitBreaker.get_or_create("service_a")
+        CircuitBreaker.get_or_create("service_b")
 
         response = await async_client.get("/health/circuits", headers=admin_headers)
 
@@ -59,7 +57,7 @@ class TestGetCircuitStates:
 
     async def test_circuit_state_fields(self, async_client: AsyncClient, admin_headers):
         """Circuit state includes expected fields."""
-        cb = CircuitBreaker.get_or_create("test_service")
+        CircuitBreaker.get_or_create("test_service")
 
         response = await async_client.get("/health/circuits", headers=admin_headers)
 
@@ -68,9 +66,7 @@ class TestGetCircuitStates:
         assert "state" in state
         assert state["state"] == "closed"
 
-    async def test_circuit_open_state_reflected(
-        self, async_client: AsyncClient, admin_headers
-    ):
+    async def test_circuit_open_state_reflected(self, async_client: AsyncClient, admin_headers):
         """Open circuit state is reflected in response."""
         config = CircuitBreakerConfig(failure_threshold=2)
         cb = CircuitBreaker.get_or_create("failing_service", config=config)
@@ -104,9 +100,7 @@ class TestResetAllCircuits:
         assert cb1.get_state()["state"] == "open"
         assert cb2.get_state()["state"] == "open"
 
-        response = await async_client.post(
-            "/health/circuits/reset", headers=admin_headers
-        )
+        response = await async_client.post("/health/circuits/reset", headers=admin_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -121,9 +115,7 @@ class TestResetAllCircuits:
         cb = CircuitBreaker.get_or_create("healthy_service")
         assert cb.get_state()["state"] == "closed"
 
-        response = await async_client.post(
-            "/health/circuits/reset", headers=admin_headers
-        )
+        response = await async_client.post("/health/circuits/reset", headers=admin_headers)
 
         assert response.status_code == 200
         assert cb.get_state()["state"] == "closed"
@@ -132,9 +124,7 @@ class TestResetAllCircuits:
 class TestResetSpecificCircuit:
     """Tests for POST /health/circuits/{service_name}/reset endpoint."""
 
-    async def test_reset_specific_circuit(
-        self, async_client: AsyncClient, admin_headers
-    ):
+    async def test_reset_specific_circuit(self, async_client: AsyncClient, admin_headers):
         """Reset a specific circuit breaker."""
         config = CircuitBreakerConfig(failure_threshold=1)
         cb = CircuitBreaker.get_or_create("target_service", config=config)
@@ -221,9 +211,7 @@ class TestHealthServicesEndpoint:
             mock_sandbox.get_circuit_state.return_value = {"state": "closed", "failures": 0}
 
             with patch("app.api.health.get_sandbox_client", return_value=mock_sandbox):
-                response = await async_client.get(
-                    "/health/services", headers=admin_headers
-                )
+                response = await async_client.get("/health/services", headers=admin_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -246,9 +234,7 @@ class TestHealthServicesEndpoint:
             mock_sandbox.get_circuit_state.return_value = {"state": "open", "failures": 5}
 
             with patch("app.api.health.get_sandbox_client", return_value=mock_sandbox):
-                response = await async_client.get(
-                    "/health/services", headers=admin_headers
-                )
+                response = await async_client.get("/health/services", headers=admin_headers)
 
         assert response.status_code == 503
         data = response.json()
@@ -294,13 +280,11 @@ class TestCircuitBreakerIntegration:
         response = await async_client.get("/health/circuits", headers=admin_headers)
         assert response.status_code == 200
 
-    async def test_multiple_circuits_independent(
-        self, async_client: AsyncClient, admin_headers
-    ):
+    async def test_multiple_circuits_independent(self, async_client: AsyncClient, admin_headers):
         """Multiple circuits operate independently."""
         config = CircuitBreakerConfig(failure_threshold=1)
         cb_a = CircuitBreaker.get_or_create("independent_a", config=config)
-        cb_b = CircuitBreaker.get_or_create("independent_b", config=config)
+        CircuitBreaker.get_or_create("independent_b", config=config)
 
         # Trip only circuit A
         await cb_a.record_failure(Exception("test failure"))
@@ -312,9 +296,7 @@ class TestCircuitBreakerIntegration:
         assert data["circuits"]["independent_b"]["state"] == "closed"
 
         # Reset only circuit A
-        await async_client.post(
-            "/health/circuits/independent_a/reset", headers=admin_headers
-        )
+        await async_client.post("/health/circuits/independent_a/reset", headers=admin_headers)
 
         response = await async_client.get("/health/circuits", headers=admin_headers)
         data = response.json()

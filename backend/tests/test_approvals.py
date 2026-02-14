@@ -481,6 +481,321 @@ async def test_reject_network_request_requires_reason(
 
 
 # =============================================================================
+# Bulk Action Tests
+# =============================================================================
+
+
+@pytest.fixture
+async def multiple_pending_tools(db_session: AsyncSession, test_server: Server) -> list[Tool]:
+    """Create multiple tools pending approval."""
+    tools = []
+    for i in range(3):
+        tool = Tool(
+            server_id=test_server.id,
+            name=f"bulk_tool_{i}",
+            description=f"Bulk test tool {i}",
+            python_code='async def main() -> str:\n    return "test"',
+            input_schema={"type": "object", "properties": {}},
+            approval_status="pending_review",
+        )
+        db_session.add(tool)
+        tools.append(tool)
+    await db_session.flush()
+    for tool in tools:
+        await db_session.refresh(tool)
+    return tools
+
+
+@pytest.fixture
+async def multiple_pending_module_requests(
+    db_session: AsyncSession, draft_tool: Tool
+) -> list[ModuleRequest]:
+    """Create multiple pending module requests."""
+    requests = []
+    for module_name in ["numpy", "scipy", "matplotlib"]:
+        req = ModuleRequest(
+            tool_id=draft_tool.id,
+            module_name=module_name,
+            justification=f"Need {module_name} for data processing",
+            requested_by="test@example.com",
+            status="pending",
+        )
+        db_session.add(req)
+        requests.append(req)
+    await db_session.flush()
+    for req in requests:
+        await db_session.refresh(req)
+    return requests
+
+
+@pytest.fixture
+async def multiple_pending_network_requests(
+    db_session: AsyncSession, draft_tool: Tool
+) -> list[NetworkAccessRequest]:
+    """Create multiple pending network requests."""
+    requests = []
+    for host in ["api.github.com", "api.stripe.com", "api.openai.com"]:
+        req = NetworkAccessRequest(
+            tool_id=draft_tool.id,
+            host=host,
+            port=443,
+            justification=f"Need access to {host}",
+            requested_by="test@example.com",
+            status="pending",
+        )
+        db_session.add(req)
+        requests.append(req)
+    await db_session.flush()
+    for req in requests:
+        await db_session.refresh(req)
+    return requests
+
+
+@pytest.mark.asyncio
+async def test_bulk_approve_tools(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    multiple_pending_tools: list[Tool],
+    db_session: AsyncSession,
+):
+    """Test bulk approving multiple tools."""
+    tool_ids = [str(t.id) for t in multiple_pending_tools]
+    response = await async_client.post(
+        "/api/approvals/tools/bulk-action",
+        json={"tool_ids": tool_ids, "action": "approve"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["processed_count"] == 3
+    assert data["failed"] == []
+
+    for tool in multiple_pending_tools:
+        await db_session.refresh(tool)
+        assert tool.approval_status == "approved"
+
+
+@pytest.mark.asyncio
+async def test_bulk_reject_tools(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    multiple_pending_tools: list[Tool],
+    db_session: AsyncSession,
+):
+    """Test bulk rejecting multiple tools."""
+    tool_ids = [str(t.id) for t in multiple_pending_tools]
+    response = await async_client.post(
+        "/api/approvals/tools/bulk-action",
+        json={
+            "tool_ids": tool_ids,
+            "action": "reject",
+            "reason": "Bulk rejection: security review pending",
+        },
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["processed_count"] == 3
+
+    for tool in multiple_pending_tools:
+        await db_session.refresh(tool)
+        assert tool.approval_status == "rejected"
+        assert tool.rejection_reason == "Bulk rejection: security review pending"
+
+
+@pytest.mark.asyncio
+async def test_bulk_reject_tools_requires_reason(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    multiple_pending_tools: list[Tool],
+):
+    """Test that bulk rejection requires a reason."""
+    tool_ids = [str(t.id) for t in multiple_pending_tools]
+    response = await async_client.post(
+        "/api/approvals/tools/bulk-action",
+        json={"tool_ids": tool_ids, "action": "reject"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 400
+    assert "reason" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_bulk_approve_tools_partial_failure(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    multiple_pending_tools: list[Tool],
+):
+    """Test bulk approval with a mix of valid and invalid tool IDs."""
+    fake_id = "00000000-0000-0000-0000-000000000000"
+    tool_ids = [str(multiple_pending_tools[0].id), fake_id]
+    response = await async_client.post(
+        "/api/approvals/tools/bulk-action",
+        json={"tool_ids": tool_ids, "action": "approve"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is False
+    assert data["processed_count"] == 1
+    assert len(data["failed"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_bulk_approve_module_requests(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    multiple_pending_module_requests: list[ModuleRequest],
+    db_session: AsyncSession,
+):
+    """Test bulk approving multiple module requests."""
+    request_ids = [str(r.id) for r in multiple_pending_module_requests]
+    response = await async_client.post(
+        "/api/approvals/modules/bulk-action",
+        json={"request_ids": request_ids, "action": "approve"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["processed_count"] == 3
+
+    config_service = GlobalConfigService(db_session)
+    allowed_modules = await config_service.get_allowed_modules()
+    for req in multiple_pending_module_requests:
+        assert req.module_name in allowed_modules
+
+
+@pytest.mark.asyncio
+async def test_bulk_reject_module_requests(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    multiple_pending_module_requests: list[ModuleRequest],
+):
+    """Test bulk rejecting multiple module requests."""
+    request_ids = [str(r.id) for r in multiple_pending_module_requests]
+    response = await async_client.post(
+        "/api/approvals/modules/bulk-action",
+        json={
+            "request_ids": request_ids,
+            "action": "reject",
+            "reason": "Bulk rejection: not approved",
+        },
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["processed_count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_bulk_reject_module_requests_requires_reason(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    multiple_pending_module_requests: list[ModuleRequest],
+):
+    """Test that bulk module rejection requires a reason."""
+    request_ids = [str(r.id) for r in multiple_pending_module_requests]
+    response = await async_client.post(
+        "/api/approvals/modules/bulk-action",
+        json={"request_ids": request_ids, "action": "reject"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 400
+    assert "reason" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_bulk_approve_network_requests(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    multiple_pending_network_requests: list[NetworkAccessRequest],
+    test_server: Server,
+    db_session: AsyncSession,
+):
+    """Test bulk approving multiple network access requests."""
+    request_ids = [str(r.id) for r in multiple_pending_network_requests]
+    response = await async_client.post(
+        "/api/approvals/network/bulk-action",
+        json={"request_ids": request_ids, "action": "approve"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["processed_count"] == 3
+
+    await db_session.refresh(test_server)
+    for req in multiple_pending_network_requests:
+        assert req.host in test_server.allowed_hosts
+
+
+@pytest.mark.asyncio
+async def test_bulk_reject_network_requests(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    multiple_pending_network_requests: list[NetworkAccessRequest],
+):
+    """Test bulk rejecting multiple network access requests."""
+    request_ids = [str(r.id) for r in multiple_pending_network_requests]
+    response = await async_client.post(
+        "/api/approvals/network/bulk-action",
+        json={
+            "request_ids": request_ids,
+            "action": "reject",
+            "reason": "Network access not authorized",
+        },
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["processed_count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_bulk_reject_network_requests_requires_reason(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    multiple_pending_network_requests: list[NetworkAccessRequest],
+):
+    """Test that bulk network rejection requires a reason."""
+    request_ids = [str(r.id) for r in multiple_pending_network_requests]
+    response = await async_client.post(
+        "/api/approvals/network/bulk-action",
+        json={"request_ids": request_ids, "action": "reject"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 400
+    assert "reason" in response.json()["detail"].lower()
+
+
+# =============================================================================
+# Search / Filtering Tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_search_pending_tools(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    pending_tool: Tool,
+):
+    """Test searching pending tools by name."""
+    response = await async_client.get(
+        "/api/approvals/tools",
+        params={"search": "pending"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] >= 1
+
+
+# =============================================================================
 # Auth Tests
 # =============================================================================
 

@@ -1,12 +1,9 @@
 """Tests for log retention service."""
 
 import asyncio
-from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
 
 import pytest
-import pytest_asyncio
 
 from app.services.log_retention import (
     CLEANUP_INTERVAL_SECONDS,

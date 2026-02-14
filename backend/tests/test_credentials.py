@@ -42,9 +42,7 @@ async def test_create_credential_api_key_header(
 
 
 @pytest.mark.asyncio
-async def test_create_credential_bearer(
-    async_client: AsyncClient, test_server, admin_headers
-):
+async def test_create_credential_bearer(async_client: AsyncClient, test_server, admin_headers):
     """Test creating a bearer token credential."""
     response = await async_client.post(
         f"/api/servers/{test_server['id']}/credentials",
@@ -62,9 +60,7 @@ async def test_create_credential_bearer(
 
 
 @pytest.mark.asyncio
-async def test_create_credential_basic_auth(
-    async_client: AsyncClient, test_server, admin_headers
-):
+async def test_create_credential_basic_auth(async_client: AsyncClient, test_server, admin_headers):
     """Test creating a basic auth credential."""
     response = await async_client.post(
         f"/api/servers/{test_server['id']}/credentials",
@@ -84,9 +80,7 @@ async def test_create_credential_basic_auth(
 
 
 @pytest.mark.asyncio
-async def test_create_credential_validation(
-    async_client: AsyncClient, test_server, admin_headers
-):
+async def test_create_credential_validation(async_client: AsyncClient, test_server, admin_headers):
     """Test credential creation validation."""
     # Missing header_name for api_key_header
     response = await async_client.post(
@@ -141,9 +135,7 @@ async def test_list_credentials(async_client: AsyncClient, test_server, admin_he
 
 
 @pytest.mark.asyncio
-async def test_list_credentials_server_not_found(
-    async_client: AsyncClient, admin_headers
-):
+async def test_list_credentials_server_not_found(async_client: AsyncClient, admin_headers):
     """Test listing credentials for non-existent server."""
     response = await async_client.get(
         "/api/servers/00000000-0000-0000-0000-000000000000/credentials",
@@ -168,9 +160,7 @@ async def test_get_credential(async_client: AsyncClient, test_server, admin_head
     credential_id = create_response.json()["id"]
 
     # Get the credential
-    response = await async_client.get(
-        f"/api/credentials/{credential_id}", headers=admin_headers
-    )
+    response = await async_client.get(f"/api/credentials/{credential_id}", headers=admin_headers)
     assert response.status_code == 200
     data = response.json()
     assert data["name"] == "GET_TEST"
@@ -218,9 +208,7 @@ async def test_update_credential(async_client: AsyncClient, test_server, admin_h
 
 
 @pytest.mark.asyncio
-async def test_update_credential_name(
-    async_client: AsyncClient, test_server, admin_headers
-):
+async def test_update_credential_name(async_client: AsyncClient, test_server, admin_headers):
     """Test updating credential name."""
     create_response = await async_client.post(
         f"/api/servers/{test_server['id']}/credentials",
@@ -258,9 +246,7 @@ async def test_delete_credential(async_client: AsyncClient, test_server, admin_h
     credential_id = create_response.json()["id"]
 
     # Delete the credential
-    response = await async_client.delete(
-        f"/api/credentials/{credential_id}", headers=admin_headers
-    )
+    response = await async_client.delete(f"/api/credentials/{credential_id}", headers=admin_headers)
     assert response.status_code == 204
 
     # Verify it's deleted
@@ -280,9 +266,7 @@ async def test_delete_credential_not_found(async_client: AsyncClient, admin_head
 
 
 @pytest.mark.asyncio
-async def test_credential_cascade_delete(
-    async_client: AsyncClient, test_server, admin_headers
-):
+async def test_credential_cascade_delete(async_client: AsyncClient, test_server, admin_headers):
     """Test that credentials are deleted when server is deleted."""
     # Create a credential
     cred_response = await async_client.post(
@@ -297,9 +281,7 @@ async def test_credential_cascade_delete(
     credential_id = cred_response.json()["id"]
 
     # Delete the server
-    await async_client.delete(
-        f"/api/servers/{test_server['id']}", headers=admin_headers
-    )
+    await async_client.delete(f"/api/servers/{test_server['id']}", headers=admin_headers)
 
     # Credential should also be deleted
     get_response = await async_client.get(

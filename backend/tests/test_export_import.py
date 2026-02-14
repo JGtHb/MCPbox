@@ -140,9 +140,7 @@ class TestExportAllServers:
 class TestExportSingleServer:
     """Tests for GET /api/export/servers/{server_id} endpoint."""
 
-    async def test_export_server_not_found(
-        self, async_client: AsyncClient, admin_headers
-    ):
+    async def test_export_server_not_found(self, async_client: AsyncClient, admin_headers):
         """Test exporting a nonexistent server returns 404."""
         import uuid
 
@@ -155,14 +153,10 @@ class TestExportSingleServer:
         self, async_client: AsyncClient, server_factory, tool_factory, admin_headers
     ):
         """Test exporting a single server."""
-        server = await server_factory(
-            name="Single Server", helper_code="def helper(): pass"
-        )
+        server = await server_factory(name="Single Server", helper_code="def helper(): pass")
         await tool_factory(server=server, name="single_tool")
 
-        response = await async_client.get(
-            f"/api/export/servers/{server.id}", headers=admin_headers
-        )
+        response = await async_client.get(f"/api/export/servers/{server.id}", headers=admin_headers)
         assert response.status_code == 200
         data = response.json()
 
@@ -190,20 +184,20 @@ class TestImportServers:
         assert data["tools_created"] == 0
         assert data["errors"] == []
 
-    async def test_import_server_without_tools(
-        self, async_client: AsyncClient, admin_headers
-    ):
+    async def test_import_server_without_tools(self, async_client: AsyncClient, admin_headers):
         """Test importing a server without tools."""
-        import_data = _sign_import_data({
-            "version": "1.0",
-            "servers": [
-                {
-                    "name": "Imported Server",
-                    "description": "An imported server",
-                    "tools": [],
-                }
-            ],
-        })
+        import_data = _sign_import_data(
+            {
+                "version": "1.0",
+                "servers": [
+                    {
+                        "name": "Imported Server",
+                        "description": "An imported server",
+                        "tools": [],
+                    }
+                ],
+            }
+        )
         response = await async_client.post(
             "/api/export/import",
             json=import_data,
@@ -220,37 +214,37 @@ class TestImportServers:
         servers = list_response.json()["items"]
         assert any(s["name"] == "Imported Server" for s in servers)
 
-    async def test_import_server_with_tools(
-        self, async_client: AsyncClient, admin_headers
-    ):
+    async def test_import_server_with_tools(self, async_client: AsyncClient, admin_headers):
         """Test importing a server with tools."""
-        import_data = _sign_import_data({
-            "version": "1.0",
-            "servers": [
-                {
-                    "name": "Server With Tools",
-                    "description": "Has tools",
-                    "tools": [
-                        {
-                            "name": "tool_1",
-                            "description": "First tool",
-                            "enabled": True,
-                            "timeout_ms": 10000,
-                            "python_code": "async def main() -> dict:\n    return {'data': 'ok'}",
-                            "input_schema": {"type": "object", "properties": {}},
-                        },
-                        {
-                            "name": "tool_2",
-                            "description": "Second tool",
-                            "enabled": False,
-                            "timeout_ms": 5000,
-                            "python_code": "async def main() -> dict:\n    return {'result': 'ok'}",
-                            "input_schema": None,
-                        },
-                    ],
-                }
-            ],
-        })
+        import_data = _sign_import_data(
+            {
+                "version": "1.0",
+                "servers": [
+                    {
+                        "name": "Server With Tools",
+                        "description": "Has tools",
+                        "tools": [
+                            {
+                                "name": "tool_1",
+                                "description": "First tool",
+                                "enabled": True,
+                                "timeout_ms": 10000,
+                                "python_code": "async def main() -> dict:\n    return {'data': 'ok'}",
+                                "input_schema": {"type": "object", "properties": {}},
+                            },
+                            {
+                                "name": "tool_2",
+                                "description": "Second tool",
+                                "enabled": False,
+                                "timeout_ms": 5000,
+                                "python_code": "async def main() -> dict:\n    return {'result': 'ok'}",
+                                "input_schema": None,
+                            },
+                        ],
+                    }
+                ],
+            }
+        )
         response = await async_client.post(
             "/api/export/import",
             json=import_data,
@@ -270,16 +264,18 @@ class TestImportServers:
         await server_factory(name="Existing Server")
 
         # Import server with same name
-        import_data = _sign_import_data({
-            "version": "1.0",
-            "servers": [
-                {
-                    "name": "Existing Server",
-                    "description": "Duplicate name",
-                    "tools": [],
-                }
-            ],
-        })
+        import_data = _sign_import_data(
+            {
+                "version": "1.0",
+                "servers": [
+                    {
+                        "name": "Existing Server",
+                        "description": "Duplicate name",
+                        "tools": [],
+                    }
+                ],
+            }
+        )
         response = await async_client.post(
             "/api/export/import",
             json=import_data,
@@ -297,25 +293,25 @@ class TestImportServers:
         assert "Existing Server" in names
         assert "Existing Server (imported)" in names
 
-    async def test_import_with_helper_code(
-        self, async_client: AsyncClient, admin_headers
-    ):
+    async def test_import_with_helper_code(self, async_client: AsyncClient, admin_headers):
         """Test importing a server with helper code."""
         helper_code = """
 def format_response(data):
     return {"formatted": data}
 """
-        import_data = _sign_import_data({
-            "version": "1.0",
-            "servers": [
-                {
-                    "name": "Server With Helpers",
-                    "description": "Has helper code",
-                    "helper_code": helper_code,
-                    "tools": [],
-                }
-            ],
-        })
+        import_data = _sign_import_data(
+            {
+                "version": "1.0",
+                "servers": [
+                    {
+                        "name": "Server With Helpers",
+                        "description": "Has helper code",
+                        "helper_code": helper_code,
+                        "tools": [],
+                    }
+                ],
+            }
+        )
         response = await async_client.post(
             "/api/export/import",
             json=import_data,
@@ -336,18 +332,18 @@ def format_response(data):
         server_detail = detail_response.json()
         assert server_detail["helper_code"] == helper_code
 
-    async def test_import_multiple_servers(
-        self, async_client: AsyncClient, admin_headers
-    ):
+    async def test_import_multiple_servers(self, async_client: AsyncClient, admin_headers):
         """Test importing multiple servers at once."""
-        import_data = _sign_import_data({
-            "version": "1.0",
-            "servers": [
-                {"name": "Server A", "tools": []},
-                {"name": "Server B", "tools": []},
-                {"name": "Server C", "tools": []},
-            ],
-        })
+        import_data = _sign_import_data(
+            {
+                "version": "1.0",
+                "servers": [
+                    {"name": "Server A", "tools": []},
+                    {"name": "Server B", "tools": []},
+                    {"name": "Server C", "tools": []},
+                ],
+            }
+        )
         response = await async_client.post(
             "/api/export/import",
             json=import_data,
@@ -378,9 +374,7 @@ def format_response(data):
         )
 
         # Export
-        export_response = await async_client.get(
-            "/api/export/servers", headers=admin_headers
-        )
+        export_response = await async_client.get("/api/export/servers", headers=admin_headers)
         assert export_response.status_code == 200
         export_data = export_response.json()
 
@@ -436,9 +430,7 @@ class TestExportSignature:
         # Create and export a server
         await server_factory(name="Valid Sig Server")
 
-        export_response = await async_client.get(
-            "/api/export/servers", headers=admin_headers
-        )
+        export_response = await async_client.get("/api/export/servers", headers=admin_headers)
         assert export_response.status_code == 200
         export_data = export_response.json()
 
@@ -512,9 +504,7 @@ class TestDownloadExport:
         """Test download endpoint returns JSON with attachment header."""
         await server_factory(name="Download Test")
 
-        response = await async_client.get(
-            "/api/export/download/servers", headers=admin_headers
-        )
+        response = await async_client.get("/api/export/download/servers", headers=admin_headers)
         assert response.status_code == 200
 
         # Check content disposition header
@@ -530,13 +520,9 @@ class TestDownloadExport:
         assert "servers" in data
         assert len(data["servers"]) == 1
 
-    async def test_download_empty_export(
-        self, async_client: AsyncClient, admin_headers
-    ):
+    async def test_download_empty_export(self, async_client: AsyncClient, admin_headers):
         """Test downloading when no servers exist."""
-        response = await async_client.get(
-            "/api/export/download/servers", headers=admin_headers
-        )
+        response = await async_client.get("/api/export/download/servers", headers=admin_headers)
         assert response.status_code == 200
 
         data = response.json()

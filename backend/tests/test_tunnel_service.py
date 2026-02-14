@@ -285,7 +285,7 @@ class TestTunnelServiceStop:
         mock_process.kill = MagicMock()
 
         async def slow_wait():
-            raise asyncio.TimeoutError()
+            raise TimeoutError()
 
         mock_process.wait = slow_wait
 
@@ -296,7 +296,7 @@ class TestTunnelServiceStop:
         async def wait_after_kill():
             if mock_process.kill.called:
                 return
-            raise asyncio.TimeoutError()
+            raise TimeoutError()
 
         mock_process.wait = wait_after_kill
 
