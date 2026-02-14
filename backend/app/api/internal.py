@@ -104,25 +104,41 @@ async def get_worker_deploy_config(
     if not config.vpc_service_id:
         return {"error": "VPC service not created yet (complete wizard step 3)"}
 
-    # Build allowed emails / domain for Worker secrets
-    allowed_emails = ""
-    if config.access_policy_type == "emails" and config.access_policy_emails:
+    # Decrypt OIDC credentials for Worker secrets
+    access_client_id = ""
+    access_client_secret = ""
+    if config.encrypted_access_client_id:
         try:
-            emails_list = json.loads(config.access_policy_emails)
-            allowed_emails = ",".join(emails_list)
-        except (json.JSONDecodeError, TypeError):
+            access_client_id = decrypt_from_base64(config.encrypted_access_client_id)
+        except Exception:
             pass
+    if config.encrypted_access_client_secret:
+        try:
+            access_client_secret = decrypt_from_base64(config.encrypted_access_client_secret)
+        except Exception:
+            pass
+
+    # Build OIDC endpoint URLs from team_domain and client_id
+    access_token_url = ""
+    access_authorization_url = ""
+    access_jwks_url = ""
+    if config.team_domain and access_client_id:
+        base = f"https://{config.team_domain}/cdn-cgi/access/sso/oidc/{access_client_id}"
+        access_token_url = f"{base}/token"
+        access_authorization_url = f"{base}/authorize"
+        access_jwks_url = f"https://{config.team_domain}/cdn-cgi/access/certs"
 
     return {
         "vpc_service_id": config.vpc_service_id,
         "worker_name": config.worker_name or "mcpbox-proxy",
-        "team_domain": config.team_domain,
-        "mcp_portal_aud": config.mcp_portal_aud,
-        "mcp_portal_hostname": config.mcp_portal_hostname,
         "has_service_token": config.encrypted_service_token is not None,
         "kv_namespace_id": config.kv_namespace_id,
-        "allowed_emails": allowed_emails,
-        "allowed_email_domain": config.access_policy_email_domain or "",
+        # Access for SaaS OIDC credentials
+        "access_client_id": access_client_id,
+        "access_client_secret": access_client_secret,
+        "access_token_url": access_token_url,
+        "access_authorization_url": access_authorization_url,
+        "access_jwks_url": access_jwks_url,
     }
 
 

@@ -1062,8 +1062,62 @@ export default {
             mcp_server_id = server.get("id")
             logger.info(f"MCP Server created: {server}")
 
-            # Create Access Application with type "mcp" for the server.
-            logger.info(f"Creating Access Application (type: mcp) for server {mcp_server_id}...")
+            # Create SaaS OIDC Access Application for the server.
+            # This replaces the old "mcp" type app. Access for SaaS acts as
+            # an OIDC identity provider — the Worker authenticates users via
+            # the OIDC flow, and Access policies control who can authenticate.
+            logger.info(f"Creating SaaS OIDC Access Application for server {mcp_server_id}...")
+            try:
+                callback_url = f"https://{config.worker_url}/callback" if config.worker_url else ""
+                # Strip double https:// if worker_url already has it
+                if config.worker_url and config.worker_url.startswith("https://"):
+                    callback_url = f"{config.worker_url}/callback"
+
+                saas_app_data = await self._cf_request(
+                    "POST",
+                    f"/accounts/{config.account_id}/access/apps",
+                    api_token,
+                    json={
+                        "name": f"{server_name} OIDC",
+                        "type": "saas",
+                        "saas_app": {
+                            "auth_type": "oidc",
+                            "redirect_uris": [callback_url],
+                            "scopes": ["openid", "email", "profile"],
+                            "grant_types": ["authorization_code"],
+                        },
+                    },
+                )
+                saas_app = saas_app_data.get("result", {})
+                saas_app_id = saas_app.get("id", "")
+                config.access_app_id = saas_app_id
+                logger.info(f"Created SaaS OIDC Access Application: {saas_app_id}")
+
+                # Extract OIDC client credentials from the SaaS app
+                saas_cfg = saas_app.get("saas_app", {})
+                oidc_client_id = saas_cfg.get("client_id", "")
+                oidc_client_secret = saas_cfg.get("client_secret", "")
+
+                if oidc_client_id and oidc_client_secret:
+                    # Store encrypted OIDC credentials
+                    config.encrypted_access_client_id = encrypt_to_base64(oidc_client_id)
+                    config.encrypted_access_client_secret = encrypt_to_base64(oidc_client_secret)
+                    logger.info("Stored OIDC client credentials (encrypted)")
+                else:
+                    logger.warning(
+                        "SaaS app created but missing client_id/client_secret in response. "
+                        "You may need to fetch these from the Cloudflare dashboard."
+                    )
+
+                # Add Access Policy to the SaaS Application
+                await self._create_access_policy(
+                    api_token, config.account_id, saas_app_id, access_policy
+                )
+            except CloudflareAPIError as e:
+                logger.warning(f"Failed to create SaaS OIDC Access Application: {e}")
+
+            # Also create the "mcp" type Access App for Cloudflare portal discovery
+            logger.info(f"Creating MCP Access Application for portal discovery...")
             try:
                 access_app_data = await self._cf_request(
                     "POST",
@@ -1080,18 +1134,15 @@ export default {
                         ],
                     },
                 )
-                access_app = access_app_data.get("result", {})
-                mcp_access_app_id = access_app.get("id", "")
-                config.access_app_id = mcp_access_app_id
-                logger.info(f"Created MCP Access Application: {mcp_access_app_id}")
+                mcp_app = access_app_data.get("result", {})
+                logger.info(f"Created MCP Access Application: {mcp_app.get('id', '')}")
 
-                # Add Access Policy to the MCP Access Application
                 await self._create_access_policy(
-                    api_token, config.account_id, mcp_access_app_id, access_policy
+                    api_token, config.account_id, mcp_app.get("id", ""), access_policy
                 )
             except CloudflareAPIError as e:
                 logger.warning(f"Failed to create MCP Access Application: {e}")
-                # Continue - the portal creation may still work
+                # Non-fatal — portal discovery is optional
 
             # Sync tools
             tools_synced = 0
@@ -1375,37 +1426,22 @@ export default {
             if active_tunnel_config:
                 active_tunnel_config.public_url = portal_url
 
-            # Auto-sync all Worker secrets if we have the required values
+            # Auto-sync all Worker secrets if we have the required OIDC values
             jwt_configured = False
-            if config.worker_name and mcp_portal_aud and config.team_domain:
+            oidc_creds = self._get_oidc_credentials(config)
+            if config.worker_name and oidc_creds:
                 try:
                     # Decrypt service token from DB to re-sync with Worker
                     svc_token = None
                     if config.encrypted_service_token:
                         svc_token = decrypt_from_base64(config.encrypted_service_token)
 
-                    # Build access policy from DB fields for Worker sync
-                    sync_policy = access_policy
-                    if not sync_policy and config.access_policy_type:
-                        sync_policy = AccessPolicyConfig(
-                            policy_type=config.access_policy_type,  # type: ignore[arg-type]
-                            emails=(
-                                json.loads(config.access_policy_emails)
-                                if config.access_policy_emails
-                                else []
-                            ),
-                            email_domain=config.access_policy_email_domain,
-                        )
-
                     await self._sync_worker_secrets(
                         api_token,
                         config.account_id,
                         config.worker_name,
-                        config.team_domain,
-                        mcp_portal_aud,
                         service_token=svc_token,
-                        portal_hostname=config.mcp_portal_hostname,
-                        access_policy=sync_policy,
+                        **oidc_creds,
                     )
                     jwt_configured = True
                     config.completed_step = 7
@@ -1616,27 +1652,10 @@ export default {
                 errors.append(f"Access Policy update failed: {e}")
                 logger.warning(f"Failed to update Access Policy: {e}")
 
-        # 3. Sync to Worker
-        if config.worker_name and config.team_domain and config.mcp_portal_aud:
-            try:
-                svc_token = None
-                if config.encrypted_service_token:
-                    svc_token = decrypt_from_base64(config.encrypted_service_token)
-
-                await self._sync_worker_secrets(
-                    api_token,
-                    config.account_id,
-                    config.worker_name,
-                    config.team_domain,
-                    config.mcp_portal_aud,
-                    service_token=svc_token,
-                    portal_hostname=config.mcp_portal_hostname,
-                    access_policy=access_policy,
-                )
-                worker_synced = True
-            except Exception as e:
-                errors.append(f"Worker sync failed: {e}")
-                logger.warning(f"Failed to sync Worker secrets: {e}")
+        # With Access for SaaS, the Access Policy at the OIDC layer is
+        # the single source of truth for email enforcement. No need to
+        # sync ALLOWED_EMAILS to the Worker — it was removed.
+        worker_synced = True  # No Worker sync needed for policy changes
 
         message = "Access policy updated"
         if errors:
@@ -1726,23 +1745,54 @@ export default {
     # Step 7: Configure Worker JWT
     # =========================================================================
 
+    def _get_oidc_credentials(self, config: CloudflareConfig) -> dict | None:
+        """Get decrypted OIDC credentials from the config for Worker sync.
+
+        Returns a dict with keys matching _sync_worker_secrets kwargs,
+        or None if OIDC credentials are not configured.
+        """
+        if not config.encrypted_access_client_id or not config.encrypted_access_client_secret:
+            return None
+
+        try:
+            client_id = decrypt_from_base64(config.encrypted_access_client_id)
+            client_secret = decrypt_from_base64(config.encrypted_access_client_secret)
+        except DecryptionError:
+            logger.error("Failed to decrypt OIDC credentials")
+            return None
+
+        if not config.team_domain:
+            return None
+
+        # Build OIDC endpoint URLs from team_domain and client_id
+        base = f"https://{config.team_domain}/cdn-cgi/access/sso/oidc/{client_id}"
+        return {
+            "access_client_id": client_id,
+            "access_client_secret": client_secret,
+            "access_token_url": f"{base}/token",
+            "access_authorization_url": f"{base}/authorize",
+            "access_jwks_url": f"https://{config.team_domain}/cdn-cgi/access/certs",
+            "cookie_encryption_key": secrets.token_hex(32),
+        }
+
     async def _sync_worker_secrets(
         self,
         api_token: str,
         account_id: str,
         worker_name: str,
-        team_domain: str,
-        aud: str,
         service_token: str | None = None,
-        portal_hostname: str | None = None,
-        access_policy: AccessPolicyConfig | None = None,
+        access_client_id: str | None = None,
+        access_client_secret: str | None = None,
+        access_token_url: str | None = None,
+        access_authorization_url: str | None = None,
+        access_jwks_url: str | None = None,
+        cookie_encryption_key: str | None = None,
     ) -> None:
         """Sync all Worker secrets from the database using wrangler CLI.
 
-        Pushes CF_ACCESS_TEAM_DOMAIN, CF_ACCESS_AUD, MCP_PORTAL_HOSTNAME,
-        ALLOWED_EMAILS, ALLOWED_EMAIL_DOMAIN, and (if provided)
-        MCPBOX_SERVICE_TOKEN to the Worker. This ensures the Worker always
-        has the current values from the database — the single source of truth.
+        With Access for SaaS, pushes OIDC credentials (ACCESS_CLIENT_ID,
+        ACCESS_CLIENT_SECRET, etc.) and MCPBOX_SERVICE_TOKEN. The OIDC
+        credentials come from the SaaS OIDC application created in step 5.
 
         Raises an exception if any secret fails to set.
         """
@@ -1772,28 +1822,21 @@ compatibility_flags = ["nodejs_compat"]
             }
 
             # Sync all Worker secrets from DB values
-            secrets_to_set = {
-                "CF_ACCESS_TEAM_DOMAIN": team_domain,
-                "CF_ACCESS_AUD": aud,
-            }
+            secrets_to_set: dict[str, str] = {}
             if service_token:
                 secrets_to_set["MCPBOX_SERVICE_TOKEN"] = service_token
-            if portal_hostname:
-                secrets_to_set["MCP_PORTAL_HOSTNAME"] = portal_hostname
-
-            # Sync allowed emails/domain to Worker for authorization enforcement.
-            # Use a placeholder value "_none_" to clear secrets — wrangler
-            # doesn't support deleting secrets, and empty strings cause errors.
-            if access_policy:
-                if access_policy.policy_type == "emails" and access_policy.emails:
-                    secrets_to_set["ALLOWED_EMAILS"] = ",".join(access_policy.emails)
-                else:
-                    secrets_to_set["ALLOWED_EMAILS"] = "_none_"
-
-                if access_policy.policy_type == "email_domain" and access_policy.email_domain:
-                    secrets_to_set["ALLOWED_EMAIL_DOMAIN"] = access_policy.email_domain
-                else:
-                    secrets_to_set["ALLOWED_EMAIL_DOMAIN"] = "_none_"
+            if access_client_id:
+                secrets_to_set["ACCESS_CLIENT_ID"] = access_client_id
+            if access_client_secret:
+                secrets_to_set["ACCESS_CLIENT_SECRET"] = access_client_secret
+            if access_token_url:
+                secrets_to_set["ACCESS_TOKEN_URL"] = access_token_url
+            if access_authorization_url:
+                secrets_to_set["ACCESS_AUTHORIZATION_URL"] = access_authorization_url
+            if access_jwks_url:
+                secrets_to_set["ACCESS_JWKS_URL"] = access_jwks_url
+            if cookie_encryption_key:
+                secrets_to_set["COOKIE_ENCRYPTION_KEY"] = cookie_encryption_key
 
             secrets_failed = []
 
@@ -1819,11 +1862,12 @@ compatibility_flags = ["nodejs_compat"]
     async def configure_worker_jwt(
         self, config_id: UUID, aud: str | None = None
     ) -> ConfigureJwtResponse:
-        """Configure Worker JWT verification settings using wrangler CLI.
+        """Configure Worker OIDC secrets using wrangler CLI.
 
-        Args:
-            config_id: The configuration ID
-            aud: Optional Application Audience Tag. If not provided, will attempt to fetch from API.
+        With Access for SaaS, this syncs the OIDC credentials (client_id,
+        client_secret, token_url, authorization_url, jwks_url) and service
+        token to the Worker. The aud parameter is unused but kept for API
+        compatibility.
         """
         config = await self.get_config_by_id(config_id)
         if not config:
@@ -1832,117 +1876,16 @@ compatibility_flags = ["nodejs_compat"]
         if not config.worker_name:
             raise ValueError("Worker must be deployed first")
 
-        if not config.mcp_portal_id:
-            raise ValueError("MCP Portal must be created first")
-
         api_token = await self._get_decrypted_token(config)
         if not api_token:
             raise ValueError("API token not available")
 
-        # Try to fetch missing values
-        team_domain = config.team_domain
-        # Use provided AUD or fall back to stored value
-        mcp_portal_aud = aud or config.mcp_portal_aud
-
-        # If AUD was provided manually, save it to config
-        if aud and not config.mcp_portal_aud:
-            config.mcp_portal_aud = aud
-            logger.info(f"Saved manually provided AUD: {aud[:20]}...")
-
-        # Fetch team_domain if missing
-        if not team_domain:
-            logger.info("team_domain missing, attempting to fetch...")
-            try:
-                team_domain = await self._get_team_domain(config.account_id, api_token)
-                if team_domain:
-                    config.team_domain = team_domain
-                    logger.info(f"Fetched team_domain: {team_domain}")
-            except Exception as e:
-                logger.warning(f"Could not fetch team_domain: {e}")
-
-        # Fetch mcp_portal_aud if missing
-        if not mcp_portal_aud:
-            logger.info("mcp_portal_aud missing, attempting to fetch...")
-            import asyncio
-
-            # Try fetching portal details
-            try:
-                portal_data = await self._cf_request(
-                    "GET",
-                    f"/accounts/{config.account_id}/access/ai-controls/mcp/portals/{config.mcp_portal_id}",
-                    api_token,
-                )
-                portal_details = portal_data.get("result", {})
-                logger.info(f"Portal details: {portal_details}")
-                mcp_portal_aud = portal_details.get("aud", "")
-                if mcp_portal_aud:
-                    config.mcp_portal_aud = mcp_portal_aud
-                    logger.info(f"Fetched mcp_portal_aud from portal: {mcp_portal_aud[:20]}...")
-            except CloudflareAPIError as e:
-                logger.warning(f"Failed to get portal details: {e}")
-
-            # If still missing, try Access apps with different filters
-            if not mcp_portal_aud:
-                for attempt in range(3):
-                    if attempt > 0:
-                        await asyncio.sleep(2)
-                    try:
-                        apps_data = await self._cf_request(
-                            "GET",
-                            f"/accounts/{config.account_id}/access/apps",
-                            api_token,
-                        )
-                        apps = apps_data.get("result", [])
-                        logger.info(f"Access apps (attempt {attempt + 1}): {len(apps)} apps found")
-                        for app in apps:
-                            logger.debug(f"Access app: {app}")
-                            if (
-                                app.get("type") == "mcp"
-                                or app.get("domain") == config.mcp_portal_hostname
-                            ):
-                                mcp_portal_aud = app.get("aud", "")
-                                if mcp_portal_aud:
-                                    config.mcp_portal_aud = mcp_portal_aud
-                                    logger.info(
-                                        f"Fetched mcp_portal_aud from Access app: {mcp_portal_aud[:20]}..."
-                                    )
-                                    break
-                        if mcp_portal_aud:
-                            break
-                    except CloudflareAPIError as e:
-                        logger.warning(f"Failed to get Access apps (attempt {attempt + 1}): {e}")
-
-            # Try listing all Access apps types including self-hosted and SaaS
-            if not mcp_portal_aud:
-                try:
-                    # Try self-hosted apps endpoint with hostname filter
-                    apps_data = await self._cf_request(
-                        "GET",
-                        f"/accounts/{config.account_id}/access/apps?domain={config.mcp_portal_hostname}",
-                        api_token,
-                    )
-                    apps = apps_data.get("result", [])
-                    logger.info(f"Filtered Access apps by domain: {len(apps)} apps found")
-                    for app in apps:
-                        mcp_portal_aud = app.get("aud", "")
-                        if mcp_portal_aud:
-                            config.mcp_portal_aud = mcp_portal_aud
-                            logger.info(f"Found AUD from filtered apps: {mcp_portal_aud[:20]}...")
-                            break
-                except CloudflareAPIError as e:
-                    logger.warning(f"Failed to get filtered Access apps: {e}")
-
-        # Validate we have the required values
-        if not team_domain:
+        # Validate we have OIDC credentials from step 5
+        oidc_creds = self._get_oidc_credentials(config)
+        if not oidc_creds:
             raise ValueError(
-                "Could not get team_domain. Ensure your API token has "
-                "'Access: Organizations, Identity Providers, and Groups > Read' permission."
-            )
-
-        if not mcp_portal_aud:
-            raise ValueError(
-                "Could not get MCP Portal AUD. Ensure your API token has "
-                "'Access: Apps and Policies > Read' permission."
+                "OIDC credentials not found. Ensure step 5 (Create MCP Server) "
+                "created the SaaS OIDC application successfully."
             )
 
         try:
@@ -1951,29 +1894,13 @@ compatibility_flags = ["nodejs_compat"]
             if config.encrypted_service_token:
                 svc_token = decrypt_from_base64(config.encrypted_service_token)
 
-            # Build access policy from DB for Worker sync
-            sync_policy = None
-            if config.access_policy_type:
-                sync_policy = AccessPolicyConfig(
-                    policy_type=config.access_policy_type,  # type: ignore[arg-type]
-                    emails=(
-                        json.loads(config.access_policy_emails)
-                        if config.access_policy_emails
-                        else []
-                    ),
-                    email_domain=config.access_policy_email_domain,
-                )
-
-            # Sync all Worker secrets (JWT + service token + portal hostname + access policy)
+            # Sync all Worker secrets (OIDC credentials + service token)
             await self._sync_worker_secrets(
                 api_token,
                 config.account_id,
                 config.worker_name,
-                team_domain,
-                mcp_portal_aud,
                 service_token=svc_token,
-                portal_hostname=config.mcp_portal_hostname,
-                access_policy=sync_policy,
+                **oidc_creds,
             )
 
             # Wait a moment for secrets to propagate, then test direct Worker access
@@ -1992,7 +1919,7 @@ compatibility_flags = ["nodejs_compat"]
                         )
                         if response.status_code == 401:
                             worker_test_result = (
-                                "401 Unauthorized (expected - JWT verification active)"
+                                "401 Unauthorized (expected - OAuth required)"
                             )
                         else:
                             worker_test_result = (
@@ -2011,9 +1938,9 @@ compatibility_flags = ["nodejs_compat"]
             return ConfigureJwtResponse(
                 success=True,
                 team_domain=config.team_domain or "",
-                aud=config.mcp_portal_aud or "",
+                aud="saas-oidc",
                 worker_test_result=worker_test_result,
-                message="JWT verification secrets set successfully: CF_ACCESS_TEAM_DOMAIN, CF_ACCESS_AUD",
+                message="OIDC secrets set successfully: ACCESS_CLIENT_ID, ACCESS_CLIENT_SECRET, etc.",
             )
 
         except CloudflareAPIError as e:

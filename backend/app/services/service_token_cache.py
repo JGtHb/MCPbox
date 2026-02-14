@@ -6,16 +6,12 @@ loads it at startup and periodically refreshes from the database so that token
 changes (e.g., wizard regeneration) are picked up by all processes (backend AND
 mcp-gateway) without requiring a restart.
 
-Also caches team_domain and portal_aud from the active CloudflareConfig, needed
-for server-side JWT verification of Cf-Access-Jwt-Assertion headers.
-
 Call invalidate() + load() for immediate refresh (e.g., in the backend process
 after the wizard regenerates the token). Other processes (mcp-gateway) will
 pick up the change within TTL_SECONDS.
 """
 
 import logging
-import re
 import time
 
 from sqlalchemy import select
@@ -33,8 +29,6 @@ TTL_SECONDS = 30
 class ServiceTokenCache:
     _instance: "ServiceTokenCache | None" = None
     _token: str | None = None
-    _team_domain: str | None = None
-    _portal_aud: str | None = None
     _last_loaded: float = 0.0
     _db_error: bool = False
     _decryption_error: bool = False
@@ -46,7 +40,7 @@ class ServiceTokenCache:
         return cls._instance
 
     async def load(self) -> None:
-        """Load service token and JWT verification params from active CloudflareConfig."""
+        """Load service token from active CloudflareConfig."""
         try:
             async with async_session_maker() as session:
                 result = await session.execute(
@@ -86,23 +80,6 @@ class ServiceTokenCache:
             self._decryption_error = False
             logger.info("No service token in database (local-only mode)")
 
-        # Cache JWT verification params (with format validation)
-        if config:
-            td = config.team_domain
-            if td and not re.fullmatch(r"[a-zA-Z0-9._-]+\.cloudflareaccess\.com", td):
-                logger.error(
-                    "team_domain '%s' does not match *.cloudflareaccess.com — "
-                    "rejecting to prevent JWKS redirection attacks",
-                    td,
-                )
-                self._team_domain = None
-            else:
-                self._team_domain = td
-            self._portal_aud = config.mcp_portal_aud
-        else:
-            self._team_domain = None
-            self._portal_aud = None
-
         self._last_loaded = time.monotonic()
 
     async def _refresh_if_stale(self) -> None:
@@ -113,8 +90,6 @@ class ServiceTokenCache:
     def invalidate(self) -> None:
         """Clear cached token so the next load() picks up the new value."""
         self._token = None
-        self._team_domain = None
-        self._portal_aud = None
         self._decryption_error = False
         self._last_loaded = 0.0  # Force reload on next access
 
@@ -125,14 +100,6 @@ class ServiceTokenCache:
     @property
     def auth_enabled(self) -> bool:
         return bool(self._token) or self._db_error or self._decryption_error
-
-    @property
-    def team_domain(self) -> str | None:
-        return self._team_domain
-
-    @property
-    def portal_aud(self) -> str | None:
-        return self._portal_aud
 
     async def get_token(self) -> str | None:
         """Get the cached token, refreshing from DB if stale."""
@@ -148,13 +115,3 @@ class ServiceTokenCache:
         """
         await self._refresh_if_stale()
         return bool(self._token) or self._db_error or self._decryption_error
-
-    async def get_team_domain(self) -> str | None:
-        """Get cached team domain for JWT verification."""
-        await self._refresh_if_stale()
-        return self._team_domain
-
-    async def get_portal_aud(self) -> str | None:
-        """Get cached portal AUD for JWT verification."""
-        await self._refresh_if_stale()
-        return self._portal_aud

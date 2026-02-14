@@ -171,15 +171,12 @@ async def mcp_gateway(
         # SECURITY: Remote requests without a verified user identity are
         # restricted to read-only/sync methods (initialize, tools/list,
         # notifications). Tool execution (tools/call) requires a verified
-        # user email — either from server-side JWT verification or from
-        # OAuth token props (email embedded at authorization time when
-        # the user authenticated via the MCP Portal).
+        # user email from OIDC authentication.
         #
-        # This ensures that:
-        # - MCP Portal users (email in OAuth props) can execute tools
-        # - Cloudflare sync (no email) can discover tools but not execute
-        # - Direct Worker access without Portal auth cannot execute tools
-        # - Local requests (source="local") are always allowed
+        # With Access for SaaS, all human users authenticate via OIDC
+        # and have a verified email. Only Cloudflare's internal sync
+        # (tool discovery) may lack an email — it's allowed for read-only
+        # methods but blocked from tool execution.
         _is_anonymous_remote = _user.source == "worker" and not _user.email
 
         # Handle different MCP methods

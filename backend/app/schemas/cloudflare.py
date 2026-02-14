@@ -376,7 +376,7 @@ class WizardStatusResponse(BaseModel):
 
 
 class UpdateAccessPolicyRequest(BaseModel):
-    """Request to update the access policy for both Cloudflare Access and Worker."""
+    """Request to update the access policy on the Cloudflare Access SaaS application."""
 
     config_id: UUID
     access_policy: AccessPolicyConfig = Field(
@@ -394,8 +394,8 @@ class UpdateAccessPolicyResponse(BaseModel):
         description="Whether the Cloudflare Access Policy was updated",
     )
     worker_synced: bool = Field(
-        default=False,
-        description="Whether the Worker ALLOWED_EMAILS secret was updated",
+        default=True,
+        description="With Access for SaaS, policy is enforced at OIDC layer (no Worker sync needed)",
     )
     message: str | None = None
 

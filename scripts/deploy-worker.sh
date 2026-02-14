@@ -48,21 +48,21 @@ fi
 # Extract config values
 VPC_SERVICE_ID=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['vpc_service_id'])")
 WORKER_NAME=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['worker_name'])")
-TEAM_DOMAIN=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('team_domain') or '')")
-MCP_PORTAL_AUD=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('mcp_portal_aud') or '')")
-MCP_PORTAL_HOSTNAME=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('mcp_portal_hostname') or '')")
 KV_NAMESPACE_ID=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('kv_namespace_id') or '')")
-ALLOWED_EMAILS=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('allowed_emails') or '')")
-ALLOWED_EMAIL_DOMAIN=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('allowed_email_domain') or '')")
+# Access for SaaS OIDC credentials
+ACCESS_CLIENT_ID=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_client_id') or '')")
+ACCESS_CLIENT_SECRET=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_client_secret') or '')")
+ACCESS_TOKEN_URL=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token_url') or '')")
+ACCESS_AUTHORIZATION_URL=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_authorization_url') or '')")
+ACCESS_JWKS_URL=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_jwks_url') or '')")
 
-echo "    Worker name:     $WORKER_NAME"
-echo "    VPC service ID:  $VPC_SERVICE_ID"
-echo "    KV namespace ID: ${KV_NAMESPACE_ID:-'(not set)'}"
-echo "    Team domain:     ${TEAM_DOMAIN:-'(not set)'}"
-echo "    MCP Portal AUD:  ${MCP_PORTAL_AUD:0:16}${MCP_PORTAL_AUD:+...}"
-echo "    Portal hostname: ${MCP_PORTAL_HOSTNAME:-'(not set)'}"
-echo "    Allowed emails:  ${ALLOWED_EMAILS:-'(not set)'}"
-echo "    Allowed domain:  ${ALLOWED_EMAIL_DOMAIN:-'(not set)'}"
+echo "    Worker name:       $WORKER_NAME"
+echo "    VPC service ID:    $VPC_SERVICE_ID"
+echo "    KV namespace ID:   ${KV_NAMESPACE_ID:-'(not set)'}"
+echo "    Access Client ID:  ${ACCESS_CLIENT_ID:0:16}${ACCESS_CLIENT_ID:+...}"
+echo "    OIDC Token URL:    ${ACCESS_TOKEN_URL:-'(not set)'}"
+echo "    OIDC Auth URL:     ${ACCESS_AUTHORIZATION_URL:-'(not set)'}"
+echo "    OIDC JWKS URL:     ${ACCESS_JWKS_URL:-'(not set)'}"
 
 echo ""
 echo "==> Generating worker/wrangler.toml..."
@@ -135,40 +135,46 @@ if [ "$SET_SECRETS" = true ]; then
         fi
     fi
 
-    if [ -n "$TEAM_DOMAIN" ]; then
-        echo "$TEAM_DOMAIN" | npx wrangler secret put CF_ACCESS_TEAM_DOMAIN
-        echo "    Set CF_ACCESS_TEAM_DOMAIN"
+    # Access for SaaS OIDC credentials
+    if [ -n "$ACCESS_CLIENT_ID" ]; then
+        echo "$ACCESS_CLIENT_ID" | npx wrangler secret put ACCESS_CLIENT_ID
+        echo "    Set ACCESS_CLIENT_ID"
     else
-        echo "    Skipping CF_ACCESS_TEAM_DOMAIN (not configured)"
+        echo "    Skipping ACCESS_CLIENT_ID (not configured)"
     fi
 
-    if [ -n "$MCP_PORTAL_AUD" ]; then
-        echo "$MCP_PORTAL_AUD" | npx wrangler secret put CF_ACCESS_AUD
-        echo "    Set CF_ACCESS_AUD"
+    if [ -n "$ACCESS_CLIENT_SECRET" ]; then
+        echo "$ACCESS_CLIENT_SECRET" | npx wrangler secret put ACCESS_CLIENT_SECRET
+        echo "    Set ACCESS_CLIENT_SECRET"
     else
-        echo "    Skipping CF_ACCESS_AUD (not configured)"
+        echo "    Skipping ACCESS_CLIENT_SECRET (not configured)"
     fi
 
-    if [ -n "$MCP_PORTAL_HOSTNAME" ]; then
-        echo "$MCP_PORTAL_HOSTNAME" | npx wrangler secret put MCP_PORTAL_HOSTNAME
-        echo "    Set MCP_PORTAL_HOSTNAME"
+    if [ -n "$ACCESS_TOKEN_URL" ]; then
+        echo "$ACCESS_TOKEN_URL" | npx wrangler secret put ACCESS_TOKEN_URL
+        echo "    Set ACCESS_TOKEN_URL"
     else
-        echo "    Skipping MCP_PORTAL_HOSTNAME (not configured)"
+        echo "    Skipping ACCESS_TOKEN_URL (not configured)"
     fi
 
-    if [ -n "$ALLOWED_EMAILS" ]; then
-        echo "$ALLOWED_EMAILS" | npx wrangler secret put ALLOWED_EMAILS
-        echo "    Set ALLOWED_EMAILS"
+    if [ -n "$ACCESS_AUTHORIZATION_URL" ]; then
+        echo "$ACCESS_AUTHORIZATION_URL" | npx wrangler secret put ACCESS_AUTHORIZATION_URL
+        echo "    Set ACCESS_AUTHORIZATION_URL"
     else
-        echo "    Skipping ALLOWED_EMAILS (not configured)"
+        echo "    Skipping ACCESS_AUTHORIZATION_URL (not configured)"
     fi
 
-    if [ -n "$ALLOWED_EMAIL_DOMAIN" ]; then
-        echo "$ALLOWED_EMAIL_DOMAIN" | npx wrangler secret put ALLOWED_EMAIL_DOMAIN
-        echo "    Set ALLOWED_EMAIL_DOMAIN"
+    if [ -n "$ACCESS_JWKS_URL" ]; then
+        echo "$ACCESS_JWKS_URL" | npx wrangler secret put ACCESS_JWKS_URL
+        echo "    Set ACCESS_JWKS_URL"
     else
-        echo "    Skipping ALLOWED_EMAIL_DOMAIN (not configured)"
+        echo "    Skipping ACCESS_JWKS_URL (not configured)"
     fi
+
+    # Generate and set cookie encryption key
+    COOKIE_KEY=$(openssl rand -hex 32)
+    echo "$COOKIE_KEY" | npx wrangler secret put COOKIE_ENCRYPTION_KEY
+    echo "    Set COOKIE_ENCRYPTION_KEY"
 fi
 
 echo ""
