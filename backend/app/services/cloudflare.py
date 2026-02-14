@@ -1117,7 +1117,7 @@ export default {
                 logger.warning(f"Failed to create SaaS OIDC Access Application: {e}")
 
             # Also create the "mcp" type Access App for Cloudflare portal discovery
-            logger.info(f"Creating MCP Access Application for portal discovery...")
+            logger.info("Creating MCP Access Application for portal discovery...")
             try:
                 access_app_data = await self._cf_request(
                     "POST",
@@ -1918,9 +1918,7 @@ compatibility_flags = ["nodejs_compat"]
                             timeout=10.0,
                         )
                         if response.status_code == 401:
-                            worker_test_result = (
-                                "401 Unauthorized (expected - OAuth required)"
-                            )
+                            worker_test_result = "401 Unauthorized (expected - OAuth required)"
                         else:
                             worker_test_result = (
                                 f"{response.status_code} (secrets may need more time to propagate)"

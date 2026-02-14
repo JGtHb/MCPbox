@@ -73,7 +73,7 @@ function ProgressStepper({
     { step: 4, label: 'Worker' },
     { step: 5, label: 'MCP Server' },
     { step: 6, label: 'MCP Portal' },
-    { step: 7, label: 'JWT Config' },
+    { step: 7, label: 'OIDC Secrets' },
     { step: 8, label: 'Authenticate' },
   ]
 
@@ -259,7 +259,6 @@ export function CloudflareWizard() {
   const [selectedZone, setSelectedZone] = useState('')
   const [zones, setZones] = useState<Zone[]>([])
   const [configId, setConfigId] = useState<string | null>(null)
-  const [manualAud, setManualAud] = useState('')
 
   // Access policy state
   const [policyType, setPolicyType] = useState<AccessPolicyType>('everyone')
@@ -500,14 +499,11 @@ export function CloudflareWizard() {
     }
   }
 
-  const handleConfigureJwt = async () => {
+  const handleConfigureOidcSecrets = async () => {
     if (!configId) return
     try {
-      // Pass manual AUD if provided and status doesn't have one
-      const audToUse = status?.mcp_portal_aud || manualAud || undefined
       await configureJwtMutation.mutateAsync({
         config_id: configId,
-        aud: audToUse,
       })
       await queryClient.refetchQueries({ queryKey: cloudflareKeys.status() })
     } catch {
@@ -847,7 +843,7 @@ export function CloudflareWizard() {
         <StepCard
           step={5}
           title="Create MCP Server"
-          description="Create an MCP Server in Cloudflare pointing to your Worker."
+          description="Create an MCP Server and OIDC authentication app in Cloudflare."
           isActive={currentStep === 5}
           isComplete={completedStep >= 5}
           onEdit={() => setCurrentStep(5)}
@@ -1217,11 +1213,11 @@ export function CloudflareWizard() {
           )}
         </StepCard>
 
-        {/* Step 7: Configure JWT */}
+        {/* Step 7: Configure OIDC Worker Secrets */}
         <StepCard
           step={7}
-          title="Configure JWT Verification"
-          description="Configure the Worker to verify JWT tokens from the MCP Portal."
+          title="Configure Worker OIDC Secrets"
+          description="Push the OIDC credentials from the SaaS application to the Worker."
           isActive={currentStep === 7}
           isComplete={completedStep >= 7}
           onEdit={() => setCurrentStep(7)}
@@ -1230,61 +1226,46 @@ export function CloudflareWizard() {
             <div className="space-y-4">
               <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
                 <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">
-                  Worker secrets to configure:
+                  Worker secrets to configure (from Access for SaaS OIDC app):
                 </p>
                 <ul className="text-sm font-mono text-gray-600 dark:text-gray-400 space-y-1">
-                  <li>CF_ACCESS_TEAM_DOMAIN: {status?.team_domain || 'Not available'}</li>
-                  <li>CF_ACCESS_AUD: {status?.mcp_portal_aud || manualAud || 'Not available'}</li>
+                  <li>ACCESS_CLIENT_ID</li>
+                  <li>ACCESS_CLIENT_SECRET</li>
+                  <li>ACCESS_TOKEN_URL</li>
+                  <li>ACCESS_AUTHORIZATION_URL</li>
+                  <li>ACCESS_JWKS_URL</li>
+                  <li>COOKIE_ENCRYPTION_KEY</li>
                 </ul>
               </div>
 
-              {!status?.mcp_portal_aud && (
-                <div className="space-y-2">
-                  <div className="p-4 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded-lg">
-                    <p className="text-sm text-yellow-700 dark:text-yellow-300 mb-2">
-                      <strong>AUD tag not found automatically.</strong> Please enter it manually:
-                    </p>
-                    <p className="text-xs text-yellow-600 dark:text-yellow-400">
-                      Find it in Cloudflare Dashboard: Zero Trust → Access → Applications →
-                      Select your MCP Portal app → Basic Information → Application Audience (AUD) Tag
-                    </p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Application Audience (AUD) Tag
-                    </label>
-                    <input
-                      type="text"
-                      value={manualAud}
-                      onChange={(e) => setManualAud(e.target.value)}
-                      placeholder="e.g., 737646a56ab1df6ec9bddc7e5ca84eaf3b0768850f3ffb5d74f1534911fe3893"
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm"
-                    />
-                  </div>
-                </div>
-              )}
+              <div className="p-4 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <p className="text-sm text-blue-700 dark:text-blue-300">
+                  These credentials were obtained when the SaaS OIDC application was created in step 5.
+                  Click the button below to push them to the Worker.
+                </p>
+              </div>
 
               {configureJwtMutation.error && (
                 <ErrorDisplay
                   error={
                     configureJwtMutation.error instanceof Error
                       ? configureJwtMutation.error.message
-                      : 'Failed to configure JWT'
+                      : 'Failed to configure OIDC secrets'
                   }
                 />
               )}
 
               <button
-                onClick={handleConfigureJwt}
-                disabled={configureJwtMutation.isPending || !status?.team_domain || (!status?.mcp_portal_aud && !manualAud)}
+                onClick={handleConfigureOidcSecrets}
+                disabled={configureJwtMutation.isPending}
                 className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {configureJwtMutation.isPending ? 'Setting secrets...' : 'Configure JWT Verification'}
+                {configureJwtMutation.isPending ? 'Setting secrets...' : 'Configure OIDC Secrets'}
               </button>
             </div>
           )}
           {completedStep >= 7 && (
-            <SuccessDisplay message="JWT verification configured. Setup complete!" />
+            <SuccessDisplay message="OIDC secrets configured. Setup complete!" />
           )}
         </StepCard>
 

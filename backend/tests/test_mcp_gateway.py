@@ -10,7 +10,6 @@ Tests run in local mode by default (ServiceTokenCache has no token loaded).
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import jwt
 import pytest
 from httpx import AsyncClient
 
@@ -176,8 +175,6 @@ class TestMCPGatewayRemoteMode:
         mock_cache = MagicMock()
         mock_cache.is_auth_enabled = AsyncMock(return_value=True)
         mock_cache.get_token = AsyncMock(return_value=test_token)
-        mock_cache.get_team_domain = AsyncMock(return_value=None)
-        mock_cache.get_portal_aud = AsyncMock(return_value=None)
 
         with patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache):
             response = await async_client.post(
@@ -192,12 +189,12 @@ class TestMCPGatewayRemoteMode:
             assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_remote_mode_without_jwt_defaults_to_oauth(
+    async def test_remote_mode_sets_oidc_auth_method(
         self, async_client: AsyncClient, mock_sandbox_client
     ):
-        """Test that remote mode without JWT sets auth_method to 'oauth'.
+        """Test that remote mode sets auth_method to 'oidc'.
 
-        tools/list is allowed without JWT (needed for Cloudflare sync).
+        tools/list is allowed for Cloudflare sync.
         """
         mock_sandbox_client.mcp_request = AsyncMock(return_value={"result": {"tools": []}})
         test_token = "a" * 32
@@ -207,8 +204,6 @@ class TestMCPGatewayRemoteMode:
         mock_cache = MagicMock()
         mock_cache.is_auth_enabled = AsyncMock(return_value=True)
         mock_cache.get_token = AsyncMock(return_value=test_token)
-        mock_cache.get_team_domain = AsyncMock(return_value=None)
-        mock_cache.get_portal_aud = AsyncMock(return_value=None)
 
         with patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache):
             response = await async_client.post(
@@ -222,17 +217,14 @@ class TestMCPGatewayRemoteMode:
                     "X-MCPbox-Service-Token": test_token,
                 },
             )
-            # tools/list is allowed for sync (OAuth-only, no JWT)
             assert response.status_code == 200
             result = response.json()
             assert "result" in result
             assert "tools" in result["result"]
 
     @pytest.mark.asyncio
-    async def test_notifications_allowed_without_jwt_in_remote_mode(
-        self, async_client: AsyncClient
-    ):
-        """Remote mode without JWT allows notifications (202 Accepted).
+    async def test_notifications_allowed_in_remote_mode(self, async_client: AsyncClient):
+        """Remote mode allows notifications (202 Accepted).
 
         Notifications are needed for Cloudflare sync's initialized notification.
         """
@@ -243,8 +235,6 @@ class TestMCPGatewayRemoteMode:
         mock_cache = MagicMock()
         mock_cache.is_auth_enabled = AsyncMock(return_value=True)
         mock_cache.get_token = AsyncMock(return_value=test_token)
-        mock_cache.get_team_domain = AsyncMock(return_value=None)
-        mock_cache.get_portal_aud = AsyncMock(return_value=None)
 
         with patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache):
             response = await async_client.post(
@@ -625,249 +615,12 @@ class TestMCPProtocolHandshake:
         assert result["id"] == 42
 
 
-# --- JWT Verification Tests ---
+class TestOIDCIntegrationWithGateway:
+    """Tests for OIDC auth integration with the MCP gateway auth flow.
 
-# Shared RSA key pair for JWT tests
-_RSA_KEY = None
-
-
-def _get_test_rsa_key():
-    """Generate (and cache) a test RSA key pair for JWT signing/verification."""
-    global _RSA_KEY
-    if _RSA_KEY is None:
-        from cryptography.hazmat.primitives.asymmetric import rsa
-
-        private_key = rsa.generate_private_key(
-            public_exponent=65537,
-            key_size=2048,
-        )
-        _RSA_KEY = private_key
-    return _RSA_KEY
-
-
-def _int_to_base64url(n: int) -> str:
-    """Encode an integer as unpadded base64url (for JWKS n/e values)."""
-    import base64
-
-    byte_length = (n.bit_length() + 7) // 8
-    return base64.urlsafe_b64encode(n.to_bytes(byte_length, "big")).rstrip(b"=").decode()
-
-
-def _make_jwks_response(private_key, kid: str = "test-key-1") -> dict:
-    """Build a JWKS response dict from an RSA private key."""
-    from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicNumbers
-
-    public_key = private_key.public_key()
-    pub_numbers: RSAPublicNumbers = public_key.public_numbers()
-
-    return {
-        "keys": [
-            {
-                "kty": "RSA",
-                "kid": kid,
-                "alg": "RS256",
-                "use": "sig",
-                "n": _int_to_base64url(pub_numbers.n),
-                "e": _int_to_base64url(pub_numbers.e),
-            }
-        ]
-    }
-
-
-def _sign_jwt(
-    private_key,
-    kid: str = "test-key-1",
-    team_domain: str = "test.cloudflareaccess.com",
-    aud: str = "test-aud-1234",
-    email: str = "user@example.com",
-    exp_offset: int = 3600,
-    iss: str | None = None,
-) -> str:
-    """Create a signed RS256 JWT for testing."""
-    from cryptography.hazmat.primitives import serialization
-
-    now = int(time.time())
-    payload = {
-        "sub": "user-id-123",
-        "email": email,
-        "aud": aud,
-        "iss": iss or f"https://{team_domain}",
-        "iat": now,
-        "nbf": now,
-        "exp": now + exp_offset,
-    }
-
-    pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption(),
-    )
-
-    return jwt.encode(
-        payload,
-        pem,
-        algorithm="RS256",
-        headers={"kid": kid, "alg": "RS256"},
-    )
-
-
-class TestJWTVerification:
-    """Tests for Cloudflare Access JWT verification in the MCP gateway.
-
-    These tests verify the _verify_cf_access_jwt function handles
-    valid, invalid, expired, wrong-audience, and wrong-issuer JWTs.
-    """
-
-    TEAM_DOMAIN = "test.cloudflareaccess.com"
-    PORTAL_AUD = "test-aud-1234"
-
-    @pytest.mark.asyncio
-    async def test_valid_jwt_accepted(self):
-        """Test that a correctly signed JWT with valid claims is accepted."""
-        from app.api.auth_simple import _verify_cf_access_jwt
-
-        key = _get_test_rsa_key()
-        jwks = _make_jwks_response(key)
-        token = _sign_jwt(key, team_domain=self.TEAM_DOMAIN, aud=self.PORTAL_AUD)
-
-        with patch("app.api.auth_simple._get_jwks", new_callable=AsyncMock, return_value=jwks):
-            payload = await _verify_cf_access_jwt(token, self.TEAM_DOMAIN, self.PORTAL_AUD)
-
-        assert payload is not None
-        assert payload["email"] == "user@example.com"
-        assert payload["sub"] == "user-id-123"
-
-    @pytest.mark.asyncio
-    async def test_expired_jwt_rejected(self):
-        """Test that an expired JWT is rejected."""
-        from app.api.auth_simple import _verify_cf_access_jwt
-
-        key = _get_test_rsa_key()
-        jwks = _make_jwks_response(key)
-        # Token expired 2 hours ago (well past the 60s leeway)
-        token = _sign_jwt(key, team_domain=self.TEAM_DOMAIN, aud=self.PORTAL_AUD, exp_offset=-7200)
-
-        with patch("app.api.auth_simple._get_jwks", new_callable=AsyncMock, return_value=jwks):
-            payload = await _verify_cf_access_jwt(token, self.TEAM_DOMAIN, self.PORTAL_AUD)
-
-        assert payload is None
-
-    @pytest.mark.asyncio
-    async def test_wrong_audience_rejected(self):
-        """Test that a JWT with wrong audience is rejected."""
-        from app.api.auth_simple import _verify_cf_access_jwt
-
-        key = _get_test_rsa_key()
-        jwks = _make_jwks_response(key)
-        token = _sign_jwt(key, team_domain=self.TEAM_DOMAIN, aud="wrong-audience")
-
-        with patch("app.api.auth_simple._get_jwks", new_callable=AsyncMock, return_value=jwks):
-            payload = await _verify_cf_access_jwt(token, self.TEAM_DOMAIN, self.PORTAL_AUD)
-
-        assert payload is None
-
-    @pytest.mark.asyncio
-    async def test_wrong_issuer_rejected(self):
-        """Test that a JWT with wrong issuer is rejected."""
-        from app.api.auth_simple import _verify_cf_access_jwt
-
-        key = _get_test_rsa_key()
-        jwks = _make_jwks_response(key)
-        token = _sign_jwt(
-            key,
-            team_domain=self.TEAM_DOMAIN,
-            aud=self.PORTAL_AUD,
-            iss="https://evil.cloudflareaccess.com",
-        )
-
-        with patch("app.api.auth_simple._get_jwks", new_callable=AsyncMock, return_value=jwks):
-            payload = await _verify_cf_access_jwt(token, self.TEAM_DOMAIN, self.PORTAL_AUD)
-
-        assert payload is None
-
-    @pytest.mark.asyncio
-    async def test_tampered_jwt_rejected(self):
-        """Test that a JWT with tampered payload is rejected."""
-        from app.api.auth_simple import _verify_cf_access_jwt
-
-        key = _get_test_rsa_key()
-        jwks = _make_jwks_response(key)
-        token = _sign_jwt(key, team_domain=self.TEAM_DOMAIN, aud=self.PORTAL_AUD)
-
-        # Tamper with the payload by changing a character
-        parts = token.split(".")
-        payload_b64 = parts[1]
-        tampered = payload_b64[:-1] + ("A" if payload_b64[-1] != "A" else "B")
-        tampered_token = f"{parts[0]}.{tampered}.{parts[2]}"
-
-        with patch("app.api.auth_simple._get_jwks", new_callable=AsyncMock, return_value=jwks):
-            payload = await _verify_cf_access_jwt(tampered_token, self.TEAM_DOMAIN, self.PORTAL_AUD)
-
-        assert payload is None
-
-    @pytest.mark.asyncio
-    async def test_malformed_jwt_rejected(self):
-        """Test that a malformed JWT string is rejected."""
-        from app.api.auth_simple import _verify_cf_access_jwt
-
-        key = _get_test_rsa_key()
-        jwks = _make_jwks_response(key)
-
-        with patch("app.api.auth_simple._get_jwks", new_callable=AsyncMock, return_value=jwks):
-            # Not a JWT at all
-            payload = await _verify_cf_access_jwt("not-a-jwt", self.TEAM_DOMAIN, self.PORTAL_AUD)
-            assert payload is None
-
-            # Wrong number of parts
-            payload = await _verify_cf_access_jwt("a.b", self.TEAM_DOMAIN, self.PORTAL_AUD)
-            assert payload is None
-
-    @pytest.mark.asyncio
-    async def test_wrong_kid_rejected(self):
-        """Test that a JWT signed with unknown kid is rejected."""
-        from app.api.auth_simple import _verify_cf_access_jwt
-
-        key = _get_test_rsa_key()
-        jwks = _make_jwks_response(key, kid="correct-key")
-        token = _sign_jwt(key, kid="wrong-key", team_domain=self.TEAM_DOMAIN, aud=self.PORTAL_AUD)
-
-        with patch("app.api.auth_simple._get_jwks", new_callable=AsyncMock, return_value=jwks):
-            # PyJWT matches by kid, so a wrong kid means no matching key → rejected.
-            result = await _verify_cf_access_jwt(token, self.TEAM_DOMAIN, self.PORTAL_AUD)
-            assert result is None
-
-    @pytest.mark.asyncio
-    async def test_jwks_unavailable_rejects_jwt(self):
-        """Test that JWTs are rejected when JWKS cannot be fetched."""
-        from app.api.auth_simple import _verify_cf_access_jwt
-
-        key = _get_test_rsa_key()
-        token = _sign_jwt(key, team_domain=self.TEAM_DOMAIN, aud=self.PORTAL_AUD)
-
-        with patch("app.api.auth_simple._get_jwks", new_callable=AsyncMock, return_value=None):
-            payload = await _verify_cf_access_jwt(token, self.TEAM_DOMAIN, self.PORTAL_AUD)
-
-        assert payload is None
-
-    @pytest.mark.asyncio
-    async def test_empty_jwks_rejects_jwt(self):
-        """Test that JWTs are rejected when JWKS has no keys."""
-        from app.api.auth_simple import _verify_cf_access_jwt
-
-        key = _get_test_rsa_key()
-        token = _sign_jwt(key, team_domain=self.TEAM_DOMAIN, aud=self.PORTAL_AUD)
-
-        with patch("app.api.auth_simple._get_jwks", new_callable=AsyncMock, return_value={}):
-            payload = await _verify_cf_access_jwt(token, self.TEAM_DOMAIN, self.PORTAL_AUD)
-
-        assert payload is None
-
-
-class TestJWTIntegrationWithGateway:
-    """Tests for JWT verification integrated with the MCP gateway auth flow.
-
-    Verifies that valid JWTs set auth_method='jwt' (allowing tool execution)
-    and invalid JWTs fall back to auth_method='oauth' (blocked).
+    With Access for SaaS (OIDC), the Worker handles identity verification
+    via OIDC id_token and forwards user email in X-MCPbox-User-Email.
+    auth_method is always 'oidc' for remote requests.
     """
 
     @staticmethod
@@ -881,73 +634,8 @@ class TestJWTIntegrationWithGateway:
         return mock_request
 
     @pytest.mark.asyncio
-    async def test_valid_jwt_sets_auth_method_jwt(self):
-        """Test that a valid JWT sets auth_method to 'jwt' on the user."""
-        from app.api.auth_simple import verify_mcp_auth
-        from app.services.service_token_cache import ServiceTokenCache
-
-        test_token = "a" * 32
-        key = _get_test_rsa_key()
-        jwks = _make_jwks_response(key)
-        jwt_token = _sign_jwt(key)
-
-        mock_cache = MagicMock()
-        mock_cache.is_auth_enabled = AsyncMock(return_value=True)
-        mock_cache.get_token = AsyncMock(return_value=test_token)
-        mock_cache.get_team_domain = AsyncMock(return_value="test.cloudflareaccess.com")
-        mock_cache.get_portal_aud = AsyncMock(return_value="test-aud-1234")
-
-        with (
-            patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache),
-            patch("app.api.auth_simple._get_jwks", new_callable=AsyncMock, return_value=jwks),
-        ):
-            user = await verify_mcp_auth(
-                request=self._make_mock_request(),
-                x_mcpbox_service_token=test_token,
-                cf_access_jwt_assertion=jwt_token,
-            )
-
-        assert user.source == "worker"
-        assert user.auth_method == "jwt"
-        assert user.email == "user@example.com"
-
-    @pytest.mark.asyncio
-    async def test_invalid_jwt_falls_back_to_oauth(self):
-        """Test that an invalid JWT falls back to auth_method='oauth'."""
-        from app.api.auth_simple import verify_mcp_auth
-        from app.services.service_token_cache import ServiceTokenCache
-
-        test_token = "a" * 32
-        key = _get_test_rsa_key()
-        jwks = _make_jwks_response(key)
-
-        mock_cache = MagicMock()
-        mock_cache.is_auth_enabled = AsyncMock(return_value=True)
-        mock_cache.get_token = AsyncMock(return_value=test_token)
-        mock_cache.get_team_domain = AsyncMock(return_value="test.cloudflareaccess.com")
-        mock_cache.get_portal_aud = AsyncMock(return_value="test-aud-1234")
-
-        with (
-            patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache),
-            patch("app.api.auth_simple._get_jwks", new_callable=AsyncMock, return_value=jwks),
-        ):
-            user = await verify_mcp_auth(
-                request=self._make_mock_request(),
-                x_mcpbox_service_token=test_token,
-                cf_access_jwt_assertion="invalid-jwt-token",
-            )
-
-        assert user.source == "worker"
-        assert user.auth_method == "oauth"
-        assert user.email is None
-
-    @pytest.mark.asyncio
-    async def test_oauth_with_worker_email_header(self):
-        """Test that Worker-supplied email header is used when JWT is not present.
-
-        When a valid service token is present (proving Worker provenance),
-        the gateway trusts the X-MCPbox-User-Email header from OAuth props.
-        """
+    async def test_service_token_with_email_sets_oidc(self):
+        """Test that a valid service token with email header sets auth_method to 'oidc'."""
         from app.api.auth_simple import verify_mcp_auth
         from app.services.service_token_cache import ServiceTokenCache
 
@@ -956,8 +644,6 @@ class TestJWTIntegrationWithGateway:
         mock_cache = MagicMock()
         mock_cache.is_auth_enabled = AsyncMock(return_value=True)
         mock_cache.get_token = AsyncMock(return_value=test_token)
-        mock_cache.get_team_domain = AsyncMock(return_value=None)
-        mock_cache.get_portal_aud = AsyncMock(return_value=None)
 
         mock_request = self._make_mock_request()
         mock_request.headers = MagicMock()
@@ -971,55 +657,15 @@ class TestJWTIntegrationWithGateway:
             user = await verify_mcp_auth(
                 request=mock_request,
                 x_mcpbox_service_token=test_token,
-                cf_access_jwt_assertion=None,
             )
 
         assert user.source == "worker"
-        assert user.auth_method == "oauth"
+        assert user.auth_method == "oidc"
         assert user.email == "user@example.com"
 
     @pytest.mark.asyncio
-    async def test_jwt_email_takes_precedence_over_worker_header(self):
-        """Test that JWT-verified email takes precedence over Worker-supplied header."""
-        from app.api.auth_simple import verify_mcp_auth
-        from app.services.service_token_cache import ServiceTokenCache
-
-        test_token = "a" * 32
-        key = _get_test_rsa_key()
-        jwks = _make_jwks_response(key)
-        jwt_token = _sign_jwt(key, email="jwt-user@example.com")
-
-        mock_cache = MagicMock()
-        mock_cache.is_auth_enabled = AsyncMock(return_value=True)
-        mock_cache.get_token = AsyncMock(return_value=test_token)
-        mock_cache.get_team_domain = AsyncMock(return_value="test.cloudflareaccess.com")
-        mock_cache.get_portal_aud = AsyncMock(return_value="test-aud-1234")
-
-        mock_request = self._make_mock_request()
-        mock_request.headers = MagicMock()
-        mock_request.headers.get = MagicMock(
-            side_effect=lambda key_name, default=None: {
-                "X-MCPbox-User-Email": "oauth-user@example.com",
-            }.get(key_name, default)
-        )
-
-        with (
-            patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache),
-            patch("app.api.auth_simple._get_jwks", new_callable=AsyncMock, return_value=jwks),
-        ):
-            user = await verify_mcp_auth(
-                request=mock_request,
-                x_mcpbox_service_token=test_token,
-                cf_access_jwt_assertion=jwt_token,
-            )
-
-        # JWT email should take precedence
-        assert user.email == "jwt-user@example.com"
-        assert user.auth_method == "jwt"
-
-    @pytest.mark.asyncio
-    async def test_no_jwt_header_defaults_to_oauth(self):
-        """Test that missing JWT header defaults to auth_method='oauth'."""
+    async def test_service_token_without_email_sets_oidc(self):
+        """Test that a valid service token without email still sets auth_method to 'oidc'."""
         from app.api.auth_simple import verify_mcp_auth
         from app.services.service_token_cache import ServiceTokenCache
 
@@ -1028,24 +674,57 @@ class TestJWTIntegrationWithGateway:
         mock_cache = MagicMock()
         mock_cache.is_auth_enabled = AsyncMock(return_value=True)
         mock_cache.get_token = AsyncMock(return_value=test_token)
-        mock_cache.get_team_domain = AsyncMock(return_value="test.cloudflareaccess.com")
-        mock_cache.get_portal_aud = AsyncMock(return_value="test-aud-1234")
 
         with patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache):
             user = await verify_mcp_auth(
                 request=self._make_mock_request(),
                 x_mcpbox_service_token=test_token,
-                cf_access_jwt_assertion=None,
             )
 
         assert user.source == "worker"
-        assert user.auth_method == "oauth"
+        assert user.auth_method == "oidc"
+        assert user.email is None
 
     @pytest.mark.asyncio
-    async def test_oauth_allows_tools_call_at_gateway(
+    async def test_worker_email_header_trusted_with_service_token(self):
+        """Test that Worker-supplied email header is trusted when service token is valid.
+
+        When a valid service token is present (proving Worker provenance),
+        the gateway trusts the X-MCPbox-User-Email header from OIDC-verified
+        OAuth token props.
+        """
+        from app.api.auth_simple import verify_mcp_auth
+        from app.services.service_token_cache import ServiceTokenCache
+
+        test_token = "a" * 32
+
+        mock_cache = MagicMock()
+        mock_cache.is_auth_enabled = AsyncMock(return_value=True)
+        mock_cache.get_token = AsyncMock(return_value=test_token)
+
+        mock_request = self._make_mock_request()
+        mock_request.headers = MagicMock()
+        mock_request.headers.get = MagicMock(
+            side_effect=lambda key, default=None: {
+                "X-MCPbox-User-Email": "user@example.com",
+            }.get(key, default)
+        )
+
+        with patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache):
+            user = await verify_mcp_auth(
+                request=mock_request,
+                x_mcpbox_service_token=test_token,
+            )
+
+        assert user.source == "worker"
+        assert user.auth_method == "oidc"
+        assert user.email == "user@example.com"
+
+    @pytest.mark.asyncio
+    async def test_oidc_allows_tools_call_at_gateway(
         self, async_client: AsyncClient, mock_sandbox_client
     ):
-        """End-to-end: Worker request without JWT allows tools/call (OAuth + service token sufficient)."""
+        """End-to-end: Worker request with email allows tools/call (OIDC + service token sufficient)."""
         mock_sandbox_client.mcp_request = AsyncMock(
             return_value={"result": {"content": [{"type": "text", "text": "ok"}]}}
         )
@@ -1056,11 +735,8 @@ class TestJWTIntegrationWithGateway:
         mock_cache = MagicMock()
         mock_cache.is_auth_enabled = AsyncMock(return_value=True)
         mock_cache.get_token = AsyncMock(return_value=test_token)
-        mock_cache.get_team_domain = AsyncMock(return_value=None)
-        mock_cache.get_portal_aud = AsyncMock(return_value=None)
 
         with patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache):
-            # tools/call should succeed with valid service token (OAuth + service token sufficient)
             response = await async_client.post(
                 "/mcp",
                 json={
@@ -1069,10 +745,12 @@ class TestJWTIntegrationWithGateway:
                     "method": "tools/call",
                     "params": {"name": "some_tool", "arguments": {}},
                 },
-                headers={"X-MCPbox-Service-Token": test_token},
+                headers={
+                    "X-MCPbox-Service-Token": test_token,
+                    "X-MCPbox-User-Email": "user@example.com",
+                },
             )
             assert response.status_code == 200
-            result = response.json()
             # Should not be blocked - sandbox was called
             mock_sandbox_client.mcp_request.assert_called()
 
@@ -1080,14 +758,13 @@ class TestJWTIntegrationWithGateway:
 class TestMCPGatewaySyncAuth:
     """Regression tests for Cloudflare sync and Portal user scenarios.
 
-    Cloudflare's MCP server sync authenticates via OAuth (no JWT, no email).
+    Cloudflare's MCP server sync authenticates via OIDC at the Worker (no email forwarded).
     Sync-only methods (initialize, tools/list, notifications) are allowed.
     Tool execution (tools/call) and unknown methods require a verified user
-    identity (email from MCP Portal OAuth props or JWT).
+    identity (email from Worker-supplied X-MCPbox-User-Email header).
 
-    These tests mock ServiceTokenCache with a valid service token and no JWT
-    verification config (team_domain=None, portal_aud=None), simulating the
-    Worker forwarding requests with a valid service token but no JWT.
+    These tests mock ServiceTokenCache with a valid service token, simulating the
+    Worker forwarding requests with a valid service token but no user email.
     """
 
     @staticmethod
@@ -1099,8 +776,6 @@ class TestMCPGatewaySyncAuth:
         mock_cache = MagicMock()
         mock_cache.is_auth_enabled = AsyncMock(return_value=True)
         mock_cache.get_token = AsyncMock(return_value=test_token)
-        mock_cache.get_team_domain = AsyncMock(return_value=None)
-        mock_cache.get_portal_aud = AsyncMock(return_value=None)
         return mock_cache
 
     @pytest.mark.asyncio

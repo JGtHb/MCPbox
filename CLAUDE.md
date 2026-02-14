@@ -27,7 +27,8 @@ This file provides context for AI assistants (like Claude) working on this codeb
 
 ### Recent Changes
 
-- **Tunnel Security Review** - Worker simplified (apiRoute: '/', eliminated Bug #108 workaround), server-side JWT verification, /internal/* auth, fail-closed ServiceTokenCache, isolated DB network, OAuth redirect_uri validation, HMAC-based timingSafeEqual
+- **Access for SaaS (OIDC)** - Worker authenticates users via Cloudflare Access as OIDC identity provider instead of self-hosted Access. Eliminates server-side JWT verification; user identity from OIDC id_token at authorization time. Single source of truth for access policy at Cloudflare Access OIDC layer.
+- **Tunnel Security Review** - Worker simplified (apiRoute: '/', eliminated Bug #108 workaround), /internal/* auth, fail-closed ServiceTokenCache, isolated DB network, OAuth redirect_uri validation, HMAC-based timingSafeEqual
 - **Pre-Production Security Review** - Two review cycles completed, all findings fixed
 - **Sandbox Hardening** - `validate_code_safety()` on all execution paths, consolidated builtins, SSRF redirect prevention
 - **Cloudflare Setup Wizard** - Automated 7-step wizard at `/tunnel/setup` for configuring remote access (tunnel, VPC, Worker, MCP Portal)
@@ -310,9 +311,9 @@ tool = await tool_factory(server_id=server.id, name="test_tool", python_code="as
 ### Security Considerations
 
 - **OAuth 2.1 Worker Protection** - Worker wrapped with `@cloudflare/workers-oauth-provider`, all requests to `/` (MCP endpoint) require a valid OAuth token. Cloudflare sync and MCP Portal users both authenticate via OAuth.
-- **Tool execution requires verified user email** - Sync-only methods (`initialize`, `tools/list`, `notifications/*`) work with OAuth + service token. Tool execution (`tools/call`) and unknown methods require a verified user email from the MCP Portal (via JWT or OAuth token props). This prevents anonymous tool execution by users who bypass the Portal's Access Policy. See `docs/AUTH-FLOW.md` for the complete method authorization table.
+- **Tool execution requires verified user email** - Sync-only methods (`initialize`, `tools/list`, `notifications/*`) work with OAuth + service token. Tool execution (`tools/call`) and unknown methods require a verified user email from OIDC authentication. This prevents anonymous tool execution. See `docs/AUTH-FLOW.md` for the complete method authorization table.
 - **MCP Server uses OAuth auth** - Created with `auth_type: "oauth"` at the Worker's origin (no `/mcp` subpath), so Cloudflare performs full OAuth 2.1 discovery+flow against the Worker's OAuthProvider
-- **Server-side JWT verification** - Gateway verifies Cf-Access-Jwt-Assertion using JWKS from Cloudflare Access (RS256 signature, audience, issuer). JWT-verified email takes precedence. Falls back to Worker-supplied X-MCPbox-User-Email (from OAuth token props) when a valid service token is present — the Worker verified the JWT at OAuth authorization time, and email freshness is bounded by the OAuth token TTL.
+- **Access for SaaS (OIDC upstream)** - Worker authenticates users via Cloudflare Access as an OIDC identity provider. User email comes from OIDC id_token verified at authorization time (stored in encrypted OAuth token props). No server-side JWT verification needed — the gateway trusts the Worker-supplied X-MCPbox-User-Email header when a valid service token is present.
 - **Service Token Authentication** - Shared secret between Worker and MCPbox gateway (defense-in-depth via `X-MCPbox-Service-Token`, returns 403 on mismatch). Fail-closed on database errors.
 - **Internal Endpoint Auth** - `/internal/*` endpoints require `Authorization: Bearer <SANDBOX_API_KEY>` for defense-in-depth
 - **OAuth Client Registration** - Redirect URIs validated against allowlist (claude.ai, localhost)

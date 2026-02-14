@@ -4,27 +4,44 @@ Complete reference for the MCPbox authentication and authorization flow across t
 
 ## 1. Architecture Overview
 
-Three actors access the MCP endpoint through different paths:
+Three actors access the MCP endpoint through different paths. With Access for SaaS, the Worker acts as both an OAuth 2.1 server (downstream to MCP clients) and an OIDC client (upstream to Cloudflare Access):
 
 ```
                          ┌─────────────────────┐
  Cloudflare Sync ──────►│                     │
  (OAuth only,            │  Cloudflare Worker  │──VPC──► MCP Gateway (/mcp)
-  no JWT)                │  (OAuth 2.1 proxy)  │
+  no user email)         │  (OAuth 2.1 proxy)  │
                          │                     │
- MCP Portal User ──────►│  Verifies JWT +     │
- (OAuth + JWT)           │  adds headers       │
+ MCP Portal User ──────►│  OIDC upstream to   │
+ (OAuth + OIDC)          │  Cloudflare Access  │
                          └─────────────────────┘
 
  Local User ────────────────────────────────────► MCP Gateway (/mcp)
  (no auth)                                        (port 8000, localhost only)
 ```
 
-| Actor | Path | OAuth Token | JWT | Service Token |
-|-------|------|-------------|-----|---------------|
+| Actor | Path | OAuth Token | OIDC (Access for SaaS) | Service Token |
+|-------|------|-------------|----------------------|---------------|
 | **Cloudflare Sync** | Worker → VPC → Gateway | Yes (auto) | No | Yes (Worker adds) |
-| **MCP Portal User** | Worker → VPC → Gateway | Yes (auto) | Yes (Cf-Access) | Yes (Worker adds) |
+| **MCP Portal User** | Worker → VPC → Gateway | Yes (user-approved) | Yes (at authorization) | Yes (Worker adds) |
 | **Local User** | Direct to Gateway | No | No | No |
+
+### OIDC Flow (Access for SaaS)
+
+When a user authorizes an MCP client, the Worker redirects to Cloudflare Access as an OIDC identity provider:
+
+```
+MCP Client → Worker /authorize → Cloudflare Access OIDC → Worker /callback → Client
+```
+
+1. MCP client starts OAuth 2.1 authorization
+2. Worker redirects to Cloudflare Access OIDC authorize endpoint
+3. User authenticates via Access (email OTP, SSO, etc.)
+4. Access redirects back to Worker's `/callback` with authorization code
+5. Worker exchanges code for id_token + access_token at Access token endpoint
+6. Worker verifies id_token signature using Access JWKS
+7. Worker stores verified email in encrypted OAuth token props
+8. Worker forwards requests with `X-MCPbox-User-Email` header
 
 ## 2. Worker Request Routing
 
@@ -37,7 +54,9 @@ Client request         → Rewritten to            → Handler
 ─────────────────────────────────────────────────────────────
 POST /                 → /oauth-protected-api     → apiHandler (OAuth validated)
 POST /mcp              → /oauth-protected-api     → apiHandler (OAuth validated)
-GET /authorize         → (not rewritten)          → defaultHandler
+GET /authorize         → (not rewritten)          → access-handler (OIDC flow)
+POST /authorize        → (not rewritten)          → access-handler (OIDC flow)
+GET /callback          → (not rewritten)          → access-handler (OIDC callback)
 GET /.well-known/*     → (not rewritten)          → OAuthProvider built-in
 POST /token            → (not rewritten)          → OAuthProvider built-in
 POST /register         → (not rewritten)          → OAuthProvider built-in
@@ -57,6 +76,14 @@ These are handled before OAuthProvider processes the request (no OAuth token req
 - `GET /health` — Health check
 - `GET /.well-known/oauth-protected-resource` — PRM, returns `resource: origin`
 - `GET /.well-known/oauth-protected-resource/mcp` — PRM, returns `resource: origin/mcp`
+
+### Access Handler Endpoints
+
+OIDC upstream authentication flow (in `access-handler.ts`):
+
+- `GET /authorize` — Shows client approval dialog (encrypted cookie for state)
+- `POST /authorize` — User approves → redirects to Cloudflare Access OIDC
+- `GET /callback` — Receives OIDC callback, exchanges code for tokens, verifies id_token
 
 ### Protected Resource Metadata (PRM)
 
@@ -84,14 +111,13 @@ OAuth client registration validates redirect URIs against:
 - `http://localhost[:port]/*`
 - `http://127.0.0.1[:port]/*`
 
-**Dynamic pattern:**
-- `https://${MCP_PORTAL_HOSTNAME}/*` (if env var is set)
-
 Unrecognized redirect URIs are rejected with 400.
 
 ## 3. Gateway Authentication
 
 ### `verify_mcp_auth()` Decision Tree
+
+With Access for SaaS (OIDC), the gateway no longer performs server-side JWT verification. User identity comes from the Worker-supplied `X-MCPbox-User-Email` header, set from OIDC-verified OAuth token props.
 
 ```
                     ┌──────────────────────┐
@@ -116,40 +142,30 @@ Unrecognized redirect URIs are rejected with 400.
           Yes           No/Invalid
            │             │
            ▼             ▼
-    ┌────────────┐  ┌──────────┐
-    │ Verify JWT │  │ 403      │
-    │ server-    │  │ (fail    │
-    │ side       │  │ closed)  │
-    └──────┬─────┘  └──────────┘
-           │
+    ┌──────────────┐  ┌──────────┐
+    │ Has Worker-  │  │ 403      │
+    │ supplied     │  │ (fail    │
+    │ email?       │  │ closed)  │
+    │ (X-MCPbox-   │  └──────────┘
+    │  User-Email) │
+    └──────┬───────┘
     ┌──────┴──────┐
     │             │
-  Valid JWT    No/Invalid JWT
+   Yes           No
     │             │
     ▼             ▼
- source=worker  ┌──────────────────┐
- auth=jwt       │ Has Worker-      │
- email=<jwt>    │ supplied email?  │
-                │ (X-MCPbox-User-  │
-                │  Email header)   │
-                └──────┬───────────┘
-                ┌──────┴──────┐
-                │             │
-               Yes           No
-                │             │
-                ▼             ▼
-             source=worker  source=worker
-             auth=oauth     auth=oauth
-             email=<props>  email=None
+ source=worker  source=worker
+ auth=oidc      auth=oidc
+ email=<oidc>   email=None
 ```
 
 **Key points:**
 - Service token comparison uses `secrets.compare_digest` (constant-time)
 - Database/decryption errors → fail-closed (auth enabled, no valid token → all requests rejected)
-- JWT verification is server-side using JWKS from Cloudflare Access (RS256)
-- JWT-verified email takes precedence over Worker-supplied email
-- When no JWT is present but service token is valid, the gateway trusts Worker-supplied `X-MCPbox-User-Email` (from encrypted OAuth token props — the Worker verified the JWT at authorization time)
+- No server-side JWT verification — the Worker handles OIDC at authorization time
+- User email is set by the Worker from OIDC-verified id_token claims (stored in encrypted OAuth token props)
 - Email freshness is bounded by OAuth token TTL
+- `auth_method` is always `oidc` for remote requests
 
 ### Rate Limiting
 
@@ -163,11 +179,11 @@ The gateway uses `_is_anonymous_remote` flag to control per-method access:
 _is_anonymous_remote = _user.source == "worker" and not _user.email
 ```
 
-A remote request is "anonymous" when it has no verified user email — either from server-side JWT verification or from OAuth token props (email embedded at MCP Portal authorization time). This blocks both Cloudflare sync (no user context) and direct Worker access without Portal authentication.
+A remote request is "anonymous" when it has no verified user email. With OIDC, all human users who authenticate via the MCP Portal have a verified email from the OIDC id_token. Only Cloudflare's internal sync (tool discovery) lacks an email — it's allowed for read-only methods but blocked from tool execution.
 
 ### Per-Method Authorization Table
 
-| Method | Local User | Portal User (email) | Anonymous Remote (no email) |
+| Method | Local User | OIDC User (email) | Anonymous Remote (no email) |
 |--------|-----------|---------------------|----------------------------|
 | `initialize` | Allowed | Allowed | **Allowed** |
 | `tools/list` | Allowed | Allowed | **Allowed** |
@@ -176,13 +192,12 @@ A remote request is "anonymous" when it has no verified user email — either fr
 | Unknown methods | Allowed (forwarded) | Allowed (forwarded) | **Blocked** (-32600) |
 
 User email for authorization and audit logging comes from:
-1. **JWT at request time** (strongest — verified on each request)
-2. **OAuth token props** (verified at authorization time, bounded by token TTL)
-3. **None** (Cloudflare sync or direct Worker access without Portal — blocked from tool execution)
+1. **OIDC id_token** (verified at authorization time by Worker, stored in OAuth token props)
+2. **None** (Cloudflare sync — blocked from tool execution)
 
 ### Destructive Tool Restrictions
 
-Even with JWT auth, some management tools are local-only:
+Even with OIDC auth, some management tools are local-only:
 
 | Tool | Local | Remote (any auth) |
 |------|-------|-------------------|
@@ -198,13 +213,26 @@ Secrets are pushed to the Worker at different wizard steps:
 | Secret | First set at | Re-synced at | Source |
 |--------|-------------|-------------|--------|
 | `MCPBOX_SERVICE_TOKEN` | Step 4 (deploy Worker) | Step 7 (sync secrets) | Generated in `deploy_worker()` |
-| `CF_ACCESS_TEAM_DOMAIN` | Step 7 (sync secrets) | — | From Cloudflare Access |
-| `CF_ACCESS_AUD` | Step 7 (sync secrets) | — | From Access application (portal AUD) |
-| `MCP_PORTAL_HOSTNAME` | Step 7 (sync secrets) | — | From `create_mcp_portal()` (step 6) |
+| `ACCESS_CLIENT_ID` | Step 7 (sync secrets) | — | From SaaS OIDC app (step 5) |
+| `ACCESS_CLIENT_SECRET` | Step 7 (sync secrets) | — | From SaaS OIDC app (step 5) |
+| `ACCESS_TOKEN_URL` | Step 7 (sync secrets) | — | Derived from team_domain + client_id |
+| `ACCESS_AUTHORIZATION_URL` | Step 7 (sync secrets) | — | Derived from team_domain + client_id |
+| `ACCESS_JWKS_URL` | Step 7 (sync secrets) | — | Derived from team_domain |
+| `COOKIE_ENCRYPTION_KEY` | Step 7 (sync secrets) | — | Generated (32-byte hex) |
 
 Step 7 runs automatically at the end of step 6 (`create_mcp_portal`) if all required values are available. The `_sync_worker_secrets` function pushes all secrets. The deploy script (`scripts/deploy-worker.sh --set-secrets`) can also push them for re-deployment after code changes.
 
 **Important:** After the wizard regenerates a service token (e.g., re-running setup), you must either re-run the wizard to step 7 or run `deploy-worker.sh --set-secrets` to sync the new token to the Worker.
+
+### OIDC Endpoint URLs
+
+OIDC endpoints are derived from the Cloudflare Access team domain and client ID:
+
+```
+Token URL:    https://{team_domain}/cdn-cgi/access/sso/oidc/{client_id}/token
+Auth URL:     https://{team_domain}/cdn-cgi/access/sso/oidc/{client_id}/authorize
+JWKS URL:     https://{team_domain}/cdn-cgi/access/certs
+```
 
 ## 6. Common Pitfalls
 
@@ -215,10 +243,10 @@ Step 7 runs automatically at the end of step 6 (`create_mcp_portal`) if all requ
 Cloudflare sync sends requests to `/mcp`, not `/`. The URL rewriting must handle both paths: `if (url.pathname === '/' || url.pathname === '/mcp')`.
 
 ### Redirect URI Allowlist (Bug #3, #6)
-The Cloudflare dashboard (`one.dash.cloudflare.com`) and the MCP Portal hostname must be in the redirect URI allowlist. The portal hostname is dynamic per deployment, so it's checked via the `MCP_PORTAL_HOSTNAME` env var.
+The Cloudflare dashboard (`one.dash.cloudflare.com`) must be in the redirect URI allowlist.
 
 ### Sync Methods Work Without Email, Tool Execution Requires Email (Bug #5)
-Cloudflare's MCP server sync authenticates via OAuth only (no Cf-Access-Jwt-Assertion, no email). Sync-only methods (`initialize`, `tools/list`, `notifications/*`) are allowed with a valid service token. Tool execution (`tools/call`) and unknown methods require a verified user email — either from server-side JWT verification or from OAuth token props (email embedded at MCP Portal authorization time). This prevents anonymous tool execution by users who bypass the MCP Portal's Access Policy.
+Cloudflare's MCP server sync authenticates via OAuth only (no user email). Sync-only methods (`initialize`, `tools/list`, `notifications/*`) are allowed with a valid service token. Tool execution (`tools/call`) and unknown methods require a verified user email from OIDC authentication. This prevents anonymous tool execution.
 
 ### Service Token Must Return 403, Not 401
 Returning 401 for service token failures triggers Cloudflare's OAuth re-auth logic. Always return 403 for service token mismatches.
@@ -237,3 +265,9 @@ MCP Streamable HTTP transport spec requires 202 Accepted for notifications, not 
 
 ### Deploy Script After Token Regeneration
 `deploy-worker.sh --set-secrets` must be run after the wizard regenerates service tokens, or the Worker will have stale tokens.
+
+### OIDC id_token Verification
+The Worker verifies OIDC id_tokens using Cloudflare Access JWKS. The JWKS is cached for 1 hour. If verification fails (e.g., key rotation), clear the cache and retry.
+
+### Cookie Encryption for Client Approval
+The `/authorize` page uses AES-GCM encrypted cookies to pass OAuth state through the OIDC flow. The `COOKIE_ENCRYPTION_KEY` must be 32 bytes (64 hex chars).
