@@ -1,10 +1,6 @@
 """Tests for dashboard API endpoints."""
 
-from datetime import UTC, datetime, timedelta
-from uuid import uuid4
-
 import pytest
-import pytest_asyncio
 from httpx import AsyncClient
 
 
@@ -12,9 +8,7 @@ class TestDashboardEndpoint:
     """Tests for GET /dashboard endpoint."""
 
     @pytest.mark.asyncio
-    async def test_dashboard_empty_database(
-        self, async_client: AsyncClient, admin_headers
-    ):
+    async def test_dashboard_empty_database(self, async_client: AsyncClient, admin_headers):
         """Test dashboard with empty database."""
         response = await async_client.get("/api/dashboard", headers=admin_headers)
 
@@ -41,8 +35,8 @@ class TestDashboardEndpoint:
     ):
         """Test dashboard with servers in database."""
         # Create test servers
-        server1 = await server_factory(name="Server 1", status="running")
-        server2 = await server_factory(name="Server 2", status="stopped")
+        await server_factory(name="Server 1", status="running")
+        await server_factory(name="Server 2", status="stopped")
 
         response = await async_client.get("/api/dashboard", headers=admin_headers)
 
@@ -73,9 +67,7 @@ class TestDashboardEndpoint:
         assert data["stats"]["enabled_tools"] >= 2
 
     @pytest.mark.asyncio
-    async def test_dashboard_period_parameter(
-        self, async_client: AsyncClient, admin_headers
-    ):
+    async def test_dashboard_period_parameter(self, async_client: AsyncClient, admin_headers):
         """Test dashboard with different period parameters."""
         periods = ["1h", "6h", "24h", "7d"]
 
@@ -88,21 +80,15 @@ class TestDashboardEndpoint:
             assert "stats" in data
 
     @pytest.mark.asyncio
-    async def test_dashboard_invalid_period(
-        self, async_client: AsyncClient, admin_headers
-    ):
+    async def test_dashboard_invalid_period(self, async_client: AsyncClient, admin_headers):
         """Test dashboard with invalid period parameter."""
-        response = await async_client.get(
-            "/api/dashboard?period=invalid", headers=admin_headers
-        )
+        response = await async_client.get("/api/dashboard?period=invalid", headers=admin_headers)
 
         # FastAPI validation should reject invalid period
         assert response.status_code == 422
 
     @pytest.mark.asyncio
-    async def test_dashboard_time_series_structure(
-        self, async_client: AsyncClient, admin_headers
-    ):
+    async def test_dashboard_time_series_structure(self, async_client: AsyncClient, admin_headers):
         """Test time series data structure."""
         response = await async_client.get("/api/dashboard", headers=admin_headers)
 
@@ -279,7 +265,7 @@ class TestDashboardEndpoint:
         server = await server_factory()
 
         # Create response logs with tool names
-        for i in range(5):
+        for _i in range(5):
             log = ActivityLog(
                 server_id=server.id,
                 log_type="mcp_response",

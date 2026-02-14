@@ -1,5 +1,6 @@
 """Unit tests for ServerService business logic."""
 
+from datetime import UTC
 from uuid import uuid4
 
 import pytest
@@ -180,11 +181,11 @@ class TestServerServiceList:
 
     async def test_list_servers_ordered_by_created_desc(self, db_session, server_factory):
         """List servers ordered by created_at descending (newest first)."""
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
 
         # Use explicit timestamps to ensure ordering (database server_default won't help
         # when rows are created in quick succession)
-        base_time = datetime.now(timezone.utc)
+        base_time = datetime.now(UTC)
         await server_factory(name="first", created_at=base_time)
         await server_factory(name="second", created_at=base_time + timedelta(seconds=1))
         await server_factory(name="third", created_at=base_time + timedelta(seconds=2))

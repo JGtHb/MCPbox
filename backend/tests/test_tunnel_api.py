@@ -96,9 +96,7 @@ class TestTunnelStatus:
     ):
         """Test that status returns disconnected when no tunnel is running."""
         with patch.object(TunnelService, "health_check", new_callable=AsyncMock):
-            response = await async_client.get(
-                "/api/tunnel/status", headers=admin_headers
-            )
+            response = await async_client.get("/api/tunnel/status", headers=admin_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -122,9 +120,7 @@ class TestTunnelStatus:
         mock_service.health_check = AsyncMock()
 
         with override_tunnel_service(mock_service):
-            response = await async_client.get(
-                "/api/tunnel/status", headers=admin_headers
-            )
+            response = await async_client.get("/api/tunnel/status", headers=admin_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -146,9 +142,7 @@ class TestTunnelStatus:
         mock_service.health_check = AsyncMock()
 
         with override_tunnel_service(mock_service):
-            response = await async_client.get(
-                "/api/tunnel/status", headers=admin_headers
-            )
+            response = await async_client.get("/api/tunnel/status", headers=admin_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -163,9 +157,7 @@ class TestTunnelStart:
         self, async_client: AsyncClient, reset_tunnel_service, admin_headers
     ):
         """Test that starting tunnel without active configuration fails."""
-        response = await async_client.post(
-            "/api/tunnel/start", headers=admin_headers
-        )
+        response = await async_client.post("/api/tunnel/start", headers=admin_headers)
 
         assert response.status_code == 400
         data = response.json()
@@ -198,9 +190,7 @@ class TestTunnelStart:
         )
 
         with override_tunnel_service(mock_service):
-            response = await async_client.post(
-                "/api/tunnel/start", headers=admin_headers
-            )
+            response = await async_client.post("/api/tunnel/start", headers=admin_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -231,9 +221,7 @@ class TestTunnelStart:
         db_session.add(config)
         await db_session.flush()
 
-        response = await async_client.post(
-            "/api/tunnel/start", headers=admin_headers
-        )
+        response = await async_client.post("/api/tunnel/start", headers=admin_headers)
 
         assert response.status_code == 400
         data = response.json()
@@ -259,9 +247,7 @@ class TestTunnelStart:
         mock_service.start = AsyncMock(side_effect=RuntimeError("Tunnel already running"))
 
         with override_tunnel_service(mock_service):
-            response = await async_client.post(
-                "/api/tunnel/start", headers=admin_headers
-            )
+            response = await async_client.post("/api/tunnel/start", headers=admin_headers)
 
         assert response.status_code == 400
         data = response.json()
@@ -286,9 +272,7 @@ class TestTunnelStop:
         )
 
         with override_tunnel_service(mock_service):
-            response = await async_client.post(
-                "/api/tunnel/stop", headers=admin_headers
-            )
+            response = await async_client.post("/api/tunnel/stop", headers=admin_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -310,9 +294,7 @@ class TestTunnelStop:
         )
 
         with override_tunnel_service(mock_service):
-            response = await async_client.post(
-                "/api/tunnel/stop", headers=admin_headers
-            )
+            response = await async_client.post("/api/tunnel/stop", headers=admin_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -326,9 +308,7 @@ class TestTunnelStop:
         mock_service.stop = AsyncMock(side_effect=Exception("Process termination failed"))
 
         with override_tunnel_service(mock_service):
-            response = await async_client.post(
-                "/api/tunnel/stop", headers=admin_headers
-            )
+            response = await async_client.post("/api/tunnel/stop", headers=admin_headers)
 
         assert response.status_code == 500
         data = response.json()
@@ -366,9 +346,7 @@ class TestTunnelAuditLogging:
         mock_audit.log_tunnel_action = AsyncMock()
 
         with override_tunnel_service(mock_service), override_audit_service(mock_audit):
-            response = await async_client.post(
-                "/api/tunnel/start", headers=admin_headers
-            )
+            response = await async_client.post("/api/tunnel/start", headers=admin_headers)
 
         assert response.status_code == 200
         mock_audit.log_tunnel_action.assert_called_once()
@@ -390,9 +368,7 @@ class TestTunnelAuditLogging:
         mock_audit.log_tunnel_action = AsyncMock()
 
         with override_tunnel_service(mock_service), override_audit_service(mock_audit):
-            response = await async_client.post(
-                "/api/tunnel/stop", headers=admin_headers
-            )
+            response = await async_client.post("/api/tunnel/stop", headers=admin_headers)
 
         assert response.status_code == 200
         mock_audit.log_tunnel_action.assert_called_once()
@@ -401,9 +377,7 @@ class TestTunnelAuditLogging:
 class TestGetActiveConfiguration:
     """Tests for GET /api/tunnel/configurations/active/current endpoint."""
 
-    async def test_returns_null_when_no_active(
-        self, async_client: AsyncClient, admin_headers
-    ):
+    async def test_returns_null_when_no_active(self, async_client: AsyncClient, admin_headers):
         """Test that endpoint returns null when no configuration is active."""
         response = await async_client.get(
             "/api/tunnel/configurations/active/current", headers=admin_headers

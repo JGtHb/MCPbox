@@ -4,8 +4,24 @@ Note: Tools now use Python code only (no api_config mode).
 All tools must have an async main() function.
 """
 
+from contextlib import contextmanager
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 from httpx import AsyncClient
+
+from app.main import app
+from app.services.sandbox_client import get_sandbox_client
+
+
+@contextmanager
+def override_sandbox_client(mock_client):
+    """Context manager to override sandbox client dependency."""
+    app.dependency_overrides[get_sandbox_client] = lambda: mock_client
+    try:
+        yield
+    finally:
+        app.dependency_overrides.pop(get_sandbox_client, None)
 
 
 @pytest.fixture
@@ -60,9 +76,7 @@ async def test_create_tool_validation_name(async_client: AsyncClient, test_serve
 
 
 @pytest.mark.asyncio
-async def test_create_tool_python_validation(
-    async_client: AsyncClient, test_server, admin_headers
-):
+async def test_create_tool_python_validation(async_client: AsyncClient, test_server, admin_headers):
     """Test Python code validation for tools."""
     # Missing async main function
     response = await async_client.post(
@@ -315,9 +329,7 @@ async def test_tool_version_history(async_client: AsyncClient, test_server, admi
     )
 
     # Get version history
-    response = await async_client.get(
-        f"/api/tools/{tool_id}/versions", headers=admin_headers
-    )
+    response = await async_client.get(f"/api/tools/{tool_id}/versions", headers=admin_headers)
     assert response.status_code == 200
     data = response.json()
     assert "items" in data
@@ -358,3 +370,325 @@ async def test_validate_code_endpoint(async_client: AsyncClient, admin_headers):
     data = response.json()
     assert data["valid"] is True
     assert data["has_main"] is False
+
+
+# =============================================================================
+# Tool Version API Tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_get_specific_version(async_client: AsyncClient, test_server, admin_headers):
+    """Test getting a specific tool version."""
+    python_code = 'async def main() -> str:\n    return "test"'
+
+    create_response = await async_client.post(
+        f"/api/servers/{test_server['id']}/tools",
+        json={
+            "name": "version_detail_tool",
+            "description": "v1",
+            "python_code": python_code,
+        },
+        headers=admin_headers,
+    )
+    tool_id = create_response.json()["id"]
+
+    # Get version 1
+    response = await async_client.get(f"/api/tools/{tool_id}/versions/1", headers=admin_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["version_number"] == 1
+    assert data["description"] == "v1"
+    assert data["tool_id"] == tool_id
+
+
+@pytest.mark.asyncio
+async def test_get_nonexistent_version(async_client: AsyncClient, test_server, admin_headers):
+    """Test getting a version that doesn't exist."""
+    python_code = 'async def main() -> str:\n    return "test"'
+
+    create_response = await async_client.post(
+        f"/api/servers/{test_server['id']}/tools",
+        json={"name": "version_404_tool", "python_code": python_code},
+        headers=admin_headers,
+    )
+    tool_id = create_response.json()["id"]
+
+    response = await async_client.get(f"/api/tools/{tool_id}/versions/999", headers=admin_headers)
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_compare_tool_versions(async_client: AsyncClient, test_server, admin_headers):
+    """Test comparing two tool versions."""
+    python_code_v1 = 'async def main() -> str:\n    return "v1"'
+    python_code_v2 = 'async def main() -> str:\n    return "v2"'
+
+    create_response = await async_client.post(
+        f"/api/servers/{test_server['id']}/tools",
+        json={
+            "name": "compare_tool",
+            "description": "Version 1",
+            "python_code": python_code_v1,
+        },
+        headers=admin_headers,
+    )
+    tool_id = create_response.json()["id"]
+
+    # Update to create version 2
+    await async_client.patch(
+        f"/api/tools/{tool_id}",
+        json={"description": "Version 2", "python_code": python_code_v2},
+        headers=admin_headers,
+    )
+
+    # Compare versions
+    response = await async_client.get(
+        f"/api/tools/{tool_id}/versions/compare",
+        params={"from_version": 1, "to_version": 2},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["from_version"] == 1
+    assert data["to_version"] == 2
+    assert isinstance(data["differences"], list)
+    assert len(data["differences"]) > 0  # Should have changes
+
+
+@pytest.mark.asyncio
+async def test_compare_versions_not_found(async_client: AsyncClient, test_server, admin_headers):
+    """Test comparing versions where one doesn't exist."""
+    python_code = 'async def main() -> str:\n    return "test"'
+
+    create_response = await async_client.post(
+        f"/api/servers/{test_server['id']}/tools",
+        json={"name": "compare_404_tool", "python_code": python_code},
+        headers=admin_headers,
+    )
+    tool_id = create_response.json()["id"]
+
+    response = await async_client.get(
+        f"/api/tools/{tool_id}/versions/compare",
+        params={"from_version": 1, "to_version": 999},
+        headers=admin_headers,
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_rollback_tool(async_client: AsyncClient, test_server, admin_headers):
+    """Test rolling back a tool to a previous version."""
+    python_code_v1 = 'async def main() -> str:\n    return "v1"'
+    python_code_v2 = 'async def main() -> str:\n    return "v2"'
+
+    create_response = await async_client.post(
+        f"/api/servers/{test_server['id']}/tools",
+        json={
+            "name": "rollback_tool",
+            "description": "Version 1",
+            "python_code": python_code_v1,
+        },
+        headers=admin_headers,
+    )
+    tool_id = create_response.json()["id"]
+
+    # Update to v2
+    await async_client.patch(
+        f"/api/tools/{tool_id}",
+        json={"python_code": python_code_v2},
+        headers=admin_headers,
+    )
+
+    # Rollback to v1
+    response = await async_client.post(
+        f"/api/tools/{tool_id}/versions/1/rollback",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["current_version"] == 3  # Rollback creates a new version
+    assert "v1" in data["python_code"]
+
+
+@pytest.mark.asyncio
+async def test_rollback_to_current_version_fails(
+    async_client: AsyncClient, test_server, admin_headers
+):
+    """Test that rolling back to current or future version fails."""
+    python_code = 'async def main() -> str:\n    return "test"'
+
+    create_response = await async_client.post(
+        f"/api/servers/{test_server['id']}/tools",
+        json={"name": "rollback_fail_tool", "python_code": python_code},
+        headers=admin_headers,
+    )
+    tool_id = create_response.json()["id"]
+
+    # Try to rollback to current version (1)
+    response = await async_client.post(
+        f"/api/tools/{tool_id}/versions/1/rollback",
+        headers=admin_headers,
+    )
+    assert response.status_code == 400
+    assert "cannot rollback" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_version_list_pagination(async_client: AsyncClient, test_server, admin_headers):
+    """Test version list pagination."""
+    python_code = 'async def main() -> str:\n    return "test"'
+
+    create_response = await async_client.post(
+        f"/api/servers/{test_server['id']}/tools",
+        json={
+            "name": "page_version_tool",
+            "description": "v1",
+            "python_code": python_code,
+        },
+        headers=admin_headers,
+    )
+    tool_id = create_response.json()["id"]
+
+    # Create several versions
+    for i in range(2, 5):
+        await async_client.patch(
+            f"/api/tools/{tool_id}",
+            json={"description": f"v{i}"},
+            headers=admin_headers,
+        )
+
+    # Get paginated versions
+    response = await async_client.get(
+        f"/api/tools/{tool_id}/versions",
+        params={"page": 1, "page_size": 2},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["items"]) == 2
+    assert data["total"] >= 4
+    assert data["pages"] >= 2
+
+
+# =============================================================================
+# Test Code Execution Tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_test_code_invalid_syntax(async_client: AsyncClient, admin_headers):
+    """Test code execution with invalid syntax."""
+    response = await async_client.post(
+        "/api/tools/test-code",
+        json={"code": "def main(:\n    pass"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is False
+    assert "syntax error" in data["error"].lower()
+
+
+@pytest.mark.asyncio
+async def test_test_code_missing_main(async_client: AsyncClient, admin_headers):
+    """Test code execution without main() function."""
+    response = await async_client.post(
+        "/api/tools/test-code",
+        json={"code": "def helper(): return 42"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is False
+    assert "main()" in data["error"]
+
+
+@pytest.mark.asyncio
+async def test_test_code_success(async_client: AsyncClient, admin_headers):
+    """Test successful code execution via sandbox mock."""
+    mock_client = MagicMock()
+    mock_client.register_server = AsyncMock(return_value={"success": True})
+    mock_client.call_tool = AsyncMock(
+        return_value={
+            "success": True,
+            "result": "Hello, world!",
+            "stdout": "",
+            "duration_ms": 50,
+        }
+    )
+    mock_client.unregister_server = AsyncMock(return_value={"success": True})
+
+    with override_sandbox_client(mock_client):
+        response = await async_client.post(
+            "/api/tools/test-code",
+            json={
+                "code": 'async def main() -> str:\n    return "Hello, world!"',
+                "arguments": {},
+            },
+            headers=admin_headers,
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["result"] == "Hello, world!"
+
+
+@pytest.mark.asyncio
+async def test_test_code_sandbox_registration_failure(async_client: AsyncClient, admin_headers):
+    """Test code execution when sandbox registration fails."""
+    mock_client = MagicMock()
+    mock_client.register_server = AsyncMock(
+        return_value={"success": False, "error": "Sandbox unavailable"}
+    )
+    mock_client.unregister_server = AsyncMock(return_value={"success": True})
+
+    with override_sandbox_client(mock_client):
+        response = await async_client.post(
+            "/api/tools/test-code",
+            json={
+                "code": 'async def main() -> str:\n    return "test"',
+            },
+            headers=admin_headers,
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is False
+    assert "failed to register" in data["error"].lower()
+
+
+@pytest.mark.asyncio
+async def test_test_code_with_error_detail(async_client: AsyncClient, admin_headers):
+    """Test code execution that returns error detail."""
+    mock_client = MagicMock()
+    mock_client.register_server = AsyncMock(return_value={"success": True})
+    mock_client.call_tool = AsyncMock(
+        return_value={
+            "success": False,
+            "error": "NameError: name 'undefined_var' is not defined",
+            "error_detail": {
+                "message": "name 'undefined_var' is not defined",
+                "error_type": "NameError",
+                "line_number": 2,
+                "code_context": ["    return undefined_var"],
+                "traceback": [],
+            },
+            "duration_ms": 10,
+        }
+    )
+    mock_client.unregister_server = AsyncMock(return_value={"success": True})
+
+    with override_sandbox_client(mock_client):
+        response = await async_client.post(
+            "/api/tools/test-code",
+            json={
+                "code": "async def main() -> str:\n    return undefined_var",
+            },
+            headers=admin_headers,
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is False
+    assert data["error_detail"] is not None
+    assert data["error_detail"]["error_type"] == "NameError"
+    assert data["error_detail"]["line_number"] == 2

@@ -1,9 +1,7 @@
 """Tests for settings API endpoints."""
 
 import pytest
-import pytest_asyncio
 from httpx import AsyncClient
-from unittest.mock import AsyncMock, MagicMock, patch
 
 
 class TestListSettings:
@@ -24,8 +22,8 @@ class TestListSettings:
         self, async_client: AsyncClient, db_session, admin_headers
     ):
         """Test listing settings with existing data."""
+
         from app.models.setting import Setting
-        from datetime import UTC, datetime
 
         # Create test settings
         setting1 = Setting(
@@ -79,9 +77,7 @@ class TestListSettings:
         data = response.json()
 
         # Find the encrypted setting
-        secret_setting = next(
-            (s for s in data["settings"] if s["key"] == "secret_key"), None
-        )
+        secret_setting = next((s for s in data["settings"] if s["key"] == "secret_key"), None)
         assert secret_setting is not None
         assert secret_setting["encrypted"] is True
         # Value should be masked, not the actual value
@@ -114,9 +110,7 @@ class TestListSettings:
         assert response.status_code == 200
         data = response.json()
 
-        public_setting = next(
-            (s for s in data["settings"] if s["key"] == "public_key"), None
-        )
+        public_setting = next((s for s in data["settings"] if s["key"] == "public_key"), None)
         assert public_setting is not None
         assert public_setting["value"] == "public_value"
         assert public_setting["encrypted"] is False
@@ -126,8 +120,8 @@ class TestListSettings:
         self, async_client: AsyncClient, db_session, admin_headers
     ):
         """Test the structure of settings response."""
+
         from app.models.setting import Setting
-        from datetime import UTC, datetime
 
         setting = Setting(
             key="struct_test",
@@ -144,9 +138,7 @@ class TestListSettings:
         assert response.status_code == 200
         data = response.json()
 
-        struct_setting = next(
-            (s for s in data["settings"] if s["key"] == "struct_test"), None
-        )
+        struct_setting = next((s for s in data["settings"] if s["key"] == "struct_test"), None)
         assert struct_setting is not None
 
         # Check all required fields are present

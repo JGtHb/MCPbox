@@ -1,12 +1,11 @@
 """Tests for sandbox API endpoints (backend side)."""
 
 from contextlib import contextmanager
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
-import pytest_asyncio
 from httpx import AsyncClient
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.main import app
 from app.services.sandbox_client import get_sandbox_client
@@ -165,9 +164,7 @@ class TestRestartServer:
     """Tests for POST /sandbox/servers/{server_id}/restart endpoint."""
 
     @pytest.mark.asyncio
-    async def test_restart_server_not_found(
-        self, async_client: AsyncClient, admin_headers
-    ):
+    async def test_restart_server_not_found(self, async_client: AsyncClient, admin_headers):
         """Test restarting a non-existent server."""
         fake_id = uuid4()
         response = await async_client.post(
@@ -267,9 +264,7 @@ class TestGetServerLogs:
         assert response.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_get_logs_success(
-        self, async_client: AsyncClient, server_factory, admin_headers
-    ):
+    async def test_get_logs_success(self, async_client: AsyncClient, server_factory, admin_headers):
         """Test successfully getting server logs."""
         server = await server_factory()
 

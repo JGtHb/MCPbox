@@ -1,6 +1,5 @@
 """Tests for request utility functions."""
 
-import pytest
 from unittest.mock import MagicMock
 
 from app.core.request_utils import _is_valid_ip, get_client_ip
@@ -219,9 +218,7 @@ class TestGetClientIPLogging:
         from unittest.mock import patch
 
         request = MagicMock()
-        request.headers.get = lambda key, default=None: (
-            "invalid-ip" if key == "X-Real-IP" else None
-        )
+        request.headers.get = lambda key, default=None: "invalid-ip" if key == "X-Real-IP" else None
         # Must be localhost for X-Real-IP to be checked at all
         request.client = MagicMock()
         request.client.host = "127.0.0.1"
