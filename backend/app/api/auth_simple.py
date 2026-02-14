@@ -193,6 +193,15 @@ async def verify_mcp_auth(
                 email = payload.get("email") if isinstance(payload.get("email"), str) else None
                 logger.info("MCP gateway JWT verified for %s", email)
 
+        # Fall back to Worker-supplied email (from OAuth token props).
+        # Service token proves this came from our trusted Worker, which
+        # verified the JWT at authorization time.
+        if not email:
+            forwarded_email = request.headers.get("X-MCPbox-User-Email")
+            if forwarded_email:
+                email = forwarded_email
+                logger.info("MCP gateway using OAuth-props email: %s", email)
+
         return AuthenticatedUser(
             email=email,
             source="worker",

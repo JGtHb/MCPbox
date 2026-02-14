@@ -16,6 +16,7 @@ from httpx import AsyncClient
 
 from app.main import app
 from app.services.sandbox_client import get_sandbox_client
+from app.services.service_token_cache import ServiceTokenCache
 
 
 @pytest.fixture
@@ -194,7 +195,10 @@ class TestMCPGatewayRemoteMode:
     async def test_remote_mode_without_jwt_defaults_to_oauth(
         self, async_client: AsyncClient, mock_sandbox_client
     ):
-        """Test that remote mode without JWT sets auth_method to 'oauth'."""
+        """Test that remote mode without JWT sets auth_method to 'oauth'.
+
+        tools/list is allowed without JWT (needed for Cloudflare sync).
+        """
         mock_sandbox_client.mcp_request = AsyncMock(return_value={"result": {"tools": []}})
         test_token = "a" * 32
 
@@ -218,18 +222,20 @@ class TestMCPGatewayRemoteMode:
                     "X-MCPbox-Service-Token": test_token,
                 },
             )
-            # Without JWT, auth_method defaults to "oauth" which is blocked
-            # by _requires_jwt check in the gateway
+            # tools/list is allowed for sync (OAuth-only, no JWT)
             assert response.status_code == 200
             result = response.json()
-            assert "error" in result
-            assert result["error"]["code"] == -32600
+            assert "result" in result
+            assert "tools" in result["result"]
 
     @pytest.mark.asyncio
-    async def test_notifications_blocked_without_jwt_in_remote_mode(
+    async def test_notifications_allowed_without_jwt_in_remote_mode(
         self, async_client: AsyncClient
     ):
-        """Remote mode without JWT blocks notifications (403, not 202)."""
+        """Remote mode without JWT allows notifications (202 Accepted).
+
+        Notifications are needed for Cloudflare sync's initialized notification.
+        """
         test_token = "a" * 32
 
         from app.services.service_token_cache import ServiceTokenCache
@@ -249,7 +255,7 @@ class TestMCPGatewayRemoteMode:
                 },
                 headers={"X-MCPbox-Service-Token": test_token},
             )
-            assert response.status_code == 403
+            assert response.status_code == 202
 
     @pytest.mark.asyncio
     async def test_notifications_allowed_in_local_mode(self, async_client: AsyncClient):
@@ -553,8 +559,8 @@ class TestMCPProtocolHandshake:
         assert result["result"]["serverInfo"]["name"] == "mcpbox"
 
     @pytest.mark.asyncio
-    async def test_notification_returns_204(self, async_client: AsyncClient, mock_sandbox_client):
-        """Test that notifications return 204 No Content (per JSON-RPC 2.0 spec)."""
+    async def test_notification_returns_202(self, async_client: AsyncClient, mock_sandbox_client):
+        """Test that notifications return 202 Accepted (per MCP Streamable HTTP spec)."""
         # Notifications don't have an 'id' field
         response = await async_client.post(
             "/mcp",
@@ -564,14 +570,13 @@ class TestMCPProtocolHandshake:
             },
         )
 
-        # JSON-RPC 2.0: "The Server MUST NOT reply to a Notification"
-        # HTTP requires a response, so we return 204 No Content
-        assert response.status_code == 204
-        assert response.content == b""
+        # MCP Streamable HTTP transport spec requires 202 Accepted
+        # for notifications (one-way messages)
+        assert response.status_code == 202
 
     @pytest.mark.asyncio
     async def test_notification_with_params(self, async_client: AsyncClient, mock_sandbox_client):
-        """Test that notifications with params also return 204."""
+        """Test that notifications with params also return 202."""
         response = await async_client.post(
             "/mcp",
             json={
@@ -581,7 +586,7 @@ class TestMCPProtocolHandshake:
             },
         )
 
-        assert response.status_code == 204
+        assert response.status_code == 202
 
     @pytest.mark.asyncio
     async def test_request_with_string_id(self, async_client: AsyncClient, mock_sandbox_client):
@@ -870,6 +875,9 @@ class TestJWTIntegrationWithGateway:
         mock_request = MagicMock()
         mock_request.client = MagicMock()
         mock_request.client.host = client_host
+        # headers.get() must return None for missing headers, not MagicMock
+        mock_request.headers = MagicMock()
+        mock_request.headers.get = MagicMock(return_value=None)
         return mock_request
 
     @pytest.mark.asyncio
@@ -934,6 +942,82 @@ class TestJWTIntegrationWithGateway:
         assert user.email is None
 
     @pytest.mark.asyncio
+    async def test_oauth_with_worker_email_header(self):
+        """Test that Worker-supplied email header is used when JWT is not present.
+
+        When a valid service token is present (proving Worker provenance),
+        the gateway trusts the X-MCPbox-User-Email header from OAuth props.
+        """
+        from app.api.auth_simple import verify_mcp_auth
+        from app.services.service_token_cache import ServiceTokenCache
+
+        test_token = "a" * 32
+
+        mock_cache = MagicMock()
+        mock_cache.is_auth_enabled = AsyncMock(return_value=True)
+        mock_cache.get_token = AsyncMock(return_value=test_token)
+        mock_cache.get_team_domain = AsyncMock(return_value=None)
+        mock_cache.get_portal_aud = AsyncMock(return_value=None)
+
+        mock_request = self._make_mock_request()
+        mock_request.headers = MagicMock()
+        mock_request.headers.get = MagicMock(
+            side_effect=lambda key, default=None: {
+                "X-MCPbox-User-Email": "user@example.com",
+            }.get(key, default)
+        )
+
+        with patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache):
+            user = await verify_mcp_auth(
+                request=mock_request,
+                x_mcpbox_service_token=test_token,
+                cf_access_jwt_assertion=None,
+            )
+
+        assert user.source == "worker"
+        assert user.auth_method == "oauth"
+        assert user.email == "user@example.com"
+
+    @pytest.mark.asyncio
+    async def test_jwt_email_takes_precedence_over_worker_header(self):
+        """Test that JWT-verified email takes precedence over Worker-supplied header."""
+        from app.api.auth_simple import verify_mcp_auth
+        from app.services.service_token_cache import ServiceTokenCache
+
+        test_token = "a" * 32
+        key = _get_test_rsa_key()
+        jwks = _make_jwks_response(key)
+        jwt_token = _sign_jwt(key, email="jwt-user@example.com")
+
+        mock_cache = MagicMock()
+        mock_cache.is_auth_enabled = AsyncMock(return_value=True)
+        mock_cache.get_token = AsyncMock(return_value=test_token)
+        mock_cache.get_team_domain = AsyncMock(return_value="test.cloudflareaccess.com")
+        mock_cache.get_portal_aud = AsyncMock(return_value="test-aud-1234")
+
+        mock_request = self._make_mock_request()
+        mock_request.headers = MagicMock()
+        mock_request.headers.get = MagicMock(
+            side_effect=lambda key_name, default=None: {
+                "X-MCPbox-User-Email": "oauth-user@example.com",
+            }.get(key_name, default)
+        )
+
+        with (
+            patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache),
+            patch("app.api.auth_simple._get_jwks", new_callable=AsyncMock, return_value=jwks),
+        ):
+            user = await verify_mcp_auth(
+                request=mock_request,
+                x_mcpbox_service_token=test_token,
+                cf_access_jwt_assertion=jwt_token,
+            )
+
+        # JWT email should take precedence
+        assert user.email == "jwt-user@example.com"
+        assert user.auth_method == "jwt"
+
+    @pytest.mark.asyncio
     async def test_no_jwt_header_defaults_to_oauth(self):
         """Test that missing JWT header defaults to auth_method='oauth'."""
         from app.api.auth_simple import verify_mcp_auth
@@ -958,10 +1042,13 @@ class TestJWTIntegrationWithGateway:
         assert user.auth_method == "oauth"
 
     @pytest.mark.asyncio
-    async def test_oauth_only_blocked_at_gateway(
+    async def test_oauth_allows_tools_call_at_gateway(
         self, async_client: AsyncClient, mock_sandbox_client
     ):
-        """End-to-end: Worker request without JWT is blocked for all methods."""
+        """End-to-end: Worker request without JWT allows tools/call (OAuth + service token sufficient)."""
+        mock_sandbox_client.mcp_request = AsyncMock(
+            return_value={"result": {"content": [{"type": "text", "text": "ok"}]}}
+        )
         test_token = "a" * 32
 
         from app.services.service_token_cache import ServiceTokenCache
@@ -973,23 +1060,165 @@ class TestJWTIntegrationWithGateway:
         mock_cache.get_portal_aud = AsyncMock(return_value=None)
 
         with patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache):
-            for method_name in ["initialize", "tools/list", "tools/call"]:
-                response = await async_client.post(
-                    "/mcp",
-                    json={
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": method_name,
-                        "params": {"name": "test", "arguments": {}}
-                        if method_name == "tools/call"
-                        else {},
+            # tools/call should succeed with valid service token (OAuth + service token sufficient)
+            response = await async_client.post(
+                "/mcp",
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": "some_tool", "arguments": {}},
+                },
+                headers={"X-MCPbox-Service-Token": test_token},
+            )
+            assert response.status_code == 200
+            result = response.json()
+            # Should not be blocked - sandbox was called
+            mock_sandbox_client.mcp_request.assert_called()
+
+
+class TestMCPGatewaySyncAuth:
+    """Regression tests for Cloudflare sync scenario.
+
+    Cloudflare's MCP server sync authenticates via OAuth (no JWT). All MCP
+    methods (initialize, tools/list, notifications, tools/call) are allowed
+    with a valid service token. Only unknown methods are blocked as
+    defense-in-depth.
+
+    These tests mock ServiceTokenCache with a valid service token and no JWT
+    verification config (team_domain=None, portal_aud=None), simulating the
+    Worker forwarding a sync request with a valid service token but no JWT.
+    """
+
+    @staticmethod
+    def _make_sync_headers(test_token: str) -> dict[str, str]:
+        return {"X-MCPbox-Service-Token": test_token}
+
+    @staticmethod
+    def _make_sync_cache(test_token: str) -> MagicMock:
+        mock_cache = MagicMock()
+        mock_cache.is_auth_enabled = AsyncMock(return_value=True)
+        mock_cache.get_token = AsyncMock(return_value=test_token)
+        mock_cache.get_team_domain = AsyncMock(return_value=None)
+        mock_cache.get_portal_aud = AsyncMock(return_value=None)
+        return mock_cache
+
+    @pytest.mark.asyncio
+    async def test_sync_initialize_allowed(self, async_client: AsyncClient, mock_sandbox_client):
+        """Cloudflare sync can call initialize (needed for MCP handshake)."""
+        test_token = "a" * 32
+        mock_cache = self._make_sync_cache(test_token)
+
+        with patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache):
+            response = await async_client.post(
+                "/mcp",
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {},
+                        "clientInfo": {"name": "cloudflare-sync", "version": "1.0.0"},
                     },
-                    headers={"X-MCPbox-Service-Token": test_token},
-                )
-                assert response.status_code == 200
-                result = response.json()
-                assert "error" in result, f"{method_name} should be blocked without JWT"
-                assert result["error"]["code"] == -32600
+                },
+                headers=self._make_sync_headers(test_token),
+            )
+
+        assert response.status_code == 200
+        result = response.json()
+        assert "result" in result
+        assert result["result"]["protocolVersion"] == "2024-11-05"
+        assert result["result"]["serverInfo"]["name"] == "mcpbox"
+
+    @pytest.mark.asyncio
+    async def test_sync_tools_list_allowed(self, async_client: AsyncClient, mock_sandbox_client):
+        """Cloudflare sync can call tools/list (needed for tool discovery)."""
+        mock_sandbox_client.mcp_request = AsyncMock(return_value={"result": {"tools": []}})
+        test_token = "a" * 32
+        mock_cache = self._make_sync_cache(test_token)
+
+        with patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache):
+            response = await async_client.post(
+                "/mcp",
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/list",
+                },
+                headers=self._make_sync_headers(test_token),
+            )
+
+        assert response.status_code == 200
+        result = response.json()
+        assert "result" in result
+        assert "tools" in result["result"]
+
+    @pytest.mark.asyncio
+    async def test_sync_notifications_allowed(self, async_client: AsyncClient):
+        """Cloudflare sync can send notifications (needed after initialize)."""
+        test_token = "a" * 32
+        mock_cache = self._make_sync_cache(test_token)
+
+        with patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache):
+            response = await async_client.post(
+                "/mcp",
+                json={
+                    "jsonrpc": "2.0",
+                    "method": "notifications/initialized",
+                },
+                headers=self._make_sync_headers(test_token),
+            )
+
+        assert response.status_code == 202
+
+    @pytest.mark.asyncio
+    async def test_sync_tools_call_allowed(self, async_client: AsyncClient, mock_sandbox_client):
+        """Cloudflare sync can call tools/call (OAuth + service token sufficient)."""
+        test_token = "a" * 32
+        mock_cache = self._make_sync_cache(test_token)
+
+        with patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache):
+            response = await async_client.post(
+                "/mcp",
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": "mcpbox_list_servers", "arguments": {}},
+                },
+                headers=self._make_sync_headers(test_token),
+            )
+
+        assert response.status_code == 200
+        result = response.json()
+        # Should succeed - management tool call works with OAuth + service token
+        assert "result" in result
+        assert "content" in result["result"]
+
+    @pytest.mark.asyncio
+    async def test_sync_unknown_method_blocked(
+        self, async_client: AsyncClient, mock_sandbox_client
+    ):
+        """Cloudflare sync cannot call unknown methods (defense-in-depth)."""
+        test_token = "a" * 32
+        mock_cache = self._make_sync_cache(test_token)
+
+        with patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache):
+            response = await async_client.post(
+                "/mcp",
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "resources/list",
+                },
+                headers=self._make_sync_headers(test_token),
+            )
+
+        assert response.status_code == 200
+        result = response.json()
+        assert "error" in result
+        assert result["error"]["code"] == -32600
 
 
 class TestServiceTokenCacheFailClosed:

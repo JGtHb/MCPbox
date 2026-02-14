@@ -7,6 +7,7 @@
 | Document | Description |
 |----------|-------------|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Technical design, security model, database schema |
+| [AUTH-FLOW.md](AUTH-FLOW.md) | Complete Worker + Gateway authentication and authorization flow |
 | [PRODUCTION-DEPLOYMENT.md](PRODUCTION-DEPLOYMENT.md) | Production deployment guide and checklist |
 | [REMOTE-ACCESS-SETUP.md](REMOTE-ACCESS-SETUP.md) | Remote access via Cloudflare Workers VPC |
 | [CLOUDFLARE-SETUP-WIZARD.md](CLOUDFLARE-SETUP-WIZARD.md) | Automated 7-step Cloudflare setup wizard |
