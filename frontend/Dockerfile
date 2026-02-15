@@ -8,7 +8,7 @@ WORKDIR /app
 
 # Install dependencies
 COPY package*.json ./
-RUN npm ci --only=production=false
+RUN npm ci --legacy-peer-deps
 
 # Copy source
 COPY . .
@@ -22,8 +22,13 @@ RUN npm run build
 # Production stage
 FROM nginx:1.25.4-alpine
 
-# Security: Create non-root user
+# Security: Create non-root user and pre-create nginx temp dirs
 RUN adduser -D -u 1000 mcpbox && \
+    mkdir -p /var/cache/nginx/client_temp \
+             /var/cache/nginx/proxy_temp \
+             /var/cache/nginx/fastcgi_temp \
+             /var/cache/nginx/uwsgi_temp \
+             /var/cache/nginx/scgi_temp && \
     chown -R mcpbox:mcpbox /var/cache/nginx && \
     chown -R mcpbox:mcpbox /var/log/nginx && \
     touch /var/run/nginx.pid && \

@@ -169,14 +169,14 @@ async def mcp_gateway(
         )
 
         # SECURITY: Remote requests without a verified user identity are
-        # restricted to read-only/sync methods (initialize, tools/list,
-        # notifications). Tool execution (tools/call) requires a verified
-        # user email from OIDC authentication at the Worker.
+        # restricted to protocol-level methods only (initialize, notifications).
+        # Both tools/list and tools/call require a verified user email from
+        # OIDC authentication at the Worker.
         #
         # With Access for SaaS (OIDC upstream), all human users authenticate
-        # via OIDC and have a verified email in X-MCPbox-User-Email. Only
-        # Cloudflare's internal sync (tool discovery) may lack an email —
-        # it's allowed for read-only methods but blocked from tool execution.
+        # via OIDC and have a verified email in X-MCPbox-User-Email.
+        # Tool names/descriptions are treated as sensitive for personal
+        # toolsets — no anonymous enumeration is permitted.
         _is_anonymous_remote = _user.source == "worker" and not _user.email
 
         # Handle different MCP methods
@@ -210,7 +210,28 @@ async def mcp_gateway(
             return Response(status_code=202)
 
         elif method == "tools/list":
-            # List available tools - allowed without user email (needed for Cloudflare sync).
+            # SECURITY: With Access for SaaS (OIDC), all human users have
+            # a verified email. Tool names/descriptions are sensitive for
+            # personal toolsets — don't expose them without verified identity.
+            if _is_anonymous_remote:
+                logger.warning(
+                    "Blocked anonymous remote tools/list from %s",
+                    _user.source,
+                )
+                response_error = {
+                    "code": -32600,
+                    "message": "Tool listing requires user authentication",
+                }
+                duration_ms = int((time.time() - start_time) * 1000)
+                await activity_logger.log_mcp_response(
+                    request_id=request_id,
+                    success=False,
+                    duration_ms=duration_ms,
+                    method=method,
+                    error=str(response_error),
+                )
+                return MCPResponse(id=request.id, error=response_error)
+
             response_result = await _handle_tools_list(sandbox_client, db)
 
         elif method == "tools/call":

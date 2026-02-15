@@ -194,7 +194,7 @@ class TestMCPGatewayRemoteMode:
     ):
         """Test that remote mode sets auth_method to 'oidc'.
 
-        tools/list is allowed for Cloudflare sync.
+        tools/list requires a verified email (OIDC identity).
         """
         mock_sandbox_client.mcp_request = AsyncMock(return_value={"result": {"tools": []}})
         test_token = "a" * 32
@@ -215,6 +215,7 @@ class TestMCPGatewayRemoteMode:
                 },
                 headers={
                     "X-MCPbox-Service-Token": test_token,
+                    "X-MCPbox-User-Email": "user@example.com",
                 },
             )
             assert response.status_code == 200
@@ -807,8 +808,8 @@ class TestMCPGatewaySyncAuth:
         assert result["result"]["serverInfo"]["name"] == "mcpbox"
 
     @pytest.mark.asyncio
-    async def test_sync_tools_list_allowed(self, async_client: AsyncClient, mock_sandbox_client):
-        """Cloudflare sync can call tools/list (needed for tool discovery)."""
+    async def test_sync_tools_list_blocked_without_email(self, async_client: AsyncClient, mock_sandbox_client):
+        """Anonymous remote tools/list is blocked (tool names are sensitive)."""
         mock_sandbox_client.mcp_request = AsyncMock(return_value={"result": {"tools": []}})
         test_token = "a" * 32
         mock_cache = self._make_sync_cache(test_token)
@@ -826,8 +827,9 @@ class TestMCPGatewaySyncAuth:
 
         assert response.status_code == 200
         result = response.json()
-        assert "result" in result
-        assert "tools" in result["result"]
+        assert "error" in result
+        assert result["error"]["code"] == -32600
+        assert "authentication" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_sync_notifications_allowed(self, async_client: AsyncClient):

@@ -282,6 +282,18 @@ export default {
       });
     }
 
+    // Reject PKCE plain method — only S256 is allowed
+    if (url.pathname === '/authorize' && url.searchParams.get('code_challenge_method') === 'plain') {
+      console.warn('SECURITY: Rejected /authorize with PKCE plain method');
+      return new Response(JSON.stringify({
+        error: 'invalid_request',
+        error_description: 'Only S256 PKCE challenge method is supported',
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      });
+    }
+
     // Health check (public, no OAuth needed)
     if (url.pathname === '/health' || url.pathname.startsWith('/health/')) {
       console.log('Health check request');
@@ -291,12 +303,13 @@ export default {
     }
 
     // Protected Resource Metadata (RFC 9728)
+    // IMPORTANT: resource MUST be origin-only (no path) to avoid audience mismatch
+    // with OAuthProvider, which computes resourceServer as origin-only.
+    // See: https://github.com/cloudflare/workers-oauth-provider/issues/108
     if (url.pathname === '/.well-known/oauth-protected-resource' ||
         url.pathname === '/.well-known/oauth-protected-resource/mcp') {
-      const isMcpPath = url.pathname.endsWith('/mcp');
-      const resource = isMcpPath ? `${url.origin}/mcp` : url.origin;
       const prmResponse = {
-        resource,
+        resource: url.origin,
         authorization_servers: [url.origin],
         bearer_methods_supported: ['header'],
         scopes_supported: [],
@@ -348,9 +361,21 @@ export default {
     }
 
     // =================================================================
-    // Validate redirect URIs in /register requests
+    // Validate and rate-limit /register requests
     // =================================================================
     if (url.pathname === '/register' && request.method === 'POST') {
+      // Rate limit: max 10 registrations per IP per hour
+      const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
+      const rateLimitKey = `ratelimit:register:${clientIp}`;
+      const currentCount = parseInt(await env.OAUTH_KV.get(rateLimitKey) || '0', 10);
+      if (currentCount >= 10) {
+        console.warn(`SECURITY: Rate-limited /register from ${clientIp} (${currentCount} attempts)`);
+        return new Response(JSON.stringify({ error: 'too_many_requests' }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '3600', ...corsHeaders },
+        });
+      }
+
       try {
         const registerBody = await request.text();
         const registerData = JSON.parse(registerBody);
@@ -364,6 +389,10 @@ export default {
             });
           }
         }
+
+        // Increment rate limit counter (1 hour TTL)
+        await env.OAUTH_KV.put(rateLimitKey, String(currentCount + 1), { expirationTtl: 3600 });
+
         request = new Request(request.url, {
           method: request.method,
           headers: request.headers,
@@ -390,11 +419,24 @@ export default {
     const response = await oauthProvider.fetch(request, env, ctx);
     console.log(`Worker response: ${response.status} for ${originalPathname}`);
 
+    // Harden well-known metadata: enforce S256-only PKCE (strip 'plain')
+    if (originalPathname === '/.well-known/oauth-authorization-server' && response.ok) {
+      try {
+        const metadata = await response.json() as Record<string, unknown>;
+        metadata.code_challenge_methods_supported = ['S256'];
+        return new Response(JSON.stringify(metadata), {
+          status: response.status,
+          headers: response.headers,
+        });
+      } catch {
+        // If we can't parse, return original
+      }
+    }
+
     // Add resource_metadata to 401 responses for MCP endpoint (RFC 9728)
     if (response.status === 401 && (originalPathname === '/' || originalPathname === '/mcp')) {
       const newHeaders = new Headers(response.headers);
-      const prmSuffix = originalPathname === '/mcp' ? '/mcp' : '';
-      const prmUrl = `${url.origin}/.well-known/oauth-protected-resource${prmSuffix}`;
+      const prmUrl = `${url.origin}/.well-known/oauth-protected-resource`;
       const existing = newHeaders.get('WWW-Authenticate') || '';
       if (existing) {
         newHeaders.set('WWW-Authenticate', `${existing}, resource_metadata="${prmUrl}"`);

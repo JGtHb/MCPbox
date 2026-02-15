@@ -642,13 +642,24 @@ class CloudflareService:
 
             # Create a temporary directory for wrangler deployment
             with tempfile.TemporaryDirectory() as tmpdir:
-                # Write the worker TypeScript code in src/ subdirectory
+                # Copy all worker TypeScript source files to src/ subdirectory
                 src_dir = os.path.join(tmpdir, "src")
                 os.makedirs(src_dir, exist_ok=True)
-                worker_code = self._get_worker_code()
-                worker_path = os.path.join(src_dir, "index.ts")
-                with open(worker_path, "w") as f:
-                    f.write(worker_code)
+                worker_src_dir = "/app/worker/src"
+                if os.path.isdir(worker_src_dir):
+                    for filename in os.listdir(worker_src_dir):
+                        if filename.endswith(".ts") and not filename.endswith(".test.ts"):
+                            src_path = os.path.join(worker_src_dir, filename)
+                            dst_path = os.path.join(src_dir, filename)
+                            with open(src_path) as sf, open(dst_path, "w") as df:
+                                df.write(sf.read())
+                            logger.info(f"Copied worker source: {filename}")
+                else:
+                    # Fallback: write just index.ts from _get_worker_code()
+                    worker_code = self._get_worker_code()
+                    worker_path = os.path.join(src_dir, "index.ts")
+                    with open(worker_path, "w") as f:
+                        f.write(worker_code)
 
                 # Write package.json for npm dependencies
                 package_json = self._get_worker_package_json()
@@ -1206,8 +1217,8 @@ export default {
             "access_client_id": client_id,
             "access_client_secret": client_secret,
             "access_token_url": f"{base}/token",
-            "access_authorization_url": f"{base}/authorize",
-            "access_jwks_url": f"https://{config.team_domain}/cdn-cgi/access/certs",
+            "access_authorization_url": f"{base}/authorization",
+            "access_jwks_url": f"{base}/jwks",
             "cookie_encryption_key": cookie_key,
         }
 

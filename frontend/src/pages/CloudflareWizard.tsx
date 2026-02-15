@@ -14,6 +14,8 @@ import {
   useTeardown,
   cloudflareKeys,
   AccessPolicyType,
+  getZones,
+  Zone,
 } from '../api/cloudflare'
 
 // Step status indicator
@@ -255,6 +257,8 @@ export function CloudflareWizard() {
   // Step results
   const [workerUrl, setWorkerUrl] = useState<string | null>(null)
   const [tokenError, setTokenError] = useState<string | null>(null)
+  const [_zones, setZones] = useState<Zone[]>([])
+  const [selectedZone, setSelectedZone] = useState<string | null>(null)
 
   // Mutations
   const startWithApiTokenMutation = useStartWithApiToken()

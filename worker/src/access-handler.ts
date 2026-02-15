@@ -183,10 +183,11 @@ async function handleCallback(
   // Exchange authorization code for tokens from Access
   const tokenResult = await fetchUpstreamTokens(env, code, request.url);
   if (tokenResult.error) {
+    // Log detailed error server-side only (never expose to client)
     console.error(`Token exchange failed: ${tokenResult.error}`);
     return new Response(JSON.stringify({
       error: 'token_exchange_failed',
-      error_description: tokenResult.error,
+      error_description: 'Failed to exchange authorization code with identity provider',
     }), {
       status: 502,
       headers: { 'Content-Type': 'application/json' },
@@ -194,8 +195,10 @@ async function handleCallback(
   }
 
   // Verify the id_token and extract user claims (with nonce validation)
-  const claims = await verifyIdToken(env, tokenResult.idToken!, nonce || undefined);
-  if (!claims) {
+  const verifyResult = await verifyIdToken(env, tokenResult.idToken!, nonce || undefined);
+  if (!verifyResult.ok) {
+    // Log detailed reason server-side only (never expose to client)
+    console.error(`id_token verification failed: ${verifyResult.reason}`);
     return new Response(JSON.stringify({
       error: 'invalid_id_token',
       error_description: 'Failed to verify identity token from Cloudflare Access',
@@ -205,6 +208,7 @@ async function handleCallback(
     });
   }
 
+  const claims = verifyResult.payload;
   const userEmail = typeof claims.email === 'string' ? claims.email : undefined;
   const userName = typeof claims.name === 'string' ? claims.name : undefined;
   const userSub = typeof claims.sub === 'string' ? claims.sub : 'mcpbox-user';
@@ -339,16 +343,19 @@ async function fetchAccessPublicKey(
   }
 }
 
+type VerifyResult =
+  | { ok: true; payload: Record<string, unknown> }
+  | { ok: false; reason: string };
+
 async function verifyIdToken(
   env: Env,
   token: string,
   expectedNonce?: string,
-): Promise<Record<string, unknown> | null> {
+): Promise<VerifyResult> {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) {
-      console.error('id_token: invalid format');
-      return null;
+      return { ok: false, reason: 'invalid JWT format (expected 3 parts)' };
     }
 
     const [headerB64, payloadB64, signatureB64] = parts;
@@ -356,18 +363,16 @@ async function verifyIdToken(
 
     // Require RS256 algorithm (prevent algorithm confusion attacks)
     if (header.alg && header.alg !== 'RS256') {
-      console.error(`id_token: unexpected algorithm ${header.alg}`);
-      return null;
+      return { ok: false, reason: `unexpected algorithm ${header.alg}` };
     }
 
     if (!header.kid) {
-      console.error('id_token: missing kid');
-      return null;
+      return { ok: false, reason: 'missing kid in JWT header' };
     }
 
     const key = await fetchAccessPublicKey(env, header.kid);
     if (!key) {
-      return null;
+      return { ok: false, reason: `key ${header.kid} not found in JWKS at ${env.ACCESS_JWKS_URL}` };
     }
 
     const signedContent = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
@@ -381,8 +386,7 @@ async function verifyIdToken(
     );
 
     if (!valid) {
-      console.error('id_token: signature verification failed');
-      return null;
+      return { ok: false, reason: 'signature verification failed' };
     }
 
     const payload = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/')));
@@ -391,58 +395,52 @@ async function verifyIdToken(
 
     // Validate expiration (60s clock skew tolerance)
     if (payload.exp && payload.exp < (now - 60)) {
-      console.error('id_token: expired');
-      return null;
+      return { ok: false, reason: `token expired (exp=${payload.exp}, now=${now})` };
     }
 
     // Validate not-before (60s clock skew tolerance)
     if (payload.nbf && payload.nbf > (now + 60)) {
-      console.error('id_token: not yet valid');
-      return null;
+      return { ok: false, reason: `token not yet valid (nbf=${payload.nbf}, now=${now})` };
     }
 
-    // Validate issuer — must match Cloudflare Access team domain
-    // Derive expected issuer from ACCESS_AUTHORIZATION_URL
-    // (format: https://{team}.cloudflareaccess.com/cdn-cgi/access/sso/oidc/{client_id}/authorize)
+    // Validate issuer — must match Cloudflare Access OIDC issuer
     const expectedIssuer = getExpectedIssuer(env);
     if (expectedIssuer && payload.iss !== expectedIssuer) {
-      console.error(`id_token: issuer mismatch (got ${payload.iss}, expected ${expectedIssuer})`);
-      return null;
+      return { ok: false, reason: `issuer mismatch (got ${payload.iss}, expected ${expectedIssuer})` };
     }
 
     // Validate audience — must match our OIDC client_id
     if (payload.aud) {
       const audList = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
       if (!audList.includes(env.ACCESS_CLIENT_ID)) {
-        console.error(`id_token: audience mismatch (got ${payload.aud}, expected ${env.ACCESS_CLIENT_ID})`);
-        return null;
+        return { ok: false, reason: `audience mismatch (got ${payload.aud}, expected ${env.ACCESS_CLIENT_ID})` };
       }
     }
 
     // Validate nonce (prevents replay attacks in OIDC flow)
     if (expectedNonce) {
       if (payload.nonce !== expectedNonce) {
-        console.error('id_token: nonce mismatch');
-        return null;
+        return { ok: false, reason: 'nonce mismatch' };
       }
     }
 
-    return payload;
+    return { ok: true, payload };
   } catch (error) {
-    console.error('id_token verification error:', error);
-    return null;
+    return { ok: false, reason: `verification exception: ${error}` };
   }
 }
 
 /**
  * Derive expected OIDC issuer from ACCESS_AUTHORIZATION_URL.
- * Format: https://{team}.cloudflareaccess.com/cdn-cgi/access/sso/oidc/{client_id}/authorize
- * Issuer: https://{team}.cloudflareaccess.com
+ * Format: https://{team}.cloudflareaccess.com/cdn-cgi/access/sso/oidc/{client_id}/authorization
+ * Issuer: https://{team}.cloudflareaccess.com/cdn-cgi/access/sso/oidc/{client_id}
  */
 function getExpectedIssuer(env: Env): string | null {
   try {
     const url = new URL(env.ACCESS_AUTHORIZATION_URL);
-    return url.origin;
+    // Strip the trailing /authorization (or /authorize) to get the issuer base
+    const path = url.pathname.replace(/\/(authorization|authorize)$/, '');
+    return `${url.origin}${path}`;
   } catch {
     return null;
   }
