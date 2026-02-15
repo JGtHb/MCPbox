@@ -842,7 +842,7 @@ class MCPManagementService:
             code = f"""{code}
 
 import asyncio
-result = asyncio.get_running_loop().run_until_complete(main(**arguments))
+result = asyncio.run(main(**arguments))
 """
 
         # Get global allowed modules

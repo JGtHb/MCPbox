@@ -761,11 +761,12 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
             error=f"Execution error: {type(e).__name__}: {str(e)}",
             stdout=stdout_capture.getvalue()[:10000],
         )
-    except Exception:
-        # Unexpected exceptions — return generic message to avoid leaking internals
+    except Exception as e:
+        # Return error type and message to help diagnose test_code failures
+        # This is user-submitted code, so the error details are about their code, not our internals
         return ExecuteCodeResponse(
             success=False,
-            error="Execution failed due to an internal error",
+            error=f"Execution error: {type(e).__name__}: {str(e)}",
             stdout=stdout_capture.getvalue()[:10000],
         )
 
