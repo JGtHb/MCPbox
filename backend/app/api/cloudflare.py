@@ -5,9 +5,7 @@ Provides a step-by-step wizard to configure Cloudflare remote access:
 2. Create Cloudflare tunnel
 3. Create VPC service for private tunnel access
 4. Deploy MCPbox proxy Worker
-5. Create MCP Server
-6. Create MCP Portal
-7. Configure Worker JWT verification
+5. Configure Worker OIDC authentication
 """
 
 import logging
@@ -20,10 +18,6 @@ from app.core.database import get_db
 from app.schemas.cloudflare import (
     ConfigureJwtRequest,
     ConfigureJwtResponse,
-    CreateMcpPortalRequest,
-    CreateMcpPortalResponse,
-    CreateMcpServerRequest,
-    CreateMcpServerResponse,
     CreateTunnelRequest,
     CreateTunnelResponse,
     CreateVpcServiceRequest,
@@ -113,13 +107,13 @@ async def set_api_token(
     """Set an API token for operations requiring higher permissions.
 
     The wrangler OAuth token doesn't include permissions for tunnel creation
-    or MCP server/portal management. This endpoint allows setting a proper
-    API token with those permissions.
+    or access management. This endpoint allows setting a proper API token
+    with those permissions.
 
     Required token permissions:
     - Account > Cloudflare Tunnel > Edit
     - Account > Access: Apps and Policies > Edit
-    - Account > MCP Portals > Edit
+    - Account > Workers Scripts > Edit
     """
     try:
         result = await service.set_api_token(request.config_id, request.api_token)
@@ -253,138 +247,7 @@ async def deploy_worker(
 
 
 # =============================================================================
-# Step 5: Create MCP Server
-# =============================================================================
-
-
-@router.post("/mcp-server", response_model=CreateMcpServerResponse)
-async def create_mcp_server(
-    request: CreateMcpServerRequest,
-    db: AsyncSession = Depends(get_db),
-    service: CloudflareService = Depends(get_cloudflare_service),
-) -> CreateMcpServerResponse:
-    """Create an MCP Server in Cloudflare.
-
-    Creates an MCP Server that points to your Worker URL.
-    The server is configured with auth_type: "unauthenticated" because
-    authentication is handled by the MCP Portal.
-    """
-    try:
-        result = await service.create_mcp_server(
-            request.config_id,
-            request.server_id,
-            request.server_name,
-            request.access_policy,
-            force=request.force,
-        )
-        await db.commit()
-        return result
-    except ResourceConflictError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "message": str(e),
-                "existing_resources": e.existing_resources,
-            },
-        ) from None
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        ) from None
-    except CloudflareAPIError as e:
-        await db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(e),
-        ) from None
-
-
-# =============================================================================
-# Sync MCP Server Tools
-# =============================================================================
-
-
-@router.post("/sync-tools/{config_id}")
-async def sync_mcp_server_tools(
-    config_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    service: CloudflareService = Depends(get_cloudflare_service),
-) -> dict:
-    """Manually sync MCP server tools with Cloudflare.
-
-    This can be called after JWT is configured to allow Cloudflare
-    to enumerate the tools from the Worker endpoint.
-
-    Returns the number of tools discovered.
-    """
-    try:
-        result = await service.sync_mcp_server(config_id)
-        await db.commit()
-        return result
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        ) from None
-    except CloudflareAPIError as e:
-        await db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(e),
-        ) from None
-
-
-# =============================================================================
-# Step 6: Create MCP Portal
-# =============================================================================
-
-
-@router.post("/mcp-portal", response_model=CreateMcpPortalResponse)
-async def create_mcp_portal(
-    request: CreateMcpPortalRequest,
-    db: AsyncSession = Depends(get_db),
-    service: CloudflareService = Depends(get_cloudflare_service),
-) -> CreateMcpPortalResponse:
-    """Create an MCP Portal in Cloudflare.
-
-    Creates an MCP Portal that provides OAuth authentication for users
-    accessing your MCP tools through Claude Web.
-    """
-    try:
-        result = await service.create_mcp_portal(
-            request.config_id,
-            request.portal_id,
-            request.portal_name,
-            request.hostname,
-            request.access_policy,
-            force=request.force,
-        )
-        await db.commit()
-        return result
-    except ResourceConflictError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "message": str(e),
-                "existing_resources": e.existing_resources,
-            },
-        ) from None
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        ) from None
-    except CloudflareAPIError as e:
-        await db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(e),
-        ) from None
-
-
-# =============================================================================
-# Step 7: Configure Worker JWT
+# Step 5: Configure Worker JWT
 # =============================================================================
 
 
@@ -431,13 +294,11 @@ async def update_access_policy(
     db: AsyncSession = Depends(get_db),
     service: CloudflareService = Depends(get_cloudflare_service),
 ) -> UpdateAccessPolicyResponse:
-    """Update the access policy for both Cloudflare Access and the Worker.
+    """Update the access policy for the Cloudflare Access SaaS application.
 
-    Syncs the allowed emails/domain to:
-    1. The Cloudflare Access Policy on the MCP Portal's Access Application
-    2. The Worker's ALLOWED_EMAILS / ALLOWED_EMAIL_DOMAIN secrets
-
-    This ensures both layers enforce the same access restrictions.
+    Syncs the allowed emails/domain to the Cloudflare Access Policy on the
+    SaaS OIDC Access Application. The Access Policy at the OIDC layer is
+    the single source of truth for email enforcement.
     """
     try:
         result = await service.update_access_policy(
@@ -472,8 +333,7 @@ async def teardown(
 ) -> TeardownResponse:
     """Remove all Cloudflare resources created by the wizard.
 
-    Deletes the MCP Portal, MCP Server, VPC Service, and Tunnel.
-    The Worker must be deleted manually using wrangler.
+    Deletes the OIDC Access Application, Worker, KV namespace, VPC Service, and Tunnel.
     """
     try:
         result = await service.teardown(config_id)
@@ -528,6 +388,6 @@ async def get_zones(
 ) -> list[Zone]:
     """Get available zones (domains) for the account.
 
-    Returns zones that can be used for the MCP Portal hostname.
+    Returns zones that can be used for the Worker hostname.
     """
     return await service.get_zones(config_id)

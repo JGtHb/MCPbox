@@ -19,8 +19,6 @@ from app.models.tunnel_configuration import TunnelConfiguration
 from app.schemas.cloudflare import (
     AccessPolicyConfig,
     ConfigureJwtResponse,
-    CreateMcpPortalResponse,
-    CreateMcpServerResponse,
     CreateTunnelResponse,
     CreateVpcServiceResponse,
     DeployWorkerResponse,
@@ -132,10 +130,6 @@ class CloudflareService:
             vpc_service_name=config.vpc_service_name,
             worker_name=config.worker_name,
             worker_url=config.worker_url,
-            mcp_server_id=config.mcp_server_id,
-            mcp_portal_id=config.mcp_portal_id,
-            mcp_portal_hostname=config.mcp_portal_hostname,
-            mcp_portal_aud=config.mcp_portal_aud,
             access_policy_type=config.access_policy_type,
             access_policy_emails=access_policy_emails,
             access_policy_email_domain=config.access_policy_email_domain,
@@ -886,7 +880,7 @@ export default {
     const corsHeaders = {
       'Access-Control-Allow-Origin': 'https://mcp.claude.ai',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, Cf-Access-Jwt-Assertion',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     };
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders });
@@ -935,575 +929,6 @@ export default {
         # Fallback: minimal package.json if source not found
         logger.warning("Worker package.json not found at %s, using embedded fallback", package_path)
         return '{"name":"mcpbox-proxy","version":"1.0.0","dependencies":{"@cloudflare/workers-oauth-provider":"0.2.2"}}'
-
-    # =========================================================================
-    # Step 5: Create MCP Server
-    # =========================================================================
-
-    async def create_mcp_server(
-        self,
-        config_id: UUID,
-        server_id: str,
-        server_name: str,
-        access_policy: AccessPolicyConfig | None = None,
-        force: bool = False,
-    ) -> CreateMcpServerResponse:
-        """Create an MCP Server in Cloudflare."""
-        config = await self.get_config_by_id(config_id)
-        if not config:
-            raise ValueError("Configuration not found")
-
-        api_token = await self._get_decrypted_token(config)
-        if not api_token:
-            raise ValueError("API token not available")
-
-        if not config.worker_url:
-            raise ValueError("Worker must be deployed first")
-
-        try:
-            # Check for existing MCP Server and Access Apps
-            conflicts: list[dict] = []
-            existing_server = False
-            existing_access_apps: list[dict] = []
-
-            # Check for existing MCP Server by ID
-            try:
-                server_data = await self._cf_request(
-                    "GET",
-                    f"/accounts/{config.account_id}/access/ai-controls/mcp/servers/{server_id}",
-                    api_token,
-                )
-                result = server_data.get("result", {})
-                if result:
-                    existing_server = True
-                    conflicts.append(
-                        {
-                            "resource_type": "mcp_server",
-                            "name": result.get("name", server_id),
-                            "id": result.get("id", server_id),
-                        }
-                    )
-            except CloudflareAPIError:
-                pass  # Doesn't exist
-
-            # Check for existing MCP Access Apps with the same name
-            try:
-                apps_data = await self._cf_request(
-                    "GET",
-                    f"/accounts/{config.account_id}/access/apps",
-                    api_token,
-                )
-                for app in apps_data.get("result", []):
-                    if app.get("name") == server_name and app.get("type") == "mcp":
-                        existing_access_apps.append(app)
-                        conflicts.append(
-                            {
-                                "resource_type": "access_app",
-                                "name": f"{app.get('name', '')} (mcp)",
-                                "id": app.get("id", ""),
-                            }
-                        )
-            except CloudflareAPIError:
-                pass  # Best-effort check
-
-            if conflicts and not force:
-                raise ResourceConflictError(conflicts)
-
-            # If forcing, delete existing resources
-            if existing_server:
-                try:
-                    await self._cf_request(
-                        "DELETE",
-                        f"/accounts/{config.account_id}/access/ai-controls/mcp/servers/{server_id}",
-                        api_token,
-                    )
-                    logger.info(f"Deleted existing MCP Server '{server_id}' before recreation")
-                except CloudflareAPIError:
-                    pass
-
-            for app in existing_access_apps:
-                old_id = app.get("id")
-                logger.info(f"Deleting stale MCP Access App: {old_id}")
-                try:
-                    await self._cf_request(
-                        "DELETE",
-                        f"/accounts/{config.account_id}/access/apps/{old_id}",
-                        api_token,
-                    )
-                except CloudflareAPIError:
-                    pass
-
-            # Create MCP Server with OAuth auth_type. The Worker serves
-            # OAuth 2.1 endpoints (/.well-known/oauth-authorization-server,
-            # /token, /register, /authorize) via @cloudflare/workers-oauth-provider.
-            # With auth_type "oauth", Cloudflare performs the full OAuth 2.1
-            # discovery and authorization flow to get an access token for /mcp.
-            # Note: "bearer" means static token (not OAuth), "oauth" means
-            # full OAuth 2.1 flow — which matches our OAuthProvider setup.
-            mcp_server_payload: dict = {
-                "id": server_id,
-                "name": server_name,
-                "hostname": config.worker_url,
-                "description": "MCPbox MCP Server",
-                "auth_type": "oauth",
-            }
-
-            logger.info(
-                f"Creating MCP Server: id={server_id}, hostname={mcp_server_payload['hostname']}"
-            )
-            data = await self._cf_request(
-                "POST",
-                f"/accounts/{config.account_id}/access/ai-controls/mcp/servers",
-                api_token,
-                json=mcp_server_payload,
-            )
-
-            server = data.get("result", {})
-            mcp_server_id = server.get("id")
-            logger.info(f"MCP Server created: {server}")
-
-            # Create SaaS OIDC Access Application for the server.
-            # This replaces the old "mcp" type app. Access for SaaS acts as
-            # an OIDC identity provider — the Worker authenticates users via
-            # the OIDC flow, and Access policies control who can authenticate.
-            logger.info(f"Creating SaaS OIDC Access Application for server {mcp_server_id}...")
-            try:
-                callback_url = f"https://{config.worker_url}/callback" if config.worker_url else ""
-                # Strip double https:// if worker_url already has it
-                if config.worker_url and config.worker_url.startswith("https://"):
-                    callback_url = f"{config.worker_url}/callback"
-
-                saas_app_data = await self._cf_request(
-                    "POST",
-                    f"/accounts/{config.account_id}/access/apps",
-                    api_token,
-                    json={
-                        "name": f"{server_name} OIDC",
-                        "type": "saas",
-                        "saas_app": {
-                            "auth_type": "oidc",
-                            "redirect_uris": [callback_url],
-                            "scopes": ["openid", "email", "profile"],
-                            "grant_types": ["authorization_code"],
-                        },
-                    },
-                )
-                saas_app = saas_app_data.get("result", {})
-                saas_app_id = saas_app.get("id", "")
-                config.access_app_id = saas_app_id
-                logger.info(f"Created SaaS OIDC Access Application: {saas_app_id}")
-
-                # Extract OIDC client credentials from the SaaS app
-                saas_cfg = saas_app.get("saas_app", {})
-                oidc_client_id = saas_cfg.get("client_id", "")
-                oidc_client_secret = saas_cfg.get("client_secret", "")
-
-                if oidc_client_id and oidc_client_secret:
-                    # Store encrypted OIDC credentials
-                    config.encrypted_access_client_id = encrypt_to_base64(oidc_client_id)
-                    config.encrypted_access_client_secret = encrypt_to_base64(oidc_client_secret)
-                    logger.info("Stored OIDC client credentials (encrypted)")
-                else:
-                    logger.warning(
-                        "SaaS app created but missing client_id/client_secret in response. "
-                        "You may need to fetch these from the Cloudflare dashboard."
-                    )
-
-                # Add Access Policy to the SaaS Application
-                await self._create_access_policy(
-                    api_token, config.account_id, saas_app_id, access_policy
-                )
-            except CloudflareAPIError as e:
-                logger.warning(f"Failed to create SaaS OIDC Access Application: {e}")
-
-            # Also create the "mcp" type Access App for Cloudflare portal discovery
-            logger.info("Creating MCP Access Application for portal discovery...")
-            try:
-                access_app_data = await self._cf_request(
-                    "POST",
-                    f"/accounts/{config.account_id}/access/apps",
-                    api_token,
-                    json={
-                        "name": server_name,
-                        "type": "mcp",
-                        "destinations": [
-                            {
-                                "type": "via_mcp_server_portal",
-                                "mcp_server_id": mcp_server_id,
-                            }
-                        ],
-                    },
-                )
-                mcp_app = access_app_data.get("result", {})
-                logger.info(f"Created MCP Access Application: {mcp_app.get('id', '')}")
-
-                await self._create_access_policy(
-                    api_token, config.account_id, mcp_app.get("id", ""), access_policy
-                )
-            except CloudflareAPIError as e:
-                logger.warning(f"Failed to create MCP Access Application: {e}")
-                # Non-fatal — portal discovery is optional
-
-            # Sync tools
-            tools_synced = 0
-            try:
-                sync_data = await self._cf_request(
-                    "POST",
-                    f"/accounts/{config.account_id}/access/ai-controls/mcp/servers/{mcp_server_id}/sync",
-                    api_token,
-                )
-                sync_result = sync_data.get("result", {})
-                tools_synced = len(sync_result.get("tools", []))
-            except CloudflareAPIError:
-                # Sync may fail if Worker isn't accessible yet
-                pass
-
-            # Persist access policy to database for Worker sync
-            self._save_access_policy_to_config(config, access_policy)
-
-            # Update config
-            config.mcp_server_id = mcp_server_id
-            config.completed_step = max(config.completed_step, 5)
-
-            await self.db.flush()
-
-            return CreateMcpServerResponse(
-                success=True,
-                mcp_server_id=mcp_server_id,
-                tools_synced=tools_synced,
-                message=f"MCP Server created with {tools_synced} tools discovered.",
-            )
-
-        except CloudflareAPIError as e:
-            config.status = "error"
-            config.error_message = str(e)
-            await self.db.flush()
-            raise
-
-    # =========================================================================
-    # Step 6: Create MCP Portal
-    # =========================================================================
-
-    async def create_mcp_portal(
-        self,
-        config_id: UUID,
-        portal_id: str,
-        portal_name: str,
-        hostname: str,
-        access_policy: AccessPolicyConfig | None = None,
-        force: bool = False,
-    ) -> CreateMcpPortalResponse:
-        """Create an MCP Portal in Cloudflare.
-
-        The correct flow is:
-        1. Create Access Application with self_hosted type and via_mcp_server_portal destination
-        2. Create MCP Portal - it will link to the Access App via the destination
-        """
-        config = await self.get_config_by_id(config_id)
-        if not config:
-            raise ValueError("Configuration not found")
-
-        api_token = await self._get_decrypted_token(config)
-        if not api_token:
-            raise ValueError("API token not available")
-
-        if not config.mcp_server_id:
-            raise ValueError("MCP Server must be created first")
-
-        try:
-            mcp_portal_aud = ""
-
-            # Check for existing portal and Access Apps
-            conflicts: list[dict] = []
-            existing_portal = False
-            existing_portal_apps: list[dict] = []
-
-            # Check for existing MCP Portal by ID
-            try:
-                portal_data = await self._cf_request(
-                    "GET",
-                    f"/accounts/{config.account_id}/access/ai-controls/mcp/portals/{portal_id}",
-                    api_token,
-                )
-                result = portal_data.get("result", {})
-                if result:
-                    existing_portal = True
-                    conflicts.append(
-                        {
-                            "resource_type": "mcp_portal",
-                            "name": result.get("name", portal_id),
-                            "id": result.get("id", portal_id),
-                        }
-                    )
-            except CloudflareAPIError:
-                pass  # Doesn't exist
-
-            # Check for existing mcp_portal Access Apps with the same name
-            try:
-                apps_data = await self._cf_request(
-                    "GET",
-                    f"/accounts/{config.account_id}/access/apps",
-                    api_token,
-                )
-                for app in apps_data.get("result", []):
-                    if app.get("name") == portal_name and app.get("type") == "mcp_portal":
-                        existing_portal_apps.append(app)
-                        conflicts.append(
-                            {
-                                "resource_type": "access_app",
-                                "name": f"{app.get('name', '')} (mcp_portal)",
-                                "id": app.get("id", ""),
-                            }
-                        )
-            except CloudflareAPIError:
-                pass  # Best-effort check
-
-            if conflicts and not force:
-                raise ResourceConflictError(conflicts)
-
-            # If forcing, delete existing resources
-            if existing_portal:
-                try:
-                    await self._cf_request(
-                        "DELETE",
-                        f"/accounts/{config.account_id}/access/ai-controls/mcp/portals/{portal_id}",
-                        api_token,
-                    )
-                    logger.info(f"Deleted existing MCP Portal '{portal_id}' before recreation")
-                except CloudflareAPIError:
-                    pass
-
-            for app in existing_portal_apps:
-                old_id = app.get("id")
-                logger.info(f"Deleting stale mcp_portal Access App: {old_id}")
-                try:
-                    await self._cf_request(
-                        "DELETE",
-                        f"/accounts/{config.account_id}/access/apps/{old_id}",
-                        api_token,
-                    )
-                except CloudflareAPIError:
-                    pass
-
-            logger.info(f"Creating MCP Portal on hostname {hostname}...")
-            data = await self._cf_request(
-                "POST",
-                f"/accounts/{config.account_id}/access/ai-controls/mcp/portals",
-                api_token,
-                json={
-                    "id": portal_id,
-                    "name": portal_name,
-                    "hostname": hostname,
-                    "description": "MCPbox remote access portal",
-                    "servers": [
-                        {
-                            "server_id": config.mcp_server_id,
-                            "default_disabled": False,
-                            "on_behalf": True,
-                        }
-                    ],
-                    "secure_web_gateway": False,
-                },
-            )
-
-            portal = data.get("result", {})
-            mcp_portal_id = portal.get("id")
-            mcp_portal_hostname = portal.get("hostname", hostname)
-            logger.info(f"MCP Portal created: {portal}")
-
-            # Check if portal response has AUD (unlikely but check anyway)
-            if not mcp_portal_aud:
-                mcp_portal_aud = portal.get("aud", "")
-
-            # If still no AUD, check for any Access App linked to our portal
-            if not mcp_portal_aud:
-                logger.info("Checking for linked Access App...")
-                try:
-                    apps_data = await self._cf_request(
-                        "GET",
-                        f"/accounts/{config.account_id}/access/apps",
-                        api_token,
-                    )
-                    apps = apps_data.get("result", [])
-                    for app in apps:
-                        # Only match mcp_portal type apps (skip mcp type apps)
-                        if app.get("type") not in ("mcp_portal", "self_hosted"):
-                            continue
-                        # Check destinations for via_mcp_server_portal linking to our server
-                        destinations = app.get("destinations", [])
-                        for dest in destinations:
-                            if (
-                                dest.get("type") == "via_mcp_server_portal"
-                                and dest.get("mcp_server_id") == config.mcp_server_id
-                            ):
-                                mcp_portal_aud = app.get("aud", "")
-                                config.access_app_id = app.get("id", "")
-                                logger.info(
-                                    f"Found linked Access App: id={config.access_app_id}, "
-                                    f"aud={mcp_portal_aud[:20] if mcp_portal_aud else 'none'}..."
-                                )
-                                break
-                        if mcp_portal_aud:
-                            break
-                        # Also check domain match
-                        if app.get("domain") == mcp_portal_hostname:
-                            mcp_portal_aud = app.get("aud", "")
-                            config.access_app_id = app.get("id", "")
-                            logger.info(f"Found Access App by domain: id={config.access_app_id}")
-                            break
-                except CloudflareAPIError as e:
-                    logger.warning(f"Failed to check for Access App: {e}")
-
-            # Step 2: If still no AUD, create an mcp_portal Access App
-            # This is the correct type for MCP Portal Access Applications
-            if not mcp_portal_aud:
-                logger.info(f"Creating mcp_portal Access Application on {mcp_portal_hostname}...")
-                try:
-                    access_app_data = await self._cf_request(
-                        "POST",
-                        f"/accounts/{config.account_id}/access/apps",
-                        api_token,
-                        json={
-                            "name": portal_name,
-                            "domain": mcp_portal_hostname,
-                            "type": "mcp_portal",
-                            "session_duration": "24h",
-                            "auto_redirect_to_identity": False,
-                            "http_only_cookie_attribute": False,
-                            "cors_headers": {
-                                "allowed_headers": [
-                                    "Content-Type",
-                                    "Authorization",
-                                    "Cf-Access-Jwt-Assertion",
-                                ],
-                                "allowed_methods": ["GET", "POST", "OPTIONS"],
-                                "allowed_origins": [
-                                    "https://mcp.claude.ai",
-                                    "https://claude.ai",
-                                ],
-                            },
-                        },
-                    )
-                    access_app = access_app_data.get("result", {})
-                    mcp_portal_aud = access_app.get("aud", "")
-                    access_app_id = access_app.get("id", "")
-                    logger.info(
-                        f"Created mcp_portal Access Application: id={access_app_id}, "
-                        f"aud={mcp_portal_aud[:20] if mcp_portal_aud else 'none'}..."
-                    )
-                    config.access_app_id = access_app_id
-
-                    # Step 3: Create Access Policy
-                    await self._create_access_policy(
-                        api_token, config.account_id, access_app_id, access_policy
-                    )
-                except CloudflareAPIError as e:
-                    logger.warning(f"Failed to create Access Application: {e}")
-                    # Continue without AUD - user can configure manually
-
-            # Step 4: Create DNS record for the portal hostname
-            await self._create_dns_record(api_token, mcp_portal_hostname)
-
-            # Persist access policy to database (may already be set from step 5)
-            if access_policy:
-                self._save_access_policy_to_config(config, access_policy)
-
-            # Update config
-            config.mcp_portal_id = mcp_portal_id
-            config.mcp_portal_hostname = mcp_portal_hostname
-            config.mcp_portal_aud = mcp_portal_aud
-
-            portal_url = f"https://{mcp_portal_hostname}"
-
-            # Update the active TunnelConfiguration with the portal URL
-            active_tunnel_config = (
-                await self.db.execute(
-                    select(TunnelConfiguration).where(
-                        TunnelConfiguration.is_active == True  # noqa: E712
-                    )
-                )
-            ).scalar_one_or_none()
-            if active_tunnel_config:
-                active_tunnel_config.public_url = portal_url
-
-            # Auto-sync all Worker secrets if we have the required OIDC values
-            jwt_configured = False
-            oidc_creds = self._get_oidc_credentials(config)
-            if config.worker_name and oidc_creds:
-                try:
-                    # Decrypt service token from DB to re-sync with Worker
-                    svc_token = None
-                    if config.encrypted_service_token:
-                        svc_token = decrypt_from_base64(config.encrypted_service_token)
-
-                    await self._sync_worker_secrets(
-                        api_token,
-                        config.account_id,
-                        config.worker_name,
-                        service_token=svc_token,
-                        **oidc_creds,
-                    )
-                    jwt_configured = True
-                    config.completed_step = 7
-                    config.status = "active"
-                    logger.info("Worker secrets synced automatically")
-                except Exception as e:
-                    logger.warning(f"Failed to auto-configure JWT: {e}")
-                    config.completed_step = max(config.completed_step, 6)
-            else:
-                config.completed_step = max(config.completed_step, 6)
-                missing = []
-                if not config.worker_name:
-                    missing.append("worker_name")
-                if not mcp_portal_aud:
-                    missing.append("mcp_portal_aud")
-                if not config.team_domain:
-                    missing.append("team_domain")
-                logger.warning(f"Cannot auto-configure JWT, missing: {missing}")
-
-            await self.db.flush()
-
-            # Trigger MCP server re-sync. The initial sync at step 5 often
-            # fails because the tunnel isn't fully propagated yet. A PUT to
-            # the MCP server triggers Cloudflare to retry the sync now that
-            # everything (tunnel, Worker secrets, portal) is in place.
-            if config.mcp_server_id and jwt_configured:
-                try:
-                    await self._cf_request(
-                        "PUT",
-                        f"/accounts/{config.account_id}/access/ai-controls/mcp/servers/{config.mcp_server_id}",
-                        api_token,
-                        json={
-                            "id": config.mcp_server_id,
-                            "name": "MCPbox",
-                            "hostname": config.worker_url,
-                            "description": "MCPbox MCP Server",
-                            "auth_type": "oauth",
-                        },
-                    )
-                    logger.info("Triggered MCP server re-sync")
-                except CloudflareAPIError as e:
-                    logger.warning(f"Failed to trigger MCP server re-sync: {e}")
-
-            message = (
-                "Setup complete!"
-                if jwt_configured
-                else "MCP Portal created. JWT configuration may need manual setup."
-            )
-            return CreateMcpPortalResponse(
-                success=True,
-                mcp_portal_id=mcp_portal_id,
-                mcp_portal_hostname=mcp_portal_hostname,
-                portal_url=portal_url,
-                mcp_portal_aud=mcp_portal_aud,
-                message=message,
-            )
-
-        except CloudflareAPIError as e:
-            config.status = "error"
-            config.error_message = str(e)
-            await self.db.flush()
-            raise
 
     async def _create_access_policy(
         self,
@@ -1764,6 +1189,17 @@ export default {
         if not config.team_domain:
             return None
 
+        # Get or generate stable cookie encryption key
+        cookie_key = None
+        if config.encrypted_cookie_encryption_key:
+            try:
+                cookie_key = decrypt_from_base64(config.encrypted_cookie_encryption_key)
+            except DecryptionError:
+                logger.warning("Failed to decrypt cookie encryption key, generating new one")
+        if not cookie_key:
+            cookie_key = secrets.token_hex(32)
+            config.encrypted_cookie_encryption_key = encrypt_to_base64(cookie_key)
+
         # Build OIDC endpoint URLs from team_domain and client_id
         base = f"https://{config.team_domain}/cdn-cgi/access/sso/oidc/{client_id}"
         return {
@@ -1772,7 +1208,7 @@ export default {
             "access_token_url": f"{base}/token",
             "access_authorization_url": f"{base}/authorize",
             "access_jwks_url": f"https://{config.team_domain}/cdn-cgi/access/certs",
-            "cookie_encryption_key": secrets.token_hex(32),
+            "cookie_encryption_key": cookie_key,
         }
 
     async def _sync_worker_secrets(
@@ -2016,48 +1452,6 @@ compatibility_flags = ["nodejs_compat"]
             raise
 
     # =========================================================================
-    # Sync MCP Server Tools
-    # =========================================================================
-
-    async def sync_mcp_server(self, config_id: UUID) -> dict:
-        """Manually sync MCP server tools with Cloudflare.
-
-        This should be called after JWT is configured to allow Cloudflare
-        to enumerate the tools from the Worker endpoint.
-
-        Returns:
-            dict with 'tools_synced' count and 'tools' list
-        """
-        config = await self.get_config_by_id(config_id)
-        if not config:
-            raise ValueError("Configuration not found")
-
-        if not config.mcp_server_id:
-            raise ValueError("MCP Server must be created first")
-
-        api_token = await self._get_decrypted_token(config)
-        if not api_token:
-            raise ValueError("API token not available")
-
-        try:
-            sync_data = await self._cf_request(
-                "POST",
-                f"/accounts/{config.account_id}/access/ai-controls/mcp/servers/{config.mcp_server_id}/sync",
-                api_token,
-            )
-            sync_result = sync_data.get("result", {})
-            tools = sync_result.get("tools", [])
-            logger.info(f"Synced MCP Server, discovered {len(tools)} tools")
-            return {
-                "tools_synced": len(tools),
-                "tools": tools,
-                "message": f"Successfully synced {len(tools)} tools",
-            }
-        except CloudflareAPIError as e:
-            logger.warning(f"Failed to sync MCP Server: {e}")
-            raise
-
-    # =========================================================================
     # Teardown
     # =========================================================================
 
@@ -2074,21 +1468,7 @@ compatibility_flags = ["nodejs_compat"]
         deleted_resources: list[str] = []
         errors: list[str] = []
 
-        # Delete MCP Portal
-        if config.mcp_portal_id:
-            try:
-                await self._cf_request(
-                    "DELETE",
-                    f"/accounts/{config.account_id}/access/ai-controls/mcp/portals/{config.mcp_portal_id}",
-                    api_token,
-                )
-                deleted_resources.append(f"MCP Portal: {config.mcp_portal_id}")
-            except CloudflareAPIError as e:
-                errors.append(f"Failed to delete MCP Portal: {e}")
-
-        # Delete Access Applications (Portal + MCP Server types)
-        # The wizard creates two Access Apps: mcp_portal (for the Portal) and
-        # mcp (for the MCP Server). Both need to be cleaned up.
+        # Delete SaaS OIDC Access Application
         if config.access_app_id:
             try:
                 await self._cf_request(
@@ -2096,81 +1476,9 @@ compatibility_flags = ["nodejs_compat"]
                     f"/accounts/{config.account_id}/access/apps/{config.access_app_id}",
                     api_token,
                 )
-                deleted_resources.append(f"Access Application (portal): {config.access_app_id}")
+                deleted_resources.append(f"Access Application (OIDC): {config.access_app_id}")
             except CloudflareAPIError as e:
                 errors.append(f"Failed to delete Access Application: {e}")
-
-        # Find and delete all Access Apps created by the wizard:
-        # - "mcp" type: linked to MCP server via destinations
-        # - "mcp_portal" type: linked to portal via domain or destinations
-        deleted_app_ids = set()
-        if config.access_app_id:
-            deleted_app_ids.add(config.access_app_id)
-        try:
-            apps_data = await self._cf_request(
-                "GET",
-                f"/accounts/{config.account_id}/access/apps",
-                api_token,
-            )
-            for app in apps_data.get("result", []):
-                app_id = app.get("id", "")
-                app_type = app.get("type", "")
-
-                # Skip if already deleted above
-                if app_id in deleted_app_ids:
-                    continue
-
-                should_delete = False
-
-                # Match "mcp" type apps linked to our MCP server
-                if app_type == "mcp" and config.mcp_server_id:
-                    for dest in app.get("destinations", []):
-                        if dest.get("mcp_server_id") == config.mcp_server_id:
-                            should_delete = True
-                            break
-
-                # Match "mcp_portal" type apps linked to our portal
-                if app_type == "mcp_portal":
-                    # Match by domain
-                    if (
-                        config.mcp_portal_hostname
-                        and app.get("domain") == config.mcp_portal_hostname
-                    ):
-                        should_delete = True
-                    # Match by name
-                    if config.worker_name and config.worker_name in app.get("name", ""):
-                        should_delete = True
-                    # Match by destinations referencing our MCP server
-                    for dest in app.get("destinations", []):
-                        if dest.get("mcp_server_id") == config.mcp_server_id:
-                            should_delete = True
-                            break
-
-                if should_delete:
-                    try:
-                        await self._cf_request(
-                            "DELETE",
-                            f"/accounts/{config.account_id}/access/apps/{app_id}",
-                            api_token,
-                        )
-                        deleted_resources.append(f"Access Application ({app_type}): {app_id}")
-                        deleted_app_ids.add(app_id)
-                    except CloudflareAPIError as e:
-                        errors.append(f"Failed to delete {app_type} Access App: {e}")
-        except CloudflareAPIError as e:
-            errors.append(f"Failed to list Access Apps for cleanup: {e}")
-
-        # Delete MCP Server
-        if config.mcp_server_id:
-            try:
-                await self._cf_request(
-                    "DELETE",
-                    f"/accounts/{config.account_id}/access/ai-controls/mcp/servers/{config.mcp_server_id}",
-                    api_token,
-                )
-                deleted_resources.append(f"MCP Server: {config.mcp_server_id}")
-            except CloudflareAPIError as e:
-                errors.append(f"Failed to delete MCP Server: {e}")
 
         # Delete Worker via REST API
         if config.worker_name:

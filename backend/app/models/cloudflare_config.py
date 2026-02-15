@@ -43,27 +43,21 @@ class CloudflareConfig(BaseModel):
     # KV namespace ID for OAuth token storage
     kv_namespace_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
-    # MCP Server info
-    mcp_server_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-
-    # MCP Portal info
-    mcp_portal_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    mcp_portal_hostname: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    mcp_portal_aud: Mapped[str | None] = mapped_column(String(128), nullable=True)
-
     # SaaS OIDC Access Application ID (for Access for SaaS)
     access_app_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # OIDC client credentials from the SaaS OIDC application (encrypted)
     encrypted_access_client_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     encrypted_access_client_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Cookie encryption key for Worker approval cookies (encrypted, generated once)
+    encrypted_cookie_encryption_key: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Access policy configuration (enforced at the OIDC layer by Cloudflare Access)
     access_policy_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
     access_policy_emails: Mapped[str | None] = mapped_column(Text, nullable=True)
     access_policy_email_domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
-    # Wizard step tracking (0-7, where 7 is complete)
+    # Wizard step tracking (0-5, where 5 is complete)
     completed_step: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     # Status: pending, active, error

@@ -1,12 +1,11 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Header } from '../components/Layout'
-import { useCloudflareStatus, useSyncTools, useTeardown } from '../api/cloudflare'
+import { useCloudflareStatus, useTeardown } from '../api/cloudflare'
 
 export function Tunnel() {
   const { data: cloudflareStatus, isLoading } = useCloudflareStatus()
   const teardownMutation = useTeardown()
-  const syncToolsMutation = useSyncTools()
 
   const [copySuccess, setCopySuccess] = useState<string | null>(null)
 
@@ -22,7 +21,7 @@ export function Tunnel() {
 
   const handleTeardown = async () => {
     if (!cloudflareStatus?.config_id) return
-    if (!confirm('Are you sure you want to remove all Cloudflare resources? This will delete the tunnel, worker, and portal.')) {
+    if (!confirm('Are you sure you want to remove all Cloudflare resources? This will delete the tunnel, worker, and OIDC configuration.')) {
       return
     }
     try {
@@ -33,7 +32,7 @@ export function Tunnel() {
   }
 
   // Check if wizard setup is complete
-  const isWizardActive = cloudflareStatus?.status === 'active' && cloudflareStatus?.completed_step === 7
+  const isWizardActive = cloudflareStatus?.status === 'active' && cloudflareStatus?.completed_step === 5
   const isWizardInProgress = cloudflareStatus?.config_id && !isWizardActive
 
   if (isLoading) {
@@ -67,24 +66,24 @@ export function Tunnel() {
               </div>
 
               <div className="space-y-4">
-                {/* Portal URL */}
-                {cloudflareStatus?.mcp_portal_hostname && (
+                {/* Worker URL */}
+                {cloudflareStatus?.worker_url && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      MCP Portal URL (use this in Claude Web)
+                      MCP Endpoint URL (use this in Claude Web)
                     </label>
                     <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                       <input
                         type="text"
                         readOnly
-                        value={`https://${cloudflareStatus.mcp_portal_hostname}/mcp`}
+                        value={`${cloudflareStatus.worker_url}/mcp`}
                         className="flex-1 px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono text-gray-900 dark:text-gray-100"
                       />
                       <button
-                        onClick={() => handleCopy(`https://${cloudflareStatus.mcp_portal_hostname}/mcp`, 'portal')}
+                        onClick={() => handleCopy(`${cloudflareStatus.worker_url}/mcp`, 'worker')}
                         className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm transition-colors"
                       >
-                        {copySuccess === 'portal' ? 'Copied!' : 'Copy URL'}
+                        {copySuccess === 'worker' ? 'Copied!' : 'Copy URL'}
                       </button>
                     </div>
                   </div>
@@ -121,8 +120,8 @@ export function Tunnel() {
                 <ol className="list-decimal list-inside space-y-2">
                   <li>Go to <a href="https://claude.ai" target="_blank" rel="noopener noreferrer" className="text-purple-600 dark:text-purple-400 hover:underline">claude.ai</a> and open Settings</li>
                   <li>Navigate to Integrations or MCP Servers</li>
-                  <li>Add your MCP Portal URL: <code className="bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded font-mono text-xs">https://{cloudflareStatus?.mcp_portal_hostname}/mcp</code></li>
-                  <li>Authenticate when prompted (Cloudflare handles OAuth)</li>
+                  <li>Add your Worker URL: <code className="bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded font-mono text-xs">{cloudflareStatus?.worker_url}/mcp</code></li>
+                  <li>Authenticate when prompted (OAuth handled by the Worker)</li>
                   <li>Your MCPbox tools will appear in Claude</li>
                 </ol>
                 <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
@@ -151,13 +150,6 @@ export function Tunnel() {
                   Cloudflare Dashboard
                 </a>
                 <button
-                  onClick={() => cloudflareStatus?.config_id && syncToolsMutation.mutate(cloudflareStatus.config_id)}
-                  disabled={syncToolsMutation.isPending || !cloudflareStatus?.config_id}
-                  className="px-4 py-2 bg-purple-100 dark:bg-purple-900/30 hover:bg-purple-200 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded-lg text-sm transition-colors"
-                >
-                  {syncToolsMutation.isPending ? 'Syncing...' : 'Sync Tools'}
-                </button>
-                <button
                   onClick={handleTeardown}
                   disabled={teardownMutation.isPending}
                   className="px-4 py-2 bg-red-100 dark:bg-red-900/30 hover:bg-red-200 dark:hover:bg-red-900/50 text-red-700 dark:text-red-300 rounded-lg text-sm transition-colors"
@@ -165,16 +157,6 @@ export function Tunnel() {
                   {teardownMutation.isPending ? 'Removing...' : 'Remove Setup'}
                 </button>
               </div>
-              {syncToolsMutation.isSuccess && (
-                <p className="mt-3 text-sm text-green-600 dark:text-green-400">
-                  {syncToolsMutation.data?.message || 'Tools synced successfully'}
-                </p>
-              )}
-              {syncToolsMutation.error && (
-                <p className="mt-3 text-sm text-red-600 dark:text-red-400">
-                  {syncToolsMutation.error instanceof Error ? syncToolsMutation.error.message : 'Failed to sync tools'}
-                </p>
-              )}
               {teardownMutation.error && (
                 <p className="mt-3 text-sm text-red-600 dark:text-red-400">
                   {teardownMutation.error instanceof Error ? teardownMutation.error.message : 'Failed to remove setup'}
@@ -196,7 +178,7 @@ export function Tunnel() {
                   </span>
                 </div>
                 <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Step {cloudflareStatus?.completed_step} of 7 completed
+                  Step {cloudflareStatus?.completed_step} of 5 completed
                 </p>
               </div>
               <Link
@@ -244,15 +226,9 @@ export function Tunnel() {
                   </p>
                 </div>
                 <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                  <h4 className="font-medium text-gray-900 dark:text-white mb-2">MCP Portal</h4>
+                  <h4 className="font-medium text-gray-900 dark:text-white mb-2">OIDC Authentication</h4>
                   <p className="text-sm text-gray-600 dark:text-gray-400">
-                    OAuth authentication for Claude Web users on your custom domain.
-                  </p>
-                </div>
-                <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                  <h4 className="font-medium text-gray-900 dark:text-white mb-2">JWT Verification</h4>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    Cryptographic verification that requests come through the portal.
+                    OAuth 2.1 authentication via Cloudflare Access for secure MCP client access.
                   </p>
                 </div>
               </div>
@@ -268,7 +244,7 @@ export function Tunnel() {
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-green-500 mt-0.5">✓</span>
-                  <span>Domain added to Cloudflare (for the MCP Portal hostname)</span>
+                  <span>Domain added to Cloudflare (for the Worker hostname)</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-green-500 mt-0.5">✓</span>

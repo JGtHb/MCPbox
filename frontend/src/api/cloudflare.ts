@@ -83,39 +83,6 @@ export interface DeployWorkerResponse {
   message: string | null
 }
 
-export interface CreateMcpServerRequest {
-  config_id: string
-  server_id: string
-  server_name: string
-  force?: boolean
-  access_policy?: AccessPolicyConfig
-}
-
-export interface CreateMcpServerResponse {
-  success: boolean
-  mcp_server_id: string
-  tools_synced: number
-  message: string | null
-}
-
-export interface CreateMcpPortalRequest {
-  config_id: string
-  portal_id: string
-  portal_name: string
-  hostname: string
-  force?: boolean
-  access_policy?: AccessPolicyConfig
-}
-
-export interface CreateMcpPortalResponse {
-  success: boolean
-  mcp_portal_id: string
-  mcp_portal_hostname: string
-  portal_url: string
-  mcp_portal_aud: string
-  message: string | null
-}
-
 export interface ConfigureJwtRequest {
   config_id: string
   access_policy?: AccessPolicyConfig
@@ -148,12 +115,6 @@ export interface WizardStatusResponse {
 
   worker_name: string | null
   worker_url: string | null
-
-  mcp_server_id: string | null
-
-  mcp_portal_id: string | null
-  mcp_portal_hostname: string | null
-  mcp_portal_aud: string | null
 
   created_at: string | null
   updated_at: string | null
@@ -198,26 +159,10 @@ export async function deployWorker(data: DeployWorkerRequest): Promise<DeployWor
   return api.post<DeployWorkerResponse>('/api/cloudflare/worker', data)
 }
 
-export async function createMcpServer(
-  data: CreateMcpServerRequest
-): Promise<CreateMcpServerResponse> {
-  return api.post<CreateMcpServerResponse>('/api/cloudflare/mcp-server', data)
-}
-
-export async function createMcpPortal(
-  data: CreateMcpPortalRequest
-): Promise<CreateMcpPortalResponse> {
-  return api.post<CreateMcpPortalResponse>('/api/cloudflare/mcp-portal', data)
-}
-
 export async function configureWorkerJwt(
   data: ConfigureJwtRequest
 ): Promise<ConfigureJwtResponse> {
   return api.post<ConfigureJwtResponse>('/api/cloudflare/worker-jwt-config', data)
-}
-
-export async function syncTools(configId: string): Promise<{ tools_synced: number; message: string }> {
-  return api.post<{ tools_synced: number; message: string }>(`/api/cloudflare/sync-tools/${configId}`)
 }
 
 export async function teardown(configId: string): Promise<TeardownResponse> {
@@ -303,28 +248,6 @@ export function useDeployWorker() {
   })
 }
 
-export function useCreateMcpServer() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: createMcpServer,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: cloudflareKeys.status() })
-    },
-  })
-}
-
-export function useCreateMcpPortal() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: createMcpPortal,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: cloudflareKeys.status() })
-    },
-  })
-}
-
 export function useConfigureWorkerJwt() {
   const queryClient = useQueryClient()
 
@@ -333,12 +256,6 @@ export function useConfigureWorkerJwt() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: cloudflareKeys.status() })
     },
-  })
-}
-
-export function useSyncTools() {
-  return useMutation({
-    mutationFn: syncTools,
   })
 }
 

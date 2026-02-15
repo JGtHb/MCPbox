@@ -202,102 +202,6 @@ class DeployWorkerResponse(BaseModel):
 
 
 # =============================================================================
-# Step 5: Create MCP Server
-# =============================================================================
-
-
-class CreateMcpServerRequest(BaseModel):
-    """Request to create an MCP Server."""
-
-    config_id: UUID
-    server_id: str = Field(
-        default="mcpbox",
-        min_length=1,
-        max_length=63,
-        description="MCP Server ID",
-    )
-    server_name: str = Field(
-        default="MCPbox",
-        min_length=1,
-        max_length=63,
-        description="MCP Server display name",
-    )
-    force: bool = Field(default=False, description="If true, overwrite existing resources")
-
-    @field_validator("server_id")
-    @classmethod
-    def validate_server_id(cls, v: str) -> str:
-        return _validate_resource_name(v)
-
-    access_policy: AccessPolicyConfig | None = Field(
-        default=None,
-        description="Access policy configuration. Defaults to 'everyone' if not provided.",
-    )
-
-
-class CreateMcpServerResponse(BaseModel):
-    """Response from MCP Server creation."""
-
-    success: bool
-    mcp_server_id: str
-    tools_synced: int = Field(
-        default=0,
-        description="Number of tools discovered during sync",
-    )
-    message: str | None = None
-
-
-# =============================================================================
-# Step 6: Create MCP Portal
-# =============================================================================
-
-
-class CreateMcpPortalRequest(BaseModel):
-    """Request to create an MCP Portal."""
-
-    config_id: UUID
-    portal_id: str = Field(
-        default="mcpbox-portal",
-        min_length=1,
-        max_length=63,
-        description="MCP Portal ID",
-    )
-    portal_name: str = Field(
-        default="MCPbox Portal",
-        min_length=1,
-        max_length=63,
-        description="MCP Portal display name",
-    )
-    force: bool = Field(default=False, description="If true, overwrite existing resources")
-
-    @field_validator("portal_id")
-    @classmethod
-    def validate_portal_id(cls, v: str) -> str:
-        return _validate_resource_name(v)
-
-    hostname: str = Field(
-        ...,
-        min_length=1,
-        description="Portal hostname (e.g., 'mcp.yourdomain.com' or just 'yourdomain.com')",
-    )
-    access_policy: AccessPolicyConfig | None = Field(
-        default=None,
-        description="Access policy configuration. Defaults to 'everyone' if not provided.",
-    )
-
-
-class CreateMcpPortalResponse(BaseModel):
-    """Response from MCP Portal creation."""
-
-    success: bool
-    mcp_portal_id: str
-    mcp_portal_hostname: str
-    portal_url: str = Field(description="Full portal URL for Claude Web")
-    mcp_portal_aud: str = Field(description="Application Audience Tag for JWT verification")
-    message: str | None = None
-
-
-# =============================================================================
 # Step 5: Configure Access (OIDC)
 # =============================================================================
 
@@ -363,14 +267,6 @@ class WizardStatusResponse(BaseModel):
     # Worker info
     worker_name: str | None = None
     worker_url: str | None = None
-
-    # MCP Server info
-    mcp_server_id: str | None = None
-
-    # MCP Portal info
-    mcp_portal_id: str | None = None
-    mcp_portal_hostname: str | None = None
-    mcp_portal_aud: str | None = None
 
     # Access policy
     access_policy_type: str | None = None

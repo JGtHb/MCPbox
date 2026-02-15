@@ -72,14 +72,14 @@ async function handleAuthorizeGet(
   // Auto-approve known clients (Claude, Cloudflare dashboard, localhost)
   const redirectUri = new URL(request.url).searchParams.get('redirect_uri') || '';
   if (isKnownClient(redirectUri)) {
-    const stateToken = await createOAuthState(oauthReqInfo, env.OAUTH_KV);
-    return redirectToAccess(request, env, stateToken);
+    const { stateToken, nonce } = await createOAuthState(oauthReqInfo, env.OAUTH_KV);
+    return redirectToAccess(request, env, stateToken, nonce);
   }
 
   // Check if client was previously approved via cookie
   if (await isClientApproved(request, clientId, env.COOKIE_ENCRYPTION_KEY)) {
-    const stateToken = await createOAuthState(oauthReqInfo, env.OAUTH_KV);
-    return redirectToAccess(request, env, stateToken);
+    const { stateToken, nonce } = await createOAuthState(oauthReqInfo, env.OAUTH_KV);
+    return redirectToAccess(request, env, stateToken, nonce);
   }
 
   // Show approval dialog for unknown clients
@@ -134,9 +134,9 @@ async function handleAuthorizePost(
   );
 
   // Create secure state and redirect to Access
-  const stateToken = await createOAuthState(state.oauthReqInfo, env.OAUTH_KV);
+  const { stateToken, nonce } = await createOAuthState(state.oauthReqInfo, env.OAUTH_KV);
 
-  return redirectToAccess(request, env, stateToken, {
+  return redirectToAccess(request, env, stateToken, nonce, {
     'Set-Cookie': approvedCookie,
   });
 }
@@ -166,9 +166,9 @@ async function handleCallback(
     });
   }
 
-  // Validate state and retrieve stored OAuth request info
-  const oauthReqInfo = await validateOAuthState(stateParam, env.OAUTH_KV);
-  if (!oauthReqInfo) {
+  // Validate state and retrieve stored OAuth request info + nonce
+  const stateData = await validateOAuthState(stateParam, env.OAUTH_KV);
+  if (!stateData) {
     return new Response(JSON.stringify({
       error: 'invalid_state',
       error_description: 'Invalid or expired OAuth state',
@@ -177,6 +177,8 @@ async function handleCallback(
       headers: { 'Content-Type': 'application/json' },
     });
   }
+
+  const { oauthReqInfo, nonce } = stateData;
 
   // Exchange authorization code for tokens from Access
   const tokenResult = await fetchUpstreamTokens(env, code, request.url);
@@ -191,8 +193,8 @@ async function handleCallback(
     });
   }
 
-  // Verify the id_token and extract user claims
-  const claims = await verifyIdToken(env, tokenResult.idToken!);
+  // Verify the id_token and extract user claims (with nonce validation)
+  const claims = await verifyIdToken(env, tokenResult.idToken!, nonce || undefined);
   if (!claims) {
     return new Response(JSON.stringify({
       error: 'invalid_id_token',
@@ -340,6 +342,7 @@ async function fetchAccessPublicKey(
 async function verifyIdToken(
   env: Env,
   token: string,
+  expectedNonce?: string,
 ): Promise<Record<string, unknown> | null> {
   try {
     const parts = token.split('.');
@@ -350,6 +353,12 @@ async function verifyIdToken(
 
     const [headerB64, payloadB64, signatureB64] = parts;
     const header = JSON.parse(atob(headerB64.replace(/-/g, '+').replace(/_/g, '/')));
+
+    // Require RS256 algorithm (prevent algorithm confusion attacks)
+    if (header.alg && header.alg !== 'RS256') {
+      console.error(`id_token: unexpected algorithm ${header.alg}`);
+      return null;
+    }
 
     if (!header.kid) {
       console.error('id_token: missing kid');
@@ -378,11 +387,44 @@ async function verifyIdToken(
 
     const payload = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/')));
 
-    // Validate expiration (60s clock skew tolerance)
     const now = Math.floor(Date.now() / 1000);
+
+    // Validate expiration (60s clock skew tolerance)
     if (payload.exp && payload.exp < (now - 60)) {
       console.error('id_token: expired');
       return null;
+    }
+
+    // Validate not-before (60s clock skew tolerance)
+    if (payload.nbf && payload.nbf > (now + 60)) {
+      console.error('id_token: not yet valid');
+      return null;
+    }
+
+    // Validate issuer — must match Cloudflare Access team domain
+    // Derive expected issuer from ACCESS_AUTHORIZATION_URL
+    // (format: https://{team}.cloudflareaccess.com/cdn-cgi/access/sso/oidc/{client_id}/authorize)
+    const expectedIssuer = getExpectedIssuer(env);
+    if (expectedIssuer && payload.iss !== expectedIssuer) {
+      console.error(`id_token: issuer mismatch (got ${payload.iss}, expected ${expectedIssuer})`);
+      return null;
+    }
+
+    // Validate audience — must match our OIDC client_id
+    if (payload.aud) {
+      const audList = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+      if (!audList.includes(env.ACCESS_CLIENT_ID)) {
+        console.error(`id_token: audience mismatch (got ${payload.aud}, expected ${env.ACCESS_CLIENT_ID})`);
+        return null;
+      }
+    }
+
+    // Validate nonce (prevents replay attacks in OIDC flow)
+    if (expectedNonce) {
+      if (payload.nonce !== expectedNonce) {
+        console.error('id_token: nonce mismatch');
+        return null;
+      }
     }
 
     return payload;
@@ -392,27 +434,48 @@ async function verifyIdToken(
   }
 }
 
+/**
+ * Derive expected OIDC issuer from ACCESS_AUTHORIZATION_URL.
+ * Format: https://{team}.cloudflareaccess.com/cdn-cgi/access/sso/oidc/{client_id}/authorize
+ * Issuer: https://{team}.cloudflareaccess.com
+ */
+function getExpectedIssuer(env: Env): string | null {
+  try {
+    const url = new URL(env.ACCESS_AUTHORIZATION_URL);
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
 // =============================================================================
 // OAuth state management (KV-backed)
 // =============================================================================
 
+interface OAuthStateData {
+  oauthReqInfo: AuthRequest;
+  nonce: string;
+}
+
 async function createOAuthState(
   oauthReqInfo: AuthRequest,
   kv: KVNamespace,
-): Promise<string> {
+): Promise<{ stateToken: string; nonce: string }> {
   const stateToken = crypto.randomUUID();
+  const nonce = crypto.randomUUID();
+  const data: OAuthStateData = { oauthReqInfo, nonce };
   await kv.put(
     `${STATE_KEY_PREFIX}${stateToken}`,
-    JSON.stringify(oauthReqInfo),
+    JSON.stringify(data),
     { expirationTtl: STATE_TTL_SECONDS },
   );
-  return stateToken;
+  return { stateToken, nonce };
 }
 
 async function validateOAuthState(
   stateToken: string,
   kv: KVNamespace,
-): Promise<AuthRequest | null> {
+): Promise<OAuthStateData | null> {
   const key = `${STATE_KEY_PREFIX}${stateToken}`;
   const stored = await kv.get(key);
   if (!stored) return null;
@@ -421,7 +484,13 @@ async function validateOAuthState(
   await kv.delete(key);
 
   try {
-    return JSON.parse(stored) as AuthRequest;
+    const parsed = JSON.parse(stored);
+    // Handle both old format (AuthRequest directly) and new format ({ oauthReqInfo, nonce })
+    if (parsed.oauthReqInfo) {
+      return parsed as OAuthStateData;
+    }
+    // Legacy: stored was just AuthRequest
+    return { oauthReqInfo: parsed as AuthRequest, nonce: '' };
   } catch {
     return null;
   }
@@ -545,6 +614,7 @@ function redirectToAccess(
   request: Request,
   env: Env,
   stateToken: string,
+  nonce: string,
   extraHeaders: Record<string, string> = {},
 ): Response {
   const redirectUri = new URL('/callback', request.url).href;
@@ -554,6 +624,7 @@ function redirectToAccess(
     response_type: 'code',
     scope: 'openid email profile',
     state: stateToken,
+    nonce,
   });
 
   return new Response(null, {

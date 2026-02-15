@@ -141,10 +141,8 @@ def cloudflare_config_factory(db_session):
         vpc_service_id: str | None = "019c3973-f7c8-7ce0-8af8-00b132f54ff9",
         worker_name: str | None = "mcpbox-proxy",
         team_domain: str | None = "myteam.cloudflareaccess.com",
-        mcp_portal_aud: str | None = "abc123def456",
-        mcp_portal_hostname: str | None = None,
         has_service_token: bool = True,
-        completed_step: int = 7,
+        completed_step: int = 5,
         kv_namespace_id: str | None = None,
         access_policy_type: str | None = None,
         access_policy_emails: list[str] | None = None,
@@ -158,8 +156,6 @@ def cloudflare_config_factory(db_session):
             vpc_service_id=vpc_service_id,
             worker_name=worker_name,
             team_domain=team_domain,
-            mcp_portal_aud=mcp_portal_aud,
-            mcp_portal_hostname=mcp_portal_hostname,
             encrypted_service_token=encrypt_to_base64("svc-token") if has_service_token else None,
             completed_step=completed_step,
             kv_namespace_id=kv_namespace_id,
@@ -192,9 +188,6 @@ class TestGetWorkerDeployConfig:
         data = response.json()
         assert data["vpc_service_id"] == "019c3973-f7c8-7ce0-8af8-00b132f54ff9"
         assert data["worker_name"] == "mcpbox-proxy"
-        assert data["team_domain"] == "myteam.cloudflareaccess.com"
-        assert data["mcp_portal_aud"] == "abc123def456"
-        assert data["mcp_portal_hostname"] is None  # not set in factory by default
         assert data["has_service_token"] is True
         assert data["kv_namespace_id"] == "kv-test-123"
 
@@ -231,18 +224,6 @@ class TestGetWorkerDeployConfig:
         assert response.status_code == 200
         data = response.json()
         assert "error" in data
-
-    async def test_returns_mcp_portal_hostname_when_set(
-        self, async_client: AsyncClient, cloudflare_config_factory
-    ):
-        await cloudflare_config_factory(mcp_portal_hostname="mcp.example.com")
-
-        response = await async_client.get(
-            "/internal/worker-deploy-config", headers=INTERNAL_AUTH_HEADER
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["mcp_portal_hostname"] == "mcp.example.com"
 
     async def test_defaults_worker_name(self, async_client: AsyncClient, cloudflare_config_factory):
         await cloudflare_config_factory(worker_name=None)
@@ -324,57 +305,33 @@ class TestGetActiveServiceToken:
         assert response.status_code == 200
 
 
-class TestWorkerDeployConfigAccessPolicy:
-    """Tests for access policy fields in GET /internal/worker-deploy-config."""
+class TestWorkerDeployConfigOidc:
+    """Tests for OIDC credential fields in GET /internal/worker-deploy-config."""
 
-    async def test_returns_allowed_emails_when_configured(
+    async def test_returns_oidc_urls_when_credentials_configured(
         self, async_client: AsyncClient, cloudflare_config_factory
     ):
-        await cloudflare_config_factory(
-            access_policy_type="emails",
-            access_policy_emails=["user@example.com", "admin@example.com"],
-        )
+        """When OIDC credentials are set, endpoint returns OIDC endpoint URLs."""
+        config = await cloudflare_config_factory()
+        # Set OIDC credentials on the config
+        config.encrypted_access_client_id = encrypt_to_base64("test-client-id")
+        config.encrypted_access_client_secret = encrypt_to_base64("test-client-secret")
 
         response = await async_client.get(
             "/internal/worker-deploy-config", headers=INTERNAL_AUTH_HEADER
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["allowed_emails"] == "user@example.com,admin@example.com"
-        assert data["allowed_email_domain"] == ""
+        assert data["access_client_id"] == "test-client-id"
+        assert data["access_client_secret"] == "test-client-secret"
+        assert "token" in data["access_token_url"]
+        assert "authorize" in data["access_authorization_url"]
+        assert "certs" in data["access_jwks_url"]
 
-    async def test_returns_allowed_email_domain_when_configured(
+    async def test_returns_empty_oidc_when_not_configured(
         self, async_client: AsyncClient, cloudflare_config_factory
     ):
-        await cloudflare_config_factory(
-            access_policy_type="email_domain",
-            access_policy_email_domain="example.com",
-        )
-
-        response = await async_client.get(
-            "/internal/worker-deploy-config", headers=INTERNAL_AUTH_HEADER
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["allowed_emails"] == ""
-        assert data["allowed_email_domain"] == "example.com"
-
-    async def test_returns_empty_when_everyone_policy(
-        self, async_client: AsyncClient, cloudflare_config_factory
-    ):
-        await cloudflare_config_factory(access_policy_type="everyone")
-
-        response = await async_client.get(
-            "/internal/worker-deploy-config", headers=INTERNAL_AUTH_HEADER
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["allowed_emails"] == ""
-        assert data["allowed_email_domain"] == ""
-
-    async def test_returns_empty_when_no_policy_configured(
-        self, async_client: AsyncClient, cloudflare_config_factory
-    ):
+        """When no OIDC credentials, endpoint returns empty strings."""
         await cloudflare_config_factory()
 
         response = await async_client.get(
@@ -382,5 +339,8 @@ class TestWorkerDeployConfigAccessPolicy:
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["allowed_emails"] == ""
-        assert data["allowed_email_domain"] == ""
+        assert data["access_client_id"] == ""
+        assert data["access_client_secret"] == ""
+        assert data["access_token_url"] == ""
+        assert data["access_authorization_url"] == ""
+        assert data["access_jwks_url"] == ""
