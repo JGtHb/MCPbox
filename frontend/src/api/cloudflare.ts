@@ -118,13 +118,13 @@ export interface CreateMcpPortalResponse {
 
 export interface ConfigureJwtRequest {
   config_id: string
-  aud?: string
+  access_policy?: AccessPolicyConfig
 }
 
 export interface ConfigureJwtResponse {
   success: boolean
   team_domain: string
-  aud: string
+  worker_url: string
   worker_test_result: string
   message: string | null
 }

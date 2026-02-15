@@ -298,26 +298,33 @@ class CreateMcpPortalResponse(BaseModel):
 
 
 # =============================================================================
-# Step 7: Configure Worker JWT
+# Step 5: Configure Access (OIDC)
 # =============================================================================
 
 
 class ConfigureJwtRequest(BaseModel):
-    """Request to configure Worker JWT verification."""
+    """Request to configure Worker OIDC authentication.
+
+    Creates a SaaS OIDC Access Application (if not already created),
+    sets up the Access Policy, and syncs OIDC secrets to the Worker.
+    """
 
     config_id: UUID
-    aud: str | None = Field(
+    access_policy: AccessPolicyConfig | None = Field(
         default=None,
-        description="Application Audience Tag. If not provided, will attempt to fetch from API.",
+        description="Access policy configuration. Defaults to 'everyone' if not provided.",
     )
 
 
 class ConfigureJwtResponse(BaseModel):
-    """Response from Worker JWT configuration."""
+    """Response from Worker OIDC configuration."""
 
     success: bool
     team_domain: str
-    aud: str
+    worker_url: str = Field(
+        default="",
+        description="Worker URL — add this to Claude or any MCP client",
+    )
     worker_test_result: str = Field(
         description="Result of testing direct Worker access (should be 401)"
     )
@@ -336,7 +343,7 @@ class WizardStatusResponse(BaseModel):
 
     config_id: UUID | None = None
     status: str = Field(default="not_started", description="pending, active, error, not_started")
-    completed_step: int = Field(default=0, description="Last completed step (0-7)")
+    completed_step: int = Field(default=0, description="Last completed step (0-5)")
     error_message: str | None = None
 
     # Account info

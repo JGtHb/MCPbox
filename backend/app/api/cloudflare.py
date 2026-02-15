@@ -394,17 +394,16 @@ async def configure_worker_jwt(
     db: AsyncSession = Depends(get_db),
     service: CloudflareService = Depends(get_cloudflare_service),
 ) -> ConfigureJwtResponse:
-    """Configure Worker JWT verification.
+    """Configure Worker OIDC authentication (step 5).
 
-    Provides the values needed to set Worker secrets for JWT verification.
-    After setting secrets, direct Worker access (bypassing the MCP Portal)
-    will return 401 Unauthorized.
-
-    If the AUD cannot be fetched automatically, it can be provided manually
-    in the request.
+    Creates a SaaS OIDC Access Application (if not already created),
+    applies the Access Policy, and syncs OIDC secrets to the Worker.
+    After this step, the Worker URL can be used directly by MCP clients.
     """
     try:
-        result = await service.configure_worker_jwt(request.config_id, request.aud)
+        result = await service.configure_worker_jwt(
+            request.config_id, access_policy=request.access_policy
+        )
         await db.commit()
         return result
     except ValueError as e:
@@ -413,11 +412,11 @@ async def configure_worker_jwt(
             detail=str(e),
         ) from None
     except Exception:
-        logger.exception("Failed to configure Worker JWT")
+        logger.exception("Failed to configure Worker OIDC")
         await db.commit()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to configure Worker JWT. Check server logs for details.",
+            detail="Failed to configure Worker OIDC. Check server logs for details.",
         ) from None
 
 

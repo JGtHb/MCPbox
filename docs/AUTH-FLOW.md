@@ -210,19 +210,21 @@ Even with OIDC auth, some management tools are local-only:
 
 Secrets are pushed to the Worker at different wizard steps:
 
-| Secret | First set at | Re-synced at | Source |
-|--------|-------------|-------------|--------|
-| `MCPBOX_SERVICE_TOKEN` | Step 4 (deploy Worker) | Step 7 (sync secrets) | Generated in `deploy_worker()` |
-| `ACCESS_CLIENT_ID` | Step 7 (sync secrets) | — | From SaaS OIDC app (step 5) |
-| `ACCESS_CLIENT_SECRET` | Step 7 (sync secrets) | — | From SaaS OIDC app (step 5) |
-| `ACCESS_TOKEN_URL` | Step 7 (sync secrets) | — | Derived from team_domain + client_id |
-| `ACCESS_AUTHORIZATION_URL` | Step 7 (sync secrets) | — | Derived from team_domain + client_id |
-| `ACCESS_JWKS_URL` | Step 7 (sync secrets) | — | Derived from team_domain |
-| `COOKIE_ENCRYPTION_KEY` | Step 7 (sync secrets) | — | Generated (32-byte hex) |
+| Secret | First set at | Source |
+|--------|-------------|--------|
+| `MCPBOX_SERVICE_TOKEN` | Step 4 (deploy Worker), re-synced at step 5 | Generated in `deploy_worker()` |
+| `ACCESS_CLIENT_ID` | Step 5 (configure access) | From SaaS OIDC app (created in step 5) |
+| `ACCESS_CLIENT_SECRET` | Step 5 (configure access) | From SaaS OIDC app (created in step 5) |
+| `ACCESS_TOKEN_URL` | Step 5 (configure access) | Derived from team_domain + client_id |
+| `ACCESS_AUTHORIZATION_URL` | Step 5 (configure access) | Derived from team_domain + client_id |
+| `ACCESS_JWKS_URL` | Step 5 (configure access) | Derived from team_domain |
+| `COOKIE_ENCRYPTION_KEY` | Step 5 (configure access) | Generated (32-byte hex) |
 
-Step 7 runs automatically at the end of step 6 (`create_mcp_portal`) if all required values are available. The `_sync_worker_secrets` function pushes all secrets. The deploy script (`scripts/deploy-worker.sh --set-secrets`) can also push them for re-deployment after code changes.
+Step 5 creates the SaaS OIDC Access Application, stores the credentials, and syncs all secrets to the Worker in a single operation. The deploy script (`scripts/deploy-worker.sh --set-secrets`) can also push them for re-deployment after code changes.
 
-**Important:** After the wizard regenerates a service token (e.g., re-running setup), you must either re-run the wizard to step 7 or run `deploy-worker.sh --set-secrets` to sync the new token to the Worker.
+MCP clients (Claude Web, OpenAI, etc.) connect directly to the Worker URL — no MCP Server or Portal objects are needed.
+
+**Important:** After the wizard regenerates a service token (e.g., re-running setup), you must either re-run step 5 or run `deploy-worker.sh --set-secrets` to sync the new token to the Worker.
 
 ### OIDC Endpoint URLs
 

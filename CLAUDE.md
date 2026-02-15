@@ -31,7 +31,7 @@ This file provides context for AI assistants (like Claude) working on this codeb
 - **Tunnel Security Review** - Worker simplified (apiRoute: '/', eliminated Bug #108 workaround), /internal/* auth, fail-closed ServiceTokenCache, isolated DB network, OAuth redirect_uri validation, HMAC-based timingSafeEqual
 - **Pre-Production Security Review** - Two review cycles completed, all findings fixed
 - **Sandbox Hardening** - `validate_code_safety()` on all execution paths, consolidated builtins, SSRF redirect prevention
-- **Cloudflare Setup Wizard** - Automated 7-step wizard at `/tunnel/setup` for configuring remote access (tunnel, VPC, Worker, MCP Portal)
+- **Cloudflare Setup Wizard** - Automated 5-step wizard at `/tunnel/setup` for configuring remote access (tunnel, VPC, Worker, OIDC). MCP clients connect directly to the Worker URL.
 - **Hybrid Architecture** - Local-first with optional Cloudflare Worker for remote access
 - **OAuth 2.1 Worker Protection** - Worker wrapped with `@cloudflare/workers-oauth-provider`, all /mcp requests require valid OAuth token
 - **Service Token Defense-in-Depth** - Service token between Worker and MCPbox gateway (in addition to OAuth)

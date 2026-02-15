@@ -1860,14 +1860,19 @@ compatibility_flags = ["nodejs_compat"]
                 raise CloudflareAPIError(f"Failed to set secrets: {'; '.join(secrets_failed)}")
 
     async def configure_worker_jwt(
-        self, config_id: UUID, aud: str | None = None
+        self,
+        config_id: UUID,
+        access_policy: AccessPolicyConfig | None = None,
     ) -> ConfigureJwtResponse:
-        """Configure Worker OIDC secrets using wrangler CLI.
+        """Configure Worker OIDC authentication (step 5).
 
-        With Access for SaaS, this syncs the OIDC credentials (client_id,
-        client_secret, token_url, authorization_url, jwks_url) and service
-        token to the Worker. The aud parameter is unused but kept for API
-        compatibility.
+        Creates a SaaS OIDC Access Application in Cloudflare (if not already
+        created), applies the Access Policy, and syncs OIDC secrets to the
+        Worker. After this step, the Worker URL can be used directly by MCP
+        clients like Claude Web or OpenAI.
+
+        This combines what was previously steps 5 (MCP Server), 6 (Portal),
+        and 7 (JWT Config) into a single step.
         """
         config = await self.get_config_by_id(config_id)
         if not config:
@@ -1876,25 +1881,81 @@ compatibility_flags = ["nodejs_compat"]
         if not config.worker_name:
             raise ValueError("Worker must be deployed first")
 
+        if not config.worker_url:
+            raise ValueError("Worker URL not available")
+
+        if not config.team_domain:
+            raise ValueError("Team domain not available")
+
         api_token = await self._get_decrypted_token(config)
         if not api_token:
             raise ValueError("API token not available")
 
-        # Validate we have OIDC credentials from step 5
-        oidc_creds = self._get_oidc_credentials(config)
-        if not oidc_creds:
-            raise ValueError(
-                "OIDC credentials not found. Ensure step 5 (Create MCP Server) "
-                "created the SaaS OIDC application successfully."
-            )
-
         try:
-            # Decrypt service token from DB to re-sync with Worker
+            # Step A: Create SaaS OIDC Access Application (if not already created)
+            oidc_creds = self._get_oidc_credentials(config)
+            if not oidc_creds:
+                logger.info("Creating SaaS OIDC Access Application...")
+                callback_url = config.worker_url
+                if not callback_url.startswith("https://"):
+                    callback_url = f"https://{callback_url}"
+                callback_url = f"{callback_url}/callback"
+
+                saas_app_data = await self._cf_request(
+                    "POST",
+                    f"/accounts/{config.account_id}/access/apps",
+                    api_token,
+                    json={
+                        "name": f"{config.worker_name} OIDC",
+                        "type": "saas",
+                        "saas_app": {
+                            "auth_type": "oidc",
+                            "redirect_uris": [callback_url],
+                            "scopes": ["openid", "email", "profile"],
+                            "grant_types": ["authorization_code"],
+                        },
+                    },
+                )
+                saas_app = saas_app_data.get("result", {})
+                saas_app_id = saas_app.get("id", "")
+                config.access_app_id = saas_app_id
+                logger.info(f"Created SaaS OIDC Access Application: {saas_app_id}")
+
+                # Extract OIDC client credentials
+                saas_cfg = saas_app.get("saas_app", {})
+                oidc_client_id = saas_cfg.get("client_id", "")
+                oidc_client_secret = saas_cfg.get("client_secret", "")
+
+                if oidc_client_id and oidc_client_secret:
+                    config.encrypted_access_client_id = encrypt_to_base64(oidc_client_id)
+                    config.encrypted_access_client_secret = encrypt_to_base64(oidc_client_secret)
+                    logger.info("Stored OIDC client credentials (encrypted)")
+                else:
+                    raise CloudflareAPIError(
+                        "SaaS OIDC app created but missing client_id/client_secret in response"
+                    )
+
+                # Create Access Policy on the SaaS app
+                await self._create_access_policy(
+                    api_token, config.account_id, saas_app_id, access_policy
+                )
+
+                # Persist access policy to database
+                if access_policy:
+                    self._save_access_policy_to_config(config, access_policy)
+
+                # Re-fetch OIDC credentials now that they're stored
+                oidc_creds = self._get_oidc_credentials(config)
+                if not oidc_creds:
+                    raise CloudflareAPIError(
+                        "Failed to build OIDC credentials after creating SaaS app"
+                    )
+
+            # Step B: Sync all Worker secrets
             svc_token = None
             if config.encrypted_service_token:
                 svc_token = decrypt_from_base64(config.encrypted_service_token)
 
-            # Sync all Worker secrets (OIDC credentials + service token)
             await self._sync_worker_secrets(
                 api_token,
                 config.account_id,
@@ -1903,31 +1964,30 @@ compatibility_flags = ["nodejs_compat"]
                 **oidc_creds,
             )
 
-            # Wait a moment for secrets to propagate, then test direct Worker access
+            # Step C: Test Worker access
             import asyncio
 
             await asyncio.sleep(2)
 
             worker_test_result = "Not tested"
-            if config.worker_url:
-                try:
-                    async with httpx.AsyncClient() as client:
-                        response = await client.post(
-                            f"{config.worker_url}/mcp",
-                            json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
-                            timeout=10.0,
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(
+                        f"{config.worker_url}/mcp",
+                        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+                        timeout=10.0,
+                    )
+                    if response.status_code == 401:
+                        worker_test_result = "401 Unauthorized (expected - OAuth required)"
+                    else:
+                        worker_test_result = (
+                            f"{response.status_code} (secrets may need more time to propagate)"
                         )
-                        if response.status_code == 401:
-                            worker_test_result = "401 Unauthorized (expected - OAuth required)"
-                        else:
-                            worker_test_result = (
-                                f"{response.status_code} (secrets may need more time to propagate)"
-                            )
-                except Exception as e:
-                    worker_test_result = f"Connection test failed: {e}"
+            except Exception as e:
+                worker_test_result = f"Connection test failed: {e}"
 
             # Update config
-            config.completed_step = 7
+            config.completed_step = 5
             config.status = "active"
             config.error_message = None
 
@@ -1936,9 +1996,12 @@ compatibility_flags = ["nodejs_compat"]
             return ConfigureJwtResponse(
                 success=True,
                 team_domain=config.team_domain or "",
-                aud="saas-oidc",
+                worker_url=config.worker_url or "",
                 worker_test_result=worker_test_result,
-                message="OIDC secrets set successfully: ACCESS_CLIENT_ID, ACCESS_CLIENT_SECRET, etc.",
+                message=(
+                    "OIDC configured. Add this URL to Claude or any MCP client: "
+                    f"{config.worker_url}/mcp"
+                ),
             )
 
         except CloudflareAPIError as e:
