@@ -202,122 +202,33 @@ class DeployWorkerResponse(BaseModel):
 
 
 # =============================================================================
-# Step 5: Create MCP Server
-# =============================================================================
-
-
-class CreateMcpServerRequest(BaseModel):
-    """Request to create an MCP Server."""
-
-    config_id: UUID
-    server_id: str = Field(
-        default="mcpbox",
-        min_length=1,
-        max_length=63,
-        description="MCP Server ID",
-    )
-    server_name: str = Field(
-        default="MCPbox",
-        min_length=1,
-        max_length=63,
-        description="MCP Server display name",
-    )
-    force: bool = Field(default=False, description="If true, overwrite existing resources")
-
-    @field_validator("server_id")
-    @classmethod
-    def validate_server_id(cls, v: str) -> str:
-        return _validate_resource_name(v)
-
-    access_policy: AccessPolicyConfig | None = Field(
-        default=None,
-        description="Access policy configuration. Defaults to 'everyone' if not provided.",
-    )
-
-
-class CreateMcpServerResponse(BaseModel):
-    """Response from MCP Server creation."""
-
-    success: bool
-    mcp_server_id: str
-    tools_synced: int = Field(
-        default=0,
-        description="Number of tools discovered during sync",
-    )
-    message: str | None = None
-
-
-# =============================================================================
-# Step 6: Create MCP Portal
-# =============================================================================
-
-
-class CreateMcpPortalRequest(BaseModel):
-    """Request to create an MCP Portal."""
-
-    config_id: UUID
-    portal_id: str = Field(
-        default="mcpbox-portal",
-        min_length=1,
-        max_length=63,
-        description="MCP Portal ID",
-    )
-    portal_name: str = Field(
-        default="MCPbox Portal",
-        min_length=1,
-        max_length=63,
-        description="MCP Portal display name",
-    )
-    force: bool = Field(default=False, description="If true, overwrite existing resources")
-
-    @field_validator("portal_id")
-    @classmethod
-    def validate_portal_id(cls, v: str) -> str:
-        return _validate_resource_name(v)
-
-    hostname: str = Field(
-        ...,
-        min_length=1,
-        description="Portal hostname (e.g., 'mcp.yourdomain.com' or just 'yourdomain.com')",
-    )
-    access_policy: AccessPolicyConfig | None = Field(
-        default=None,
-        description="Access policy configuration. Defaults to 'everyone' if not provided.",
-    )
-
-
-class CreateMcpPortalResponse(BaseModel):
-    """Response from MCP Portal creation."""
-
-    success: bool
-    mcp_portal_id: str
-    mcp_portal_hostname: str
-    portal_url: str = Field(description="Full portal URL for Claude Web")
-    mcp_portal_aud: str = Field(description="Application Audience Tag for JWT verification")
-    message: str | None = None
-
-
-# =============================================================================
-# Step 7: Configure Worker JWT
+# Step 5: Configure Access (OIDC)
 # =============================================================================
 
 
 class ConfigureJwtRequest(BaseModel):
-    """Request to configure Worker JWT verification."""
+    """Request to configure Worker OIDC authentication.
+
+    Creates a SaaS OIDC Access Application (if not already created),
+    sets up the Access Policy, and syncs OIDC secrets to the Worker.
+    """
 
     config_id: UUID
-    aud: str | None = Field(
+    access_policy: AccessPolicyConfig | None = Field(
         default=None,
-        description="Application Audience Tag. If not provided, will attempt to fetch from API.",
+        description="Access policy configuration. Defaults to 'everyone' if not provided.",
     )
 
 
 class ConfigureJwtResponse(BaseModel):
-    """Response from Worker JWT configuration."""
+    """Response from Worker OIDC configuration."""
 
     success: bool
     team_domain: str
-    aud: str
+    worker_url: str = Field(
+        default="",
+        description="Worker URL — add this to Claude or any MCP client",
+    )
     worker_test_result: str = Field(
         description="Result of testing direct Worker access (should be 401)"
     )
@@ -336,7 +247,7 @@ class WizardStatusResponse(BaseModel):
 
     config_id: UUID | None = None
     status: str = Field(default="not_started", description="pending, active, error, not_started")
-    completed_step: int = Field(default=0, description="Last completed step (0-7)")
+    completed_step: int = Field(default=0, description="Last completed step (0-5)")
     error_message: str | None = None
 
     # Account info
@@ -357,14 +268,6 @@ class WizardStatusResponse(BaseModel):
     worker_name: str | None = None
     worker_url: str | None = None
 
-    # MCP Server info
-    mcp_server_id: str | None = None
-
-    # MCP Portal info
-    mcp_portal_id: str | None = None
-    mcp_portal_hostname: str | None = None
-    mcp_portal_aud: str | None = None
-
     # Access policy
     access_policy_type: str | None = None
     access_policy_emails: list[str] | None = None
@@ -376,7 +279,7 @@ class WizardStatusResponse(BaseModel):
 
 
 class UpdateAccessPolicyRequest(BaseModel):
-    """Request to update the access policy for both Cloudflare Access and Worker."""
+    """Request to update the access policy on the Cloudflare Access SaaS application."""
 
     config_id: UUID
     access_policy: AccessPolicyConfig = Field(
@@ -394,8 +297,8 @@ class UpdateAccessPolicyResponse(BaseModel):
         description="Whether the Cloudflare Access Policy was updated",
     )
     worker_synced: bool = Field(
-        default=False,
-        description="Whether the Worker ALLOWED_EMAILS secret was updated",
+        default=True,
+        description="With Access for SaaS, policy is enforced at OIDC layer (no Worker sync needed)",
     )
     message: str | None = None
 

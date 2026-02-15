@@ -4,9 +4,11 @@ MCPbox hybrid architecture:
 - Local mode: No authentication needed (admin panel is local-only)
 - Remote mode: Cloudflare Worker proxy adds X-MCPbox-Service-Token header
 
-The service token is loaded from the database (CloudflareConfig) at startup
-and cached in memory by ServiceTokenCache. JWT verification params (team_domain,
-portal_aud) are also cached for server-side Cf-Access-Jwt-Assertion validation.
+With Access for SaaS (OIDC upstream), all remote users are authenticated
+via OIDC at the Worker. User identity (email) comes from the Worker-supplied
+X-MCPbox-User-Email header, which is set from OIDC-verified OAuth token props.
+No server-side JWT verification is needed — the Worker handles that at
+authorization time via the OIDC id_token from Cloudflare Access.
 """
 
 import logging
@@ -15,22 +17,12 @@ import time
 from collections import defaultdict
 from typing import Annotated
 
-import httpx
-import jwt as pyjwt
 from fastapi import Header, HTTPException, Request, status
-from jwt.exceptions import PyJWTError
 from pydantic import BaseModel
 
 from app.services.service_token_cache import ServiceTokenCache
 
 logger = logging.getLogger(__name__)
-
-# JWKS cache (in-memory, refreshed every 5 minutes)
-_jwks_cache: dict | None = None
-_jwks_cache_time: float = 0.0
-_JWKS_CACHE_TTL = 300  # 5 minutes
-# Maximum age for stale JWKS cache before rejecting (15 minutes)
-_JWKS_MAX_STALE_AGE = 900
 
 # Rate limiting for failed service token attempts
 _failed_auth_attempts: dict[str, list[float]] = defaultdict(list)
@@ -57,86 +49,17 @@ def _record_auth_failure(client_ip: str) -> None:
     _failed_auth_attempts[client_ip].append(time.monotonic())
 
 
-async def _get_jwks(team_domain: str) -> dict | None:
-    """Fetch JWKS from Cloudflare Access with caching."""
-    global _jwks_cache, _jwks_cache_time
-
-    now = time.monotonic()
-    if _jwks_cache and (now - _jwks_cache_time) < _JWKS_CACHE_TTL:
-        return _jwks_cache
-
-    url = f"https://{team_domain}/cdn-cgi/access/certs"
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(url)
-            if resp.status_code == 200:
-                _jwks_cache = resp.json()
-                _jwks_cache_time = now
-                return _jwks_cache
-            else:
-                logger.warning(f"JWKS fetch failed: {resp.status_code}")
-                # Return stale cache if within max age, otherwise reject
-                if _jwks_cache and (now - _jwks_cache_time) < _JWKS_MAX_STALE_AGE:
-                    return _jwks_cache
-                logger.warning("JWKS stale cache exceeded max age, rejecting")
-                return None
-    except Exception as e:
-        logger.warning(f"JWKS fetch error: {e}")
-        # Return stale cache if within max age, otherwise reject
-        if _jwks_cache and (now - _jwks_cache_time) < _JWKS_MAX_STALE_AGE:
-            return _jwks_cache
-        logger.warning("JWKS stale cache exceeded max age, rejecting")
-        return None
-
-
-async def _verify_cf_access_jwt(jwt_token: str, team_domain: str, expected_aud: str) -> dict | None:
-    """Verify a Cloudflare Access JWT and return the payload, or None if invalid."""
-    jwks = await _get_jwks(team_domain)
-    if not jwks or "keys" not in jwks:
-        logger.warning("No JWKS keys available for JWT verification")
-        return None
-
-    try:
-        # Get the signing key from JWKS using the JWT header's kid
-        header = pyjwt.get_unverified_header(jwt_token)
-        jwk_set = pyjwt.PyJWKSet.from_dict(jwks)  # type: ignore[attr-defined]
-
-        signing_key = None
-        for key in jwk_set.keys:
-            if key.key_id == header.get("kid"):
-                signing_key = key.key
-                break
-
-        if signing_key is None:
-            logger.warning("No matching key found in JWKS for kid=%s", header.get("kid"))
-            return None
-
-        payload = pyjwt.decode(
-            jwt_token,
-            signing_key,
-            algorithms=["RS256"],
-            audience=expected_aud,
-            issuer=f"https://{team_domain}",
-            leeway=60,  # 60s clock skew tolerance
-        )
-        return payload
-    except PyJWTError as e:
-        logger.warning(f"JWT verification failed: {e}")
-        return None
-
-
 class AuthenticatedUser(BaseModel):
     """User context from authentication."""
 
-    email: str | None = None  # Optional - extracted from verified CF JWT
+    email: str | None = None  # From OIDC (all OIDC-authenticated remote users have this)
     source: str  # "local" or "worker"
-    auth_method: str | None = None  # "jwt", "oauth", or None (local)
+    auth_method: str | None = None  # "oidc" or None (local)
 
 
 async def verify_mcp_auth(
     request: Request,
     x_mcpbox_service_token: Annotated[str | None, Header()] = None,
-    cf_access_jwt_assertion: Annotated[str | None, Header()] = None,
 ) -> AuthenticatedUser:
     """Verify MCP gateway authentication.
 
@@ -144,15 +67,15 @@ async def verify_mcp_auth(
     1. Service token from Worker proxy (X-MCPbox-Service-Token header)
     2. No auth required if no service token in database (local-only mode)
 
-    When a service token is present, the auth_method is determined by
-    server-side JWT verification of the Cf-Access-Jwt-Assertion header
-    (NOT by trusting any Worker-supplied header).
+    With Access for SaaS, user identity comes from the Worker-supplied
+    X-MCPbox-User-Email header. The Worker verified the user's identity
+    via OIDC id_token from Cloudflare Access at authorization time and
+    stored it in encrypted OAuth token props.
     """
     cache = ServiceTokenCache.get_instance()
     client_ip = request.client.host if request.client else "unknown"
 
     # If service token is configured, require it
-    # Uses TTL-aware check so token changes are picked up without restart
     if await cache.is_auth_enabled():
         # Check rate limit before attempting auth
         _check_auth_rate_limit(client_ip)
@@ -178,34 +101,18 @@ async def verify_mcp_auth(
                 detail="Authentication failed",
             )
 
-        # Valid service token — now determine auth_method by verifying JWT
-        # server-side instead of trusting the Worker's X-MCPbox-Auth-Method header.
-        auth_method: str = "oauth"  # default: OAuth-only (no JWT)
+        # Valid service token — extract user email from Worker-supplied header.
+        # The Worker verified identity via OIDC at authorization time.
         email: str | None = None
-
-        team_domain = await cache.get_team_domain()
-        portal_aud = await cache.get_portal_aud()
-
-        if cf_access_jwt_assertion and team_domain and portal_aud:
-            payload = await _verify_cf_access_jwt(cf_access_jwt_assertion, team_domain, portal_aud)
-            if payload:
-                auth_method = "jwt"
-                email = payload.get("email") if isinstance(payload.get("email"), str) else None
-                logger.info("MCP gateway JWT verified for %s", email)
-
-        # Fall back to Worker-supplied email (from OAuth token props).
-        # Service token proves this came from our trusted Worker, which
-        # verified the JWT at authorization time.
-        if not email:
-            forwarded_email = request.headers.get("X-MCPbox-User-Email")
-            if forwarded_email:
-                email = forwarded_email
-                logger.info("MCP gateway using OAuth-props email: %s", email)
+        forwarded_email = request.headers.get("X-MCPbox-User-Email")
+        if forwarded_email:
+            email = forwarded_email
+            logger.info("MCP gateway: OIDC-verified email from Worker: %s", email)
 
         return AuthenticatedUser(
             email=email,
             source="worker",
-            auth_method=auth_method,
+            auth_method="oidc",
         )
 
     # No service token configured - local-only mode, allow all

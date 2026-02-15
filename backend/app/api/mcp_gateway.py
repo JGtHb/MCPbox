@@ -169,23 +169,20 @@ async def mcp_gateway(
         )
 
         # SECURITY: Remote requests without a verified user identity are
-        # restricted to read-only/sync methods (initialize, tools/list,
-        # notifications). Tool execution (tools/call) requires a verified
-        # user email — either from server-side JWT verification or from
-        # OAuth token props (email embedded at authorization time when
-        # the user authenticated via the MCP Portal).
+        # restricted to protocol-level methods only (initialize, notifications).
+        # Both tools/list and tools/call require a verified user email from
+        # OIDC authentication at the Worker.
         #
-        # This ensures that:
-        # - MCP Portal users (email in OAuth props) can execute tools
-        # - Cloudflare sync (no email) can discover tools but not execute
-        # - Direct Worker access without Portal auth cannot execute tools
-        # - Local requests (source="local") are always allowed
+        # With Access for SaaS (OIDC upstream), all human users authenticate
+        # via OIDC and have a verified email in X-MCPbox-User-Email.
+        # Tool names/descriptions are treated as sensitive for personal
+        # toolsets — no anonymous enumeration is permitted.
         _is_anonymous_remote = _user.source == "worker" and not _user.email
 
         # Handle different MCP methods
         if method == "initialize":
             # MCP initialization handshake - required for Streamable HTTP transport.
-            # Allowed without JWT (needed for Cloudflare sync).
+            # Allowed without user email (needed for Cloudflare sync).
             response_result = {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {
@@ -199,7 +196,7 @@ async def mcp_gateway(
 
         elif method.startswith("notifications/"):
             # Notifications are one-way messages - no response expected.
-            # Allowed without JWT (needed for Cloudflare sync).
+            # Allowed without user email (needed for Cloudflare sync).
             # MCP Streamable HTTP transport spec requires 202 Accepted
             # for notifications (not 204 No Content).
             duration_ms = int((time.time() - start_time) * 1000)
@@ -213,16 +210,36 @@ async def mcp_gateway(
             return Response(status_code=202)
 
         elif method == "tools/list":
-            # List available tools - allowed without JWT (needed for Cloudflare sync).
+            # SECURITY: With Access for SaaS (OIDC), all human users have
+            # a verified email. Tool names/descriptions are sensitive for
+            # personal toolsets — don't expose them without verified identity.
+            if _is_anonymous_remote:
+                logger.warning(
+                    "Blocked anonymous remote tools/list from %s",
+                    _user.source,
+                )
+                response_error = {
+                    "code": -32600,
+                    "message": "Tool listing requires user authentication",
+                }
+                duration_ms = int((time.time() - start_time) * 1000)
+                await activity_logger.log_mcp_response(
+                    request_id=request_id,
+                    success=False,
+                    duration_ms=duration_ms,
+                    method=method,
+                    error=str(response_error),
+                )
+                return MCPResponse(id=request.id, error=response_error)
+
             response_result = await _handle_tools_list(sandbox_client, db)
 
         elif method == "tools/call":
             # Tool execution requires a verified user identity for remote
-            # requests. The email comes from either server-side JWT
-            # verification or OAuth token props (set when the user
-            # authenticated via the MCP Portal). Anonymous remote
-            # requests (Cloudflare sync, direct Worker access without
-            # Portal) are blocked from executing tools.
+            # requests. The email comes from X-MCPbox-User-Email header
+            # set by the Worker from OIDC-verified OAuth token props.
+            # Anonymous remote requests (Cloudflare sync) are blocked
+            # from executing tools.
             if _is_anonymous_remote:
                 logger.warning(
                     "Blocked anonymous remote tools/call from %s",

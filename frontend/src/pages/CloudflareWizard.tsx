@@ -10,15 +10,12 @@ import {
   useCreateTunnel,
   useCreateVpcService,
   useDeployWorker,
-  useCreateMcpServer,
-  useCreateMcpPortal,
   useConfigureWorkerJwt,
   useTeardown,
   cloudflareKeys,
+  AccessPolicyType,
   getZones,
   Zone,
-  AccessPolicyConfig,
-  AccessPolicyType,
 } from '../api/cloudflare'
 
 // Step status indicator
@@ -71,10 +68,8 @@ function ProgressStepper({
     { step: 2, label: 'Tunnel' },
     { step: 3, label: 'VPC Service' },
     { step: 4, label: 'Worker' },
-    { step: 5, label: 'MCP Server' },
-    { step: 6, label: 'MCP Portal' },
-    { step: 7, label: 'JWT Config' },
-    { step: 8, label: 'Authenticate' },
+    { step: 5, label: 'Access' },
+    { step: 6, label: 'Connect' },
   ]
 
   return (
@@ -251,15 +246,7 @@ export function CloudflareWizard() {
   const [tunnelName, setTunnelName] = useState('mcpbox-tunnel')
   const [vpcServiceName, setVpcServiceName] = useState('mcpbox-service')
   const [workerName, setWorkerName] = useState('mcpbox-proxy')
-  const [mcpServerId, setMcpServerId] = useState('mcpbox')
-  const [mcpServerName, setMcpServerName] = useState('MCPbox')
-  const [mcpPortalId, setMcpPortalId] = useState('mcpbox-portal')
-  const [mcpPortalName, setMcpPortalName] = useState('MCPbox Portal')
-  const [portalSubdomain, setPortalSubdomain] = useState('mcp')
-  const [selectedZone, setSelectedZone] = useState('')
-  const [zones, setZones] = useState<Zone[]>([])
   const [configId, setConfigId] = useState<string | null>(null)
-  const [manualAud, setManualAud] = useState('')
 
   // Access policy state
   const [policyType, setPolicyType] = useState<AccessPolicyType>('everyone')
@@ -269,8 +256,9 @@ export function CloudflareWizard() {
 
   // Step results
   const [workerUrl, setWorkerUrl] = useState<string | null>(null)
-  const [portalUrl, setPortalUrl] = useState<string | null>(null)
   const [tokenError, setTokenError] = useState<string | null>(null)
+  const [_zones, setZones] = useState<Zone[]>([])
+  const [selectedZone, setSelectedZone] = useState<string | null>(null)
 
   // Mutations
   const startWithApiTokenMutation = useStartWithApiToken()
@@ -278,8 +266,6 @@ export function CloudflareWizard() {
   const createTunnelMutation = useCreateTunnel()
   const createVpcServiceMutation = useCreateVpcService()
   const deployWorkerMutation = useDeployWorker()
-  const createMcpServerMutation = useCreateMcpServer()
-  const createMcpPortalMutation = useCreateMcpPortal()
   const configureJwtMutation = useConfigureWorkerJwt()
   const teardownMutation = useTeardown()
 
@@ -287,47 +273,13 @@ export function CloudflareWizard() {
   useEffect(() => {
     if (status && status.config_id) {
       setConfigId(status.config_id)
-      setCurrentStep(Math.min(status.completed_step + 1, 8))
+      setCurrentStep(Math.min(status.completed_step + 1, 6))
       if (status.tunnel_name) setTunnelName(status.tunnel_name)
       if (status.vpc_service_name) setVpcServiceName(status.vpc_service_name)
       if (status.worker_name) setWorkerName(status.worker_name)
       if (status.worker_url) setWorkerUrl(status.worker_url)
-      if (status.mcp_server_id) setMcpServerId(status.mcp_server_id)
-      if (status.mcp_portal_id) setMcpPortalId(status.mcp_portal_id)
-      if (status.mcp_portal_hostname) {
-        setPortalUrl(`https://${status.mcp_portal_hostname}/mcp`)
-      }
-      // Fetch zones if we don't have them yet
-      if (zones.length === 0) {
-        getZones(status.config_id).then((fetchedZones) => {
-          if (fetchedZones.length > 0) {
-            setZones(fetchedZones)
-            if (!selectedZone) {
-              setSelectedZone(fetchedZones[0].name)
-            }
-          }
-        }).catch(() => {
-          // Ignore errors - zones will be empty
-        })
-      }
     }
-  }, [status, zones.length, selectedZone])
-
-  // Fetch zones when reaching step 6 if we don't have them
-  useEffect(() => {
-    if (currentStep === 6 && zones.length === 0 && configId) {
-      getZones(configId).then((fetchedZones) => {
-        if (fetchedZones.length > 0) {
-          setZones(fetchedZones)
-          if (!selectedZone) {
-            setSelectedZone(fetchedZones[0].name)
-          }
-        }
-      }).catch(() => {
-        // Ignore errors
-      })
-    }
-  }, [currentStep, zones.length, configId, selectedZone])
+  }, [status])
 
   const completedStep = status?.completed_step || 0
 
@@ -434,17 +386,6 @@ export function CloudflareWizard() {
     }
   }
 
-  const buildAccessPolicy = (): AccessPolicyConfig | undefined => {
-    if (policyType === 'everyone') return undefined
-    if (policyType === 'emails' && policyEmails.length > 0) {
-      return { policy_type: 'emails', emails: policyEmails, email_domain: null }
-    }
-    if (policyType === 'email_domain' && policyEmailDomain) {
-      return { policy_type: 'email_domain', emails: [], email_domain: policyEmailDomain }
-    }
-    return undefined
-  }
-
   const handleAddPolicyEmail = () => {
     const email = policyEmailInput.trim()
     if (email && email.includes('@') && !policyEmails.includes(email)) {
@@ -457,59 +398,25 @@ export function CloudflareWizard() {
     setPolicyEmails(policyEmails.filter((e) => e !== email))
   }
 
-  const handleCreateMcpServer = async () => {
+  const handleConfigureAccess = async () => {
     if (!configId) return
     try {
-      const result = await createMcpServerMutation.mutateAsync({
+      // Build access policy from form state
+      const accessPolicy =
+        policyType === 'emails' && policyEmails.length > 0
+          ? { policy_type: 'emails' as const, emails: policyEmails, email_domain: null }
+          : policyType === 'email_domain' && policyEmailDomain
+            ? { policy_type: 'email_domain' as const, emails: [], email_domain: policyEmailDomain }
+            : undefined
+      const result = await configureJwtMutation.mutateAsync({
         config_id: configId,
-        server_id: mcpServerId,
-        server_name: mcpServerName,
-        access_policy: buildAccessPolicy(),
+        access_policy: accessPolicy,
       })
-      if (result.success) {
-        await queryClient.refetchQueries({ queryKey: cloudflareKeys.status() })
-        setCurrentStep(6)
+      if (result.success && result.worker_url) {
+        setWorkerUrl(result.worker_url)
       }
-    } catch {
-      // Error handled by mutation
-    }
-  }
-
-  const handleCreateMcpPortal = async () => {
-    if (!configId) return
-    try {
-      // Combine subdomain with zone to create full hostname
-      const hostname = portalSubdomain ? `${portalSubdomain}.${selectedZone}` : selectedZone
-      const result = await createMcpPortalMutation.mutateAsync({
-        config_id: configId,
-        portal_id: mcpPortalId,
-        portal_name: mcpPortalName,
-        hostname,
-        access_policy: buildAccessPolicy(),
-      })
-      if (result.success) {
-        setPortalUrl(result.portal_url)
-        await queryClient.refetchQueries({ queryKey: cloudflareKeys.status() })
-        // JWT is auto-configured after portal creation.
-        // If the message indicates completion, the status will show completed_step = 7.
-        // We still move to step 7 so the user sees the completion state.
-        setCurrentStep(7)
-      }
-    } catch {
-      // Error handled by mutation
-    }
-  }
-
-  const handleConfigureJwt = async () => {
-    if (!configId) return
-    try {
-      // Pass manual AUD if provided and status doesn't have one
-      const audToUse = status?.mcp_portal_aud || manualAud || undefined
-      await configureJwtMutation.mutateAsync({
-        config_id: configId,
-        aud: audToUse,
-      })
       await queryClient.refetchQueries({ queryKey: cloudflareKeys.status() })
+      setCurrentStep(6)
     } catch {
       // Error handled by mutation
     }
@@ -843,40 +750,23 @@ export function CloudflareWizard() {
           )}
         </StepCard>
 
-        {/* Step 5: Create MCP Server */}
+        {/* Step 5: Configure Access (OIDC) */}
         <StepCard
           step={5}
-          title="Create MCP Server"
-          description="Create an MCP Server in Cloudflare pointing to your Worker."
+          title="Configure Access"
+          description="Create OIDC authentication and set access policy."
           isActive={currentStep === 5}
           isComplete={completedStep >= 5}
           onEdit={() => setCurrentStep(5)}
         >
           {currentStep === 5 && (
             <div className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Server ID
-                  </label>
-                  <input
-                    type="text"
-                    value={mcpServerId}
-                    onChange={(e) => setMcpServerId(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Display Name
-                  </label>
-                  <input
-                    type="text"
-                    value={mcpServerName}
-                    onChange={(e) => setMcpServerName(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  />
-                </div>
+              <div className="p-4 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <p className="text-sm text-blue-700 dark:text-blue-300">
+                  This creates a Cloudflare Access for SaaS (OIDC) application and syncs
+                  the credentials to your Worker. Users authenticate via Cloudflare Access
+                  when connecting from Claude or any MCP client.
+                </p>
               </div>
 
               {/* Access Policy Configuration */}
@@ -886,7 +776,7 @@ export function CloudflareWizard() {
                     Access Policy
                   </h4>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Choose who can access your MCP tools. This policy applies to both the MCP Server and Portal.
+                    Choose who can access your MCP tools remotely.
                   </p>
                 </div>
 
@@ -1011,349 +901,79 @@ export function CloudflareWizard() {
                 </p>
               </div>
 
-              {createMcpServerMutation.error &&
-                (createMcpServerMutation.error instanceof ApiError &&
-                createMcpServerMutation.error.isConflict ? (
-                  <ConflictWarning
-                    error={createMcpServerMutation.error}
-                    isPending={createMcpServerMutation.isPending}
-                    onConfirm={() =>
-                      createMcpServerMutation.mutate(
-                        {
-                          config_id: configId!,
-                          server_id: mcpServerId,
-                          server_name: mcpServerName,
-                          access_policy: buildAccessPolicy(),
-                          force: true,
-                        },
-                        {
-                          onSuccess: async (result) => {
-                            if (result.success) {
-                              await queryClient.refetchQueries({
-                                queryKey: cloudflareKeys.status(),
-                              })
-                              setCurrentStep(6)
-                            }
-                          },
-                        }
-                      )
-                    }
-                    onCancel={() => createMcpServerMutation.reset()}
-                  />
-                ) : (
-                  <ErrorDisplay
-                    error={
-                      createMcpServerMutation.error instanceof Error
-                        ? createMcpServerMutation.error.message
-                        : 'Failed to create MCP Server'
-                    }
-                  />
-                ))}
-
-              <button
-                onClick={handleCreateMcpServer}
-                disabled={
-                  !mcpServerId ||
-                  !mcpServerName ||
-                  createMcpServerMutation.isPending ||
-                  (policyType === 'emails' && policyEmails.length === 0) ||
-                  (policyType === 'email_domain' && !policyEmailDomain)
-                }
-                className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {createMcpServerMutation.isPending ? 'Creating...' : 'Create MCP Server'}
-              </button>
-            </div>
-          )}
-          {completedStep >= 5 && currentStep !== 5 && (
-            <SuccessDisplay message={`MCP Server: ${status?.mcp_server_id}`} />
-          )}
-        </StepCard>
-
-        {/* Step 6: Create MCP Portal */}
-        <StepCard
-          step={6}
-          title="Create MCP Portal"
-          description="Create an MCP Portal for OAuth authentication."
-          isActive={currentStep === 6}
-          isComplete={completedStep >= 6}
-          onEdit={() => setCurrentStep(6)}
-        >
-          {currentStep === 6 && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Portal ID
-                  </label>
-                  <input
-                    type="text"
-                    value={mcpPortalId}
-                    onChange={(e) => setMcpPortalId(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Display Name
-                  </label>
-                  <input
-                    type="text"
-                    value={mcpPortalName}
-                    onChange={(e) => setMcpPortalName(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Portal Hostname
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={portalSubdomain}
-                    onChange={(e) => setPortalSubdomain(e.target.value)}
-                    placeholder="mcp"
-                    className="w-24 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  />
-                  <span className="text-gray-500 dark:text-gray-400">.</span>
-                  <select
-                    value={selectedZone}
-                    onChange={(e) => setSelectedZone(e.target.value)}
-                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  >
-                    {zones.map((zone) => (
-                      <option key={zone.id} value={zone.name}>
-                        {zone.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                  Full hostname: {portalSubdomain ? `${portalSubdomain}.${selectedZone}` : selectedZone}
-                </p>
-              </div>
-
-              {policyType !== 'everyone' && (
-                <div className="p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
-                  <p className="text-sm text-purple-800 dark:text-purple-300">
-                    <strong>Access Policy:</strong>{' '}
-                    {policyType === 'email_domain'
-                      ? `${policyEmailDomain} domain`
-                      : `${policyEmails.length} email${policyEmails.length !== 1 ? 's' : ''}`}
-                    {' '}&mdash; same policy from Step 5 will be applied to the portal.
-                  </p>
-                </div>
-              )}
-
-              {createMcpPortalMutation.error &&
-                (createMcpPortalMutation.error instanceof ApiError &&
-                createMcpPortalMutation.error.isConflict ? (
-                  <ConflictWarning
-                    error={createMcpPortalMutation.error}
-                    isPending={createMcpPortalMutation.isPending}
-                    onConfirm={() => {
-                      const hostname = portalSubdomain
-                        ? `${portalSubdomain}.${selectedZone}`
-                        : selectedZone
-                      createMcpPortalMutation.mutate(
-                        {
-                          config_id: configId!,
-                          portal_id: mcpPortalId,
-                          portal_name: mcpPortalName,
-                          hostname,
-                          access_policy: buildAccessPolicy(),
-                          force: true,
-                        },
-                        {
-                          onSuccess: async (result) => {
-                            if (result.success) {
-                              setPortalUrl(result.portal_url)
-                              await queryClient.refetchQueries({
-                                queryKey: cloudflareKeys.status(),
-                              })
-                              setCurrentStep(7)
-                            }
-                          },
-                        }
-                      )
-                    }}
-                    onCancel={() => createMcpPortalMutation.reset()}
-                  />
-                ) : (
-                  <ErrorDisplay
-                    error={
-                      createMcpPortalMutation.error instanceof Error
-                        ? createMcpPortalMutation.error.message
-                        : 'Failed to create MCP Portal'
-                    }
-                  />
-                ))}
-
-              <button
-                onClick={handleCreateMcpPortal}
-                disabled={
-                  !mcpPortalId || !mcpPortalName || !selectedZone || createMcpPortalMutation.isPending
-                }
-                className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {createMcpPortalMutation.isPending ? 'Creating...' : 'Create MCP Portal'}
-              </button>
-            </div>
-          )}
-          {completedStep >= 6 && currentStep !== 6 && (
-            <div className="space-y-3">
-              <SuccessDisplay message={`Portal: ${status?.mcp_portal_hostname}`} />
-              {portalUrl && (
-                <div className="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-700 rounded">
-                  <span className="text-sm text-gray-600 dark:text-gray-400">URL:</span>
-                  <code className="text-sm font-mono text-gray-900 dark:text-white">{portalUrl}</code>
-                  <CopyButton text={portalUrl} label="Copy" />
-                </div>
-              )}
-            </div>
-          )}
-        </StepCard>
-
-        {/* Step 7: Configure JWT */}
-        <StepCard
-          step={7}
-          title="Configure JWT Verification"
-          description="Configure the Worker to verify JWT tokens from the MCP Portal."
-          isActive={currentStep === 7}
-          isComplete={completedStep >= 7}
-          onEdit={() => setCurrentStep(7)}
-        >
-          {currentStep === 7 && completedStep < 7 && (
-            <div className="space-y-4">
-              <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">
-                  Worker secrets to configure:
-                </p>
-                <ul className="text-sm font-mono text-gray-600 dark:text-gray-400 space-y-1">
-                  <li>CF_ACCESS_TEAM_DOMAIN: {status?.team_domain || 'Not available'}</li>
-                  <li>CF_ACCESS_AUD: {status?.mcp_portal_aud || manualAud || 'Not available'}</li>
-                </ul>
-              </div>
-
-              {!status?.mcp_portal_aud && (
-                <div className="space-y-2">
-                  <div className="p-4 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded-lg">
-                    <p className="text-sm text-yellow-700 dark:text-yellow-300 mb-2">
-                      <strong>AUD tag not found automatically.</strong> Please enter it manually:
-                    </p>
-                    <p className="text-xs text-yellow-600 dark:text-yellow-400">
-                      Find it in Cloudflare Dashboard: Zero Trust → Access → Applications →
-                      Select your MCP Portal app → Basic Information → Application Audience (AUD) Tag
-                    </p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Application Audience (AUD) Tag
-                    </label>
-                    <input
-                      type="text"
-                      value={manualAud}
-                      onChange={(e) => setManualAud(e.target.value)}
-                      placeholder="e.g., 737646a56ab1df6ec9bddc7e5ca84eaf3b0768850f3ffb5d74f1534911fe3893"
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm"
-                    />
-                  </div>
-                </div>
-              )}
-
               {configureJwtMutation.error && (
                 <ErrorDisplay
                   error={
                     configureJwtMutation.error instanceof Error
                       ? configureJwtMutation.error.message
-                      : 'Failed to configure JWT'
+                      : 'Failed to configure access'
                   }
                 />
               )}
 
               <button
-                onClick={handleConfigureJwt}
-                disabled={configureJwtMutation.isPending || !status?.team_domain || (!status?.mcp_portal_aud && !manualAud)}
+                onClick={handleConfigureAccess}
+                disabled={
+                  configureJwtMutation.isPending ||
+                  (policyType === 'emails' && policyEmails.length === 0) ||
+                  (policyType === 'email_domain' && !policyEmailDomain)
+                }
                 className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {configureJwtMutation.isPending ? 'Setting secrets...' : 'Configure JWT Verification'}
+                {configureJwtMutation.isPending ? 'Configuring...' : 'Configure Access & OIDC'}
               </button>
             </div>
           )}
-          {completedStep >= 7 && (
-            <SuccessDisplay message="JWT verification configured. Setup complete!" />
+          {completedStep >= 5 && currentStep !== 5 && (
+            <SuccessDisplay message="OIDC authentication configured" />
           )}
         </StepCard>
 
-        {/* Step 8: Authenticate MCP Server */}
+        {/* Step 6: Connect */}
         <StepCard
-          step={8}
-          title="Authenticate MCP Server"
-          description="Trigger the initial OAuth authentication and tool sync in Cloudflare."
-          isActive={currentStep === 8}
+          step={6}
+          title="Connect"
+          description="Add your Worker URL to Claude or any MCP client."
+          isActive={currentStep === 6}
           isComplete={false}
         >
-          {currentStep === 8 && (
+          {currentStep === 6 && (
             <div className="space-y-4">
-              <div className="p-4 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg">
-                <p className="text-sm text-blue-800 dark:text-blue-300 mb-3">
-                  Click the button below to open your MCP Server in the Cloudflare dashboard.
-                  On that page, find the <strong>&ldquo;Server authentication&rdquo;</strong> section and
-                  click the <strong>&ldquo;Authenticate server&rdquo;</strong> button.
+              <div className="p-4 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-lg">
+                <p className="text-sm text-green-800 dark:text-green-300 mb-2">
+                  Setup complete! Add this URL to Claude Web, OpenAI, or any MCP client:
                 </p>
-                <p className="text-sm text-blue-800 dark:text-blue-300 mb-2">
-                  This triggers Cloudflare to complete the OAuth 2.1 flow with your Worker
-                  and discover all available MCP tools. After authenticating, you should see
-                  your tools listed under the server.
-                </p>
-                <p className="text-xs text-blue-600 dark:text-blue-400">
-                  If authentication fails, verify that the tunnel is running
-                  (<code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">docker compose --profile remote up -d</code>)
-                  and the Worker is deployed
-                  (<code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">./scripts/deploy-worker.sh</code>).
-                </p>
+                {workerUrl && (
+                  <div className="flex items-center gap-2 mt-3">
+                    <code className="flex-1 text-sm font-mono text-green-900 dark:text-green-100 bg-green-100 dark:bg-green-800/50 px-3 py-2 rounded">
+                      {workerUrl}/mcp
+                    </code>
+                    <CopyButton text={`${workerUrl}/mcp`} label="Copy" />
+                  </div>
+                )}
               </div>
 
-              {status?.account_id && mcpServerId && (
-                <a
-                  href={`https://one.dash.cloudflare.com/${status.account_id}/access-controls/ai-controls/mcp-server/edit/${mcpServerId}?tab=overview`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
-                >
-                  Open MCP Server in Cloudflare
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                </a>
-              )}
-
-              {portalUrl && (
-                <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                  <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">
-                    After authenticating, add this URL to Claude Web:
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <code className="flex-1 text-sm font-mono text-gray-900 dark:text-white">{portalUrl}</code>
-                    <CopyButton text={portalUrl} label="Copy" />
-                  </div>
-                </div>
-              )}
+              <div className="p-4 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <p className="text-sm text-blue-800 dark:text-blue-300 mb-2">
+                  When connecting, the MCP client will perform an OAuth 2.1 flow.
+                  You&apos;ll be redirected to Cloudflare Access to authenticate with your email.
+                </p>
+                <p className="text-xs text-blue-600 dark:text-blue-400">
+                  Make sure the tunnel is running:{' '}
+                  <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">docker compose --profile remote up -d</code>
+                </p>
+              </div>
 
               <button
                 onClick={() => navigate('/tunnel')}
                 className="w-full px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
               >
-                I&apos;ve Authenticated &mdash; Complete Setup
+                Complete Setup
               </button>
 
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
-                Note: It may take a few minutes for Cloudflare to fully propagate your
-                configuration. If Claude shows a connection error immediately after setup,
-                wait 2-3 minutes and try again.
+                It may take a few minutes for Cloudflare to fully propagate your
+                configuration. If you see a connection error, wait 2-3 minutes and try again.
               </p>
             </div>
           )}

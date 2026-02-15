@@ -137,42 +137,6 @@ class TestServiceTokenCache:
         b = ServiceTokenCache.get_instance()
         assert a is b
 
-    async def test_jwt_params_cached(self, cloudflare_config_factory, db_session):
-        """team_domain and portal_aud are cached from CloudflareConfig."""
-        config = await cloudflare_config_factory(service_token="my-token")
-        config.team_domain = "myteam.cloudflareaccess.com"
-        config.mcp_portal_aud = "abc123"
-        await db_session.flush()
-
-        cache = ServiceTokenCache.get_instance()
-        await cache.load()
-
-        assert cache.team_domain == "myteam.cloudflareaccess.com"
-        assert cache.portal_aud == "abc123"
-
-    async def test_jwt_params_none_without_config(self):
-        """No config → JWT params are None."""
-        cache = ServiceTokenCache.get_instance()
-        await cache.load()
-
-        assert cache.team_domain is None
-        assert cache.portal_aud is None
-
-    async def test_invalidate_clears_jwt_params(self, cloudflare_config_factory, db_session):
-        """invalidate() clears JWT verification params."""
-        config = await cloudflare_config_factory(service_token="token")
-        config.team_domain = "team.cf.com"
-        config.mcp_portal_aud = "aud123"
-        await db_session.flush()
-
-        cache = ServiceTokenCache.get_instance()
-        await cache.load()
-        assert cache.team_domain == "team.cf.com"
-
-        cache.invalidate()
-        assert cache.team_domain is None
-        assert cache.portal_aud is None
-
 
 class TestServiceTokenCacheFailClosed:
     """Tests for fail-closed behavior on database errors."""

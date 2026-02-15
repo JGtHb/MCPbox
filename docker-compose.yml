@@ -37,9 +37,9 @@ services:
       - no-new-privileges:true
     read_only: true
     tmpfs:
-      - /tmp:size=16M
-      - /var/cache/nginx:size=32M
-      - /var/run:size=1M
+      - /tmp:size=16M,uid=1000,gid=1000
+      - /var/cache/nginx:size=32M,uid=1000,gid=1000
+      - /var/run:size=1M,uid=1000,gid=1000
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/nginx-health"]
       interval: 30s

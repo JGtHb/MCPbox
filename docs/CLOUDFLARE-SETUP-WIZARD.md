@@ -4,111 +4,105 @@ This document describes the automated setup wizard for configuring MCPbox remote
 
 ## Overview
 
-The wizard will automate the entire remote access setup process, replacing the manual steps in `REMOTE-ACCESS-SETUP.md` with a guided UI experience.
+The wizard automates the entire remote access setup process, replacing the manual steps in `REMOTE-ACCESS-SETUP.md` with a guided UI experience. It configures a Cloudflare tunnel, Workers VPC, Worker deployment, and Access for SaaS (OIDC) authentication in 6 steps.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              YOUR LAN (Docker)                                   │
-│                                                                                  │
-│  ┌──────────────┐     ┌──────────────┐     ┌──────────────┐                     │
-│  │   Frontend   │     │   Backend    │     │  PostgreSQL  │                     │
-│  │   :3000      │────▶│   :8000      │────▶│   :5432      │                     │
-│  │  (React UI)  │     │  /api/*      │     │              │                     │
-│  └──────────────┘     └──────────────┘     └──────────────┘                     │
-│        │                     │                                                   │
-│        │              ┌──────┴───────┐                                          │
-│        │              │   Sandbox    │                                          │
-│        │              │   :8001      │                                          │
-│        │              │ (Python exec)│                                          │
-│        │              └──────────────┘                                          │
-│        │                     ▲                                                   │
-│        ▼                     │                                                   │
-│  127.0.0.1 ONLY        ┌─────┴────────┐     ┌──────────────┐                    │
-│  (local access)        │ MCP Gateway  │◀────│ cloudflared  │                    │
-│                        │   :8002      │     │  (tunnel)    │                    │
-│                        │  /mcp ONLY   │     └──────┬───────┘                    │
-│                        └──────────────┘            │                            │
-│                                                    │ QUIC (UDP 7844)            │
-└────────────────────────────────────────────────────┼────────────────────────────┘
-                                                     │
-                                                     │ Persistent outbound
-                                                     │ connection (no inbound
-                                                     │ ports needed!)
-                                                     │
-┌────────────────────────────────────────────────────┼────────────────────────────┐
-│                         CLOUDFLARE EDGE                                          │
-│                                                    │                             │
-│                              ┌─────────────────────┴──────────────────────┐     │
-│                              │         Cloudflare Tunnel                   │     │
-│                              │    (created via API)                        │     │
-│                              │                                             │     │
-│                              │  ⚠️  NO PUBLIC HOSTNAME                     │     │
-│                              │     Cannot be accessed directly!            │     │
-│                              └─────────────────────┬──────────────────────┘     │
-│                                                    │                             │
-│                                                    │ Workers VPC                 │
-│                                                    │ (private binding)           │
-│                                                    │                             │
-│                              ┌─────────────────────┴──────────────────────┐     │
-│                              │           VPC Service                       │     │
-│                              │    (created via wrangler)                   │     │
-│                              │    Routes to: mcp-gateway:8002             │     │
-│                              └─────────────────────┬──────────────────────┘     │
-│                                                    │                             │
-│                                                    │ env.MCPBOX_TUNNEL.fetch()  │
-│                                                    │                             │
-│  ┌─────────────────────────────────────────────────┴──────────────────────────┐ │
-│  │                    Cloudflare Worker                                        │ │
-│  │              (deployed via wrangler)                                        │ │
-│  │              wrapped with @cloudflare/workers-oauth-provider               │ │
-│  │                                                                             │ │
-│  │  Security:                                                                  │ │
-│  │  ✓ Path validation (only /mcp, /health allowed)                            │ │
-│  │  ✓ OAuth 2.1 (all requests) + JWT (user identity via Cf-Access-Jwt-Assertion) │ │
-│  │  ✓ Adds X-MCPbox-Service-Token header                                       │ │
-│  │  ✓ Extracts user email from JWT for audit logging                          │ │
-│  │  ✓ OAuth-only path: sync-only (no tool execution)                          │ │
-│  │  ✓ CORS restricted to claude.ai domains                                     │ │
-│  │  ✓ OAuth tokens stored in KV namespace (OAUTH_KV)                          │ │
-│  └─────────────────────────────────────────────────┬──────────────────────────┘ │
-│                                                    │                             │
-│                                                    │ Cf-Access-Jwt-Assertion    │
-│                                                    │                             │
-│  ┌─────────────────────────────────────────────────┴──────────────────────────┐ │
-│  │                   MCP Server Portal                                         │ │
-│  │              (created via API)                                              │ │
-│  │                                                                             │ │
-│  │  Security:                                                                  │ │
-│  │  ✓ OAuth 2.1 authentication (Google, GitHub, etc.)                         │ │
-│  │  ✓ Issues signed JWT after successful auth                                  │ │
-│  │  ✓ Only authenticated users can reach the Worker                           │ │
-│  └─────────────────────────────────────────────────┬──────────────────────────┘ │
-│                                                    │                             │
-└────────────────────────────────────────────────────┼────────────────────────────┘
-                                                     │
-                                                     │ MCP Protocol (HTTPS)
-                                                     │
-                                                     ▼
-                                              ┌──────────────┐
-                                              │  Claude Web  │
-                                              │   (User)     │
-                                              └──────────────┘
++---------------------------------------------------------------------------+
+|                              YOUR LAN (Docker)                             |
+|                                                                            |
+|  +--------------+     +--------------+     +--------------+               |
+|  |   Frontend   |     |   Backend    |     |  PostgreSQL  |               |
+|  |   :3000      |---->|   :8000      |---->|   :5432      |               |
+|  |  (React UI)  |     |  /api/*      |     |              |               |
+|  +--------------+     +--------------+     +--------------+               |
+|        |                     |                                             |
+|        |              +------+-------+                                     |
+|        |              |   Sandbox    |                                     |
+|        |              |   :8001      |                                     |
+|        |              | (Python exec)|                                     |
+|        |              +--------------+                                     |
+|        |                     ^                                             |
+|        v                     |                                             |
+|  127.0.0.1 ONLY        +----+----------+     +--------------+             |
+|  (local access)         | MCP Gateway  |<----| cloudflared  |             |
+|                         |   :8002      |     |  (tunnel)    |             |
+|                         |  /mcp ONLY   |     +------+-------+             |
+|                         +--------------+            |                     |
+|                                                     | QUIC (UDP 7844)     |
++-----------------------------------------------------+---------------------+
+                                                      |
+                                                      | Persistent outbound
+                                                      | connection (no inbound
+                                                      | ports needed!)
+                                                      |
++-----------------------------------------------------+---------------------+
+|                         CLOUDFLARE EDGE                                    |
+|                                                     |                      |
+|                              +----------------------+--------------------+ |
+|                              |         Cloudflare Tunnel                 | |
+|                              |    (created via API)                      | |
+|                              |                                           | |
+|                              |  NO PUBLIC HOSTNAME                       | |
+|                              |  Cannot be accessed directly!             | |
+|                              +----------------------+--------------------+ |
+|                                                     |                      |
+|                                                     | Workers VPC          |
+|                                                     | (private binding)    |
+|                                                     |                      |
+|                              +----------------------+--------------------+ |
+|                              |           VPC Service                     | |
+|                              |    (created via wrangler)                 | |
+|                              |    Routes to: mcp-gateway:8002           | |
+|                              +----------------------+--------------------+ |
+|                                                     |                      |
+|                                                     | env.MCPBOX_TUNNEL    |
+|                                                     | .fetch()             |
+|                                                     |                      |
+|  +--------------------------------------------------+--------------------+ |
+|  |                    Cloudflare Worker                                   | |
+|  |              (deployed via wrangler)                                   | |
+|  |              wrapped with @cloudflare/workers-oauth-provider          | |
+|  |                                                                       | |
+|  |  Security:                                                            | |
+|  |  + Path validation (only /mcp, /health allowed)                      | |
+|  |  + OAuth 2.1 (all requests require valid token)                      | |
+|  |  + OIDC upstream to Cloudflare Access for SaaS (user identity)       | |
+|  |  + id_token verification (RS256, iss, aud, nonce, exp, nbf)          | |
+|  |  + Adds X-MCPbox-Service-Token header (defense-in-depth)             | |
+|  |  + Sets X-MCPbox-User-Email from OIDC-verified id_token              | |
+|  |  + Auth method always "oidc"                                         | |
+|  |  + CORS restricted to claude.ai domains                              | |
+|  |  + OAuth tokens stored in KV namespace (OAUTH_KV)                    | |
+|  +--------------------------------------------------+--------------------+ |
+|                                                     |                      |
+|                                                     | MCP Protocol (HTTPS) |
+|                                                     |                      |
++-----------------------------------------------------+----------------------+
+                                                      |
+                                                      v
+                                               +--------------+
+                                               |  MCP Clients |
+                                               | (Claude Web, |
+                                               |  etc.)       |
+                                               +--------------+
 ```
+
+MCP clients connect directly to the Worker URL (e.g., `https://mcpbox-proxy.you.workers.dev/mcp`). No MCP Server or Portal objects are needed.
 
 ## Security at Each Layer
 
 | Layer | Component | Security Mechanism | What It Protects Against |
 |-------|-----------|-------------------|--------------------------|
-| **1** | Claude Web → MCP Portal | **OAuth 2.1** (Google/GitHub) | Unauthenticated access |
-| **2** | MCP Portal → Worker | **Signed JWT** (`Cf-Access-Jwt-Assertion`) | Token forgery |
-| **3** | Worker | **OAuth 2.1** (all requests) + **JWT** (user identity) | Direct Worker access bypass |
-| **3b** | MCP Gateway | **OAuth-only restriction**: sync-only (no tools/call) | Tool execution via sync path |
+| **1** | MCP Client -> Worker | **OAuth 2.1** (all requests require valid token) | Unauthenticated access |
+| **2** | Worker -> Cloudflare Access | **OIDC upstream** (Access for SaaS) | Unverified user identity |
+| **3** | Worker | **id_token verification** (RS256, JWKS, iss/aud/nonce/exp/nbf) | Token forgery, replay |
+| **3b** | MCP Gateway | **Email-based authorization**: no email = sync-only (no tools/call) | Tool execution via sync path |
 | **4** | Worker | **Path validation** (`/mcp`, `/health` only) | Admin API access via tunnel |
 | **5** | Worker | **CORS whitelist** (`claude.ai` domains) | Cross-origin abuse |
-| **6** | Worker → Tunnel | **Workers VPC** (private binding) | Public tunnel exposure |
-| **7** | Tunnel → MCP Gateway | **Service Token** (`X-MCPbox-Service-Token`) | Defense in depth |
+| **6** | Worker -> Tunnel | **Workers VPC** (private binding) | Public tunnel exposure |
+| **7** | Tunnel -> MCP Gateway | **Service Token** (`X-MCPbox-Service-Token`) | Defense in depth |
 | **8** | MCP Gateway | **Token validation** | Requests bypassing Worker |
 | **9** | Docker network | **Internal networks** | Container-to-container isolation |
 | **10** | Frontend/Backend | **127.0.0.1 binding** | WAN access to admin API |
@@ -116,27 +110,27 @@ The wizard will automate the entire remote access setup process, replacing the m
 ### Authentication Flow Detail
 
 ```
-1. User connects Claude Web to MCP Portal URL
-2. MCP Portal redirects to OAuth provider (Google/GitHub)
-3. User authenticates with identity provider
-4. MCP Portal issues signed JWT (Cf-Access-Jwt-Assertion)
-5. Cloudflare discovers Worker OAuth endpoints:
-   - /.well-known/oauth-authorization-server
-   - /.well-known/oauth-protected-resource
-6. Cloudflare completes full OAuth 2.1 flow with Worker
-7. Worker receives request with valid OAuth 2.1 token
-8. For user requests, Worker also verifies Cf-Access-Jwt-Assertion:
-   - JWT signature (against Cloudflare JWKS)
-   - Audience claim (matches CF_ACCESS_AUD)
-   - Issuer claim (matches CF_ACCESS_TEAM_DOMAIN)
-   - Expiration (not expired)
-9. Worker adds X-MCPbox-Service-Token + user email headers
-10. Worker proxies to MCPbox via VPC binding
-11. MCPbox validates service token (defense in depth)
-12. MCPbox executes tool and returns response
+1. MCP client connects to Worker URL (e.g., https://mcpbox-proxy.you.workers.dev/mcp)
+2. Worker returns 401 with OAuth discovery metadata (RFC 9728)
+3. MCP client discovers OAuth endpoints and starts authorization
+4. Worker redirects to Cloudflare Access OIDC authorize endpoint
+5. User authenticates via Cloudflare Access (email OTP, SSO, etc.)
+6. Access redirects back to Worker /callback with authorization code
+7. Worker exchanges code for id_token + access_token at Access token endpoint
+8. Worker verifies id_token:
+   - RS256 signature (against Cloudflare JWKS)
+   - Audience (matches ACCESS_CLIENT_ID)
+   - Issuer (matches team domain)
+   - Nonce (matches stored nonce)
+   - Expiration (not expired, 60s clock skew)
+9. Worker stores verified email in encrypted OAuth token props
+10. Worker issues OAuth token to MCP client
+11. MCP client sends requests with OAuth token
+12. Worker adds X-MCPbox-Service-Token + X-MCPbox-User-Email headers
+13. Worker proxies to MCPbox via VPC binding
+14. MCPbox validates service token (defense in depth)
+15. MCPbox executes tool and returns response
 ```
-
-**Note:** The MCP Server is configured with `auth_type: "oauth"`. Cloudflare discovers the Worker's OAuth endpoints (via `/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource`) and completes the full OAuth 2.1 flow. OAuth tokens are stored in a KV namespace (`OAUTH_KV`). User requests additionally carry a `Cf-Access-Jwt-Assertion` header for identity verification.
 
 ## Cloudflare API Endpoints
 
@@ -144,119 +138,47 @@ All endpoints require an API token with the following permissions:
 
 | Permission | Level | Purpose |
 |------------|-------|---------|
-| `Access: Apps and Policies` | Read | Get MCP Portal AUD for JWT verification |
-| `Access: Organizations, Identity Providers, and Groups` | Read | Get team domain for JWT verification |
+| `Access: Apps and Policies` | Edit | Create Access for SaaS OIDC application |
+| `Access: Organizations, Identity Providers, and Groups` | Read | Get team domain for OIDC URLs |
 | `Cloudflare Tunnel` | Edit | Create and manage tunnels |
 | `Workers Scripts` | Edit | Deploy Worker |
 | `Workers KV Storage` | Edit | Create KV namespace for OAuth token storage |
-| `Zone (DNS)` | Read | List available domains for MCP Portal |
-| `com.cloudflare.api.account.mcp_portals` | Edit | Create MCP Server and Portal |
 
-### MCP Server
+### Access for SaaS OIDC Application
 
-Creates a reference to the MCPbox Worker URL.
+The wizard creates a SaaS Access Application that acts as the OIDC identity provider for the Worker. This replaces the previous MCP Server/Portal approach.
 
-**Endpoint:** `POST /accounts/{account_id}/access/ai-controls/mcp/servers`
+**Endpoint:** `POST /accounts/{account_id}/access/apps`
 
 ```json
 {
-  "id": "mcpbox",
-  "name": "MCPbox",
-  "hostname": "https://mcpbox-proxy.your-account.workers.dev/mcp",
-  "auth_type": "oauth",
-  "description": "MCPbox MCP Server"
-}
-```
-
-With `auth_type: "oauth"`, Cloudflare will discover the Worker's OAuth endpoints and complete the full OAuth 2.1 flow to authenticate. No `auth_credentials` field is needed.
-
-**Response:**
-```json
-{
-  "success": true,
-  "result": {
-    "id": "mcpbox",
-    "name": "MCPbox",
-    "hostname": "https://mcpbox-proxy.your-account.workers.dev/mcp",
-    "auth_type": "oauth",
-    "status": "waiting",
-    "tools": [],
-    "prompts": [],
-    "created_at": "2026-01-31T12:00:00Z"
+  "type": "saas",
+  "name": "MCPbox OIDC",
+  "saas_app": {
+    "auth_type": "oidc",
+    "redirect_uris": ["https://mcpbox-proxy.you.workers.dev/callback"],
+    "grant_types": ["authorization_code"],
+    "scopes": ["openid", "email", "profile"],
+    "app_launcher_visible": false
   }
 }
 ```
 
-### MCP Portal
-
-Creates the OAuth-protected portal that users connect to.
-
-**Endpoint:** `POST /accounts/{account_id}/access/ai-controls/mcp/portals`
-
+**Response includes:**
 ```json
 {
-  "id": "mcpbox-portal",
-  "name": "MCPbox Portal",
-  "hostname": "your-domain.com",
-  "description": "MCPbox remote access portal",
-  "servers": [
-    {
-      "server_id": "mcpbox",
-      "default_disabled": false,
-      "on_behalf": true
+  "result": {
+    "id": "...",
+    "saas_app": {
+      "client_id": "...",
+      "client_secret": "...",
+      "public_key": "..."
     }
-  ],
-  "secure_web_gateway": false
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "result": {
-    "id": "mcpbox-portal",
-    "name": "MCPbox Portal",
-    "hostname": "your-domain.com",
-    "created_at": "2026-01-31T12:00:00Z"
   }
 }
 ```
 
-### Get MCP Portal Application (for AUD)
-
-After creating the MCP Portal, get its AUD for Worker JWT verification.
-
-**Endpoint:** `GET /accounts/{account_id}/access/apps/{app_id}`
-
-**Response:**
-```json
-{
-  "success": true,
-  "result": {
-    "id": "b592188e-9780-4848-a671-c2af9912d1a5",
-    "uid": "b592188e-9780-4848-a671-c2af9912d1a5",
-    "type": "mcp",
-    "name": "MCPbox",
-    "aud": "8e10972f81919346f325c3c25caf4a715726e5c7ade45e3c0e6750ee84901c32",
-    "destinations": [
-      {
-        "type": "via_mcp_server_portal",
-        "mcp_server_id": "mcpbox"
-      }
-    ],
-    "policies": [...]
-  }
-}
-```
-
-The `aud` field is the Application Audience Tag needed for JWT verification in the Worker. Set this as `CF_ACCESS_AUD` in Worker secrets.
-
-**Important Note:** The Cloudflare API requires two separate Access Applications for a working MCP Portal setup:
-1. **MCP type** Access App (for the server) - Created in Step 5 with `type: "mcp"` and `destinations: [{type: "via_mcp_server_portal", mcp_server_id: "..."}]`
-2. **MCP Portal type** Access App (for the portal) - Created in Step 6 with `type: "mcp_portal"` and `domain` matching the portal hostname
-
-The wizard creates both automatically. The Cloudflare Dashboard also creates both when using the UI.
+The `client_id` and `client_secret` are used as `ACCESS_CLIENT_ID` and `ACCESS_CLIENT_SECRET` Worker secrets.
 
 ### Get Zero Trust Organization (for Team Domain)
 
@@ -274,7 +196,12 @@ The wizard creates both automatically. The Cloudflare Dashboard also creates bot
 }
 ```
 
-The `auth_domain` is the team domain needed for JWT verification.
+The `auth_domain` is used to derive OIDC endpoint URLs:
+```
+Token URL:    https://{auth_domain}/cdn-cgi/access/sso/oidc/{client_id}/token
+Auth URL:     https://{auth_domain}/cdn-cgi/access/sso/oidc/{client_id}/authorize
+JWKS URL:     https://{auth_domain}/cdn-cgi/access/certs
+```
 
 ### Other Endpoints
 
@@ -282,114 +209,87 @@ The `auth_domain` is the team domain needed for JWT verification.
 |----------|--------|---------|
 | `/accounts/{id}/access/apps` | GET | List Access Applications |
 | `/accounts/{id}/access/apps` | POST | Create Access Application |
-| `/accounts/{id}/access/apps/{app_id}` | GET | Get Access Application (includes AUD) |
+| `/accounts/{id}/access/apps/{app_id}` | GET | Get Access Application details |
 | `/accounts/{id}/access/apps/{app_id}` | PUT | Update Access Application |
 | `/accounts/{id}/access/apps/{app_id}` | DELETE | Delete Access Application |
+| `/accounts/{id}/access/apps/{app_id}/policies` | POST | Add Access Policy |
 | `/accounts/{id}/access/organizations` | GET | Get organization (team domain) |
-| `/accounts/{id}/access/ai-controls/mcp/servers` | GET | List MCP servers |
-| `/accounts/{id}/access/ai-controls/mcp/servers/{server_id}` | GET | Get server details |
-| `/accounts/{id}/access/ai-controls/mcp/servers/{server_id}` | PUT | Update server |
-| `/accounts/{id}/access/ai-controls/mcp/servers/{server_id}` | DELETE | Delete server |
-| `/accounts/{id}/access/ai-controls/mcp/servers/{server_id}/sync` | POST | Sync server tools |
-| `/accounts/{id}/access/ai-controls/mcp/portals` | GET | List portals |
-| `/accounts/{id}/access/ai-controls/mcp/portals/{portal_id}` | GET | Get portal details |
-| `/accounts/{id}/access/ai-controls/mcp/portals/{portal_id}` | PUT | Update portal |
-| `/accounts/{id}/access/ai-controls/mcp/portals/{portal_id}` | DELETE | Delete portal |
 
-## Wizard Implementation Plan
+## Wizard Implementation
 
-### UI Flow
+### UI Flow (6 Steps)
 
 ```
-┌─────────────────────────────────────────────┐
-│  Remote Access Setup Wizard                 │
-├─────────────────────────────────────────────┤
-│ Step 1: Cloudflare API Token               │
-│   [Enter API Token]                         │
-│   Required permissions:                     │
-│   - com.cloudflare.api.account.mcp_portals │
-│   - Workers Scripts Write                   │
-│   - Workers KV Storage Write                │
-│   - Cloudflare Tunnel Edit                  │
-│   [Verify Token] ✓                          │
-├─────────────────────────────────────────────┤
-│ Step 2: Create Tunnel                       │
-│   Tunnel Name: [mcpbox-tunnel]              │
-│   [Create Tunnel] ✓                         │
-│   Token: ●●●●●●●● [copy]                   │
-│   ⚠️ Add to .env and restart Docker        │
-├─────────────────────────────────────────────┤
-│ Step 3: Create VPC Service                  │
-│   Service Name: [mcpbox-service]            │
-│   Tunnel: mcpbox-tunnel                     │
-│   Target: mcp-gateway:8002                  │
-│   [Create VPC Service] ✓                    │
-├─────────────────────────────────────────────┤
-│ Step 4: Deploy Worker                       │
-│   Worker Name: [mcpbox-proxy]               │
-│   VPC Service ID: auto-filled              │
-│   [Deploy Worker] ✓                         │
-│   URL: mcpbox-proxy.you.workers.dev         │
-├─────────────────────────────────────────────┤
-│ Step 5: Create MCP Server                   │
-│   Server ID: [mcpbox]                       │
-│   Worker URL: auto-filled                   │
-│   Auth Type: oauth (auto-configured)        │
-│   (OAuth 2.1 endpoints discovered by CF)    │
-│   [Create MCP Server] ✓                     │
-│   + Creates MCP Access Application          │
-│   + Adds Access Policy (Allow Everyone)     │
-│   [Sync Tools] ✓ - 19 tools discovered      │
-├─────────────────────────────────────────────┤
-│ Step 6: Create MCP Portal                   │
-│   Portal ID: [mcpbox-portal]                │
-│   Portal Domain: [select from zones]        │
-│   Portal Subdomain: [mcp]                   │
-│   [Create Portal] ✓                         │
-│                                             │
-│   Portal URL: mcp.yourdomain.com            │
-│   AUD: abc123... (auto-created via          │
-│         Access Application)                 │
-│                                             │
-│   Note: Access Application created          │
-│   automatically for JWT verification        │
-├─────────────────────────────────────────────┤
-│ Step 7: Configure Worker JWT Verification   │
-│   [Automatic - no user input required]      │
-│   ✓ Team Domain fetched from API            │
-│   ✓ AUD from Access Application             │
-│   ✓ Worker secrets configured via wrangler  │
-│                                             │
-│   Direct Worker access now returns 401      │
-├─────────────────────────────────────────────┤
-│ ✅ Setup Complete!                           │
-│                                             │
-│ Your MCP Portal: https://mcp.yourdomain.com/mcp │
-│                                             │
-│ Next steps:                                 │
-│ 1. Authenticate MCP Server in Cloudflare    │
-│    dashboard (triggers tool sync)           │
-│ 2. Deploy Worker: ./scripts/deploy-worker.sh│
-│ 3. Start tunnel: docker compose --profile   │
-│    remote up -d cloudflared                 │
-│ 4. Add portal URL to Claude Web settings    │
-└─────────────────────────────────────────────┘
++---------------------------------------------+
+|  Remote Access Setup Wizard                 |
++---------------------------------------------+
+| Step 1: Cloudflare API Token               |
+|   [Enter API Token]                         |
+|   Required permissions:                     |
+|   - Access: Apps and Policies (Edit)       |
+|   - Access: Organizations (Read)           |
+|   - Workers Scripts (Edit)                  |
+|   - Workers KV Storage (Edit)              |
+|   - Cloudflare Tunnel (Edit)               |
+|   [Verify Token] +                          |
++---------------------------------------------+
+| Step 2: Create Tunnel                       |
+|   Tunnel Name: [mcpbox-tunnel]              |
+|   [Create Tunnel] +                         |
+|   Token: xxxxxxxx [copy]                    |
+|   Add to .env and restart Docker            |
++---------------------------------------------+
+| Step 3: Create VPC Service                  |
+|   Service Name: [mcpbox-service]            |
+|   Tunnel: mcpbox-tunnel                     |
+|   Target: mcp-gateway:8002                  |
+|   [Create VPC Service] +                    |
++---------------------------------------------+
+| Step 4: Deploy Worker                       |
+|   Worker Name: [mcpbox-proxy]               |
+|   VPC Service ID: auto-filled              |
+|   [Deploy Worker] +                         |
+|   URL: mcpbox-proxy.you.workers.dev         |
+|   + Generates service token                 |
+|   + Sets MCPBOX_SERVICE_TOKEN secret        |
++---------------------------------------------+
+| Step 5: Configure Access (OIDC)            |
+|   [Automatic - minimal user input]          |
+|   + Creates SaaS OIDC Access Application    |
+|   + Fetches team domain for OIDC URLs       |
+|   + Generates COOKIE_ENCRYPTION_KEY          |
+|   + Sets all Worker secrets:                |
+|     - ACCESS_CLIENT_ID                      |
+|     - ACCESS_CLIENT_SECRET                  |
+|     - ACCESS_TOKEN_URL                      |
+|     - ACCESS_AUTHORIZATION_URL              |
+|     - ACCESS_JWKS_URL                       |
+|     - COOKIE_ENCRYPTION_KEY                 |
+|     - MCPBOX_SERVICE_TOKEN (re-synced)      |
+|   + Adds Access Policy (Allow Everyone)     |
++---------------------------------------------+
+| Step 6: Connect                             |
+|   + Setup Complete!                         |
+|                                             |
+|   Worker URL:                               |
+|   https://mcpbox-proxy.you.workers.dev/mcp  |
+|                                             |
+|   Next steps:                               |
+|   1. Start tunnel: docker compose --profile |
+|      remote up -d cloudflared               |
+|   2. Add Worker URL to Claude Web settings  |
+|   3. Complete OIDC authentication           |
++---------------------------------------------+
 ```
 
 ### Backend API Endpoints
 
-New endpoints needed in MCPbox backend:
+Endpoints in `backend/app/api/cloudflare.py`:
 
 ```python
-# backend/app/api/cloudflare.py
-
 @router.post("/api/cloudflare/verify-token")
 async def verify_token(token: str) -> AccountInfo:
     """Verify API token and return account info."""
-
-@router.get("/api/cloudflare/zones")
-async def list_zones(token: str) -> list[Zone]:
-    """List available domains in the account."""
 
 @router.post("/api/cloudflare/tunnel")
 async def create_tunnel(token: str, name: str) -> TunnelInfo:
@@ -414,43 +314,26 @@ async def deploy_worker(
 ) -> WorkerInfo:
     """Deploy the MCPbox proxy Worker."""
 
-@router.post("/api/cloudflare/mcp-server")
-async def create_mcp_server(
+@router.post("/api/cloudflare/access")
+async def configure_access(
     token: str,
-    id: str,
-    name: str,
     worker_url: str
-) -> McpServerInfo:
-    """Create an MCP Server pointing to the Worker."""
-
-@router.post("/api/cloudflare/mcp-portal")
-async def create_mcp_portal(
-    token: str,
-    id: str,
-    name: str,
-    hostname: str,
-    server_ids: list[str]
-) -> McpPortalInfo:
-    """Create an MCP Portal grouping servers."""
-
-@router.get("/api/cloudflare/identity-providers")
-async def list_identity_providers(token: str) -> list[IdentityProvider]:
-    """List configured identity providers."""
+) -> AccessInfo:
+    """Create Access for SaaS OIDC application and set Worker secrets."""
 ```
 
 ### Frontend Components
 
 ```
 frontend/src/pages/
-├── RemoteAccessWizard.tsx      # Main wizard page
-└── remote-access/
-    ├── Step1Token.tsx          # API token input/verification
-    ├── Step2Tunnel.tsx         # Tunnel creation
-    ├── Step3VpcService.tsx     # VPC service creation
-    ├── Step4Worker.tsx         # Worker deployment
-    ├── Step5McpServer.tsx      # MCP server creation
-    ├── Step6McpPortal.tsx      # MCP portal creation
-    └── WizardComplete.tsx      # Success summary
++-- RemoteAccessWizard.tsx      # Main wizard page
++-- remote-access/
+    +-- Step1Token.tsx          # API token input/verification
+    +-- Step2Tunnel.tsx         # Tunnel creation
+    +-- Step3VpcService.tsx     # VPC service creation
+    +-- Step4Worker.tsx         # Worker deployment
+    +-- Step5Access.tsx         # Access for SaaS OIDC configuration
+    +-- Step6Connect.tsx        # Connection instructions
 ```
 
 ### Database Schema
@@ -485,16 +368,10 @@ class CloudflareConfig(Base):
     worker_name = Column(String)
     worker_url = Column(String)
 
-    # MCP Server info
-    mcp_server_id = Column(String)
-
-    # MCP Portal info
-    mcp_portal_id = Column(String)
-    mcp_portal_hostname = Column(String)
-    mcp_portal_aud = Column(String)  # Application Audience Tag for JWT verification
-
-    # Access Application ID (created separately from MCP Portal via API)
-    access_app_id = Column(String)  # For cleanup during teardown
+    # Access for SaaS OIDC info
+    access_app_id = Column(String)       # SaaS OIDC Access Application ID
+    access_client_id = Column(String)    # OIDC client ID
+    access_client_secret = Column(String) # Encrypted OIDC client secret
 
     # Status
     status = Column(Enum("pending", "active", "error"), default="pending")
@@ -510,14 +387,14 @@ Before implementing the wizard, verify the API flow works:
 
 ### 1. Create API Token
 
-Go to Cloudflare Dashboard → My Profile → API Tokens → Create Token
+Go to Cloudflare Dashboard -> My Profile -> API Tokens -> Create Token
 
 Required permissions:
-- Account → Cloudflare Tunnel → Edit
-- Account → Workers Scripts → Edit
-- Account → Workers KV Storage → Edit
-- Account → Access: Apps and Policies → Edit
-- Account → Zero Trust → Edit (for MCP portals)
+- Account -> Cloudflare Tunnel -> Edit
+- Account -> Workers Scripts -> Edit
+- Account -> Workers KV Storage -> Edit
+- Account -> Access: Apps and Policies -> Edit
+- Account -> Access: Organizations, Identity Providers, and Groups -> Read
 
 ### 2. Test API Endpoints
 
@@ -530,30 +407,24 @@ export CF_ACCOUNT_ID="your-account-id"
 curl -s "https://api.cloudflare.com/client/v4/user/tokens/verify" \
   -H "Authorization: Bearer $CF_API_TOKEN" | jq .
 
-# List zones (for portal hostname)
-curl -s "https://api.cloudflare.com/client/v4/zones" \
-  -H "Authorization: Bearer $CF_API_TOKEN" | jq '.result[].name'
+# Get team domain
+curl -s "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/access/organizations" \
+  -H "Authorization: Bearer $CF_API_TOKEN" | jq '.result.auth_domain'
 
-# Create MCP Server (with OAuth 2.1 auth for sync)
-curl -s -X POST "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/access/ai-controls/mcp/servers" \
+# Create SaaS OIDC Access Application
+curl -s -X POST "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/access/apps" \
   -H "Authorization: Bearer $CF_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "id": "mcpbox",
-    "name": "MCPbox",
-    "hostname": "https://mcpbox-proxy.your-account.workers.dev/mcp",
-    "auth_type": "oauth"
-  }' | jq .
-
-# Create MCP Portal
-curl -s -X POST "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/access/ai-controls/mcp/portals" \
-  -H "Authorization: Bearer $CF_API_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "id": "mcpbox-portal",
-    "name": "MCPbox Portal",
-    "hostname": "your-domain.com",
-    "servers": [{"server_id": "mcpbox"}]
+    "type": "saas",
+    "name": "MCPbox OIDC",
+    "saas_app": {
+      "auth_type": "oidc",
+      "redirect_uris": ["https://mcpbox-proxy.your-account.workers.dev/callback"],
+      "grant_types": ["authorization_code"],
+      "scopes": ["openid", "email", "profile"],
+      "app_launcher_visible": false
+    }
   }' | jq .
 ```
 
@@ -564,32 +435,46 @@ curl -s -X POST "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/ac
 curl -s "https://mcpbox-proxy.your-account.workers.dev/mcp" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}' | jq .
-# Expected: {"error":"Unauthorized","details":"Authentication required."}
+# Expected: 401 Unauthorized
 
-# Health check should also return 401
+# Health check is public (returns 200)
 curl -s "https://mcpbox-proxy.your-account.workers.dev/health" | jq .
-# Expected: {"error":"Unauthorized","details":"Authentication required."}
+# Expected: {"status":"ok"}
 
 # Verify Worker secrets are set
 cd worker && npx wrangler secret list
-# Should show: MCPBOX_SERVICE_TOKEN, CF_ACCESS_TEAM_DOMAIN, CF_ACCESS_AUD
+# Should show: MCPBOX_SERVICE_TOKEN, ACCESS_CLIENT_ID, ACCESS_CLIENT_SECRET,
+# ACCESS_TOKEN_URL, ACCESS_AUTHORIZATION_URL, ACCESS_JWKS_URL, COOKIE_ENCRYPTION_KEY
 ```
 
 ### 4. Test Full Flow with Claude Web
 
 1. Deploy Worker with VPC binding and `@cloudflare/workers-oauth-provider` wrapper
-2. Create MCP Server pointing to Worker (`auth_type: "oauth"`)
-3. Create MCP Portal with the server (includes Access Policy for OAuth)
-4. Get AUD from MCP Portal and set `CF_ACCESS_AUD` Worker secret
-5. Get team domain and set `CF_ACCESS_TEAM_DOMAIN` Worker secret
-6. Redeploy Worker
-7. Verify direct Worker access returns 401 (no valid OAuth 2.1 token)
-8. **Authenticate MCP Server** in Cloudflare dashboard (triggers OAuth flow + tool sync)
-9. Configure identity provider in Zero Trust dashboard (if not already)
-10. Add portal URL (`https://mcp.yourdomain.com/mcp`) to Claude Web
-11. Complete OAuth authentication
-12. Test MCP tools (OAuth-authenticated users with JWT can list + execute)
-13. Verify sync still works (OAuth-only, can only list)
+2. Create Access for SaaS OIDC application with Worker callback URL
+3. Set all OIDC Worker secrets (ACCESS_CLIENT_ID, etc.)
+4. Redeploy Worker
+5. Verify direct Worker access returns 401 (no valid OAuth 2.1 token)
+6. Configure identity provider in Zero Trust dashboard (if not already)
+7. Add Worker URL (`https://mcpbox-proxy.your-account.workers.dev/mcp`) to Claude Web
+8. Complete OIDC authentication (redirected to Cloudflare Access)
+9. Test MCP tools (OIDC-authenticated users can list + execute)
+10. Verify sync still works (OAuth-only, can only list)
+
+## Worker Secrets Reference
+
+| Secret | Set at Step | Source |
+|--------|------------|--------|
+| `MCPBOX_SERVICE_TOKEN` | Step 4 (deploy Worker), re-synced at step 5 | Generated in `deploy_worker()` |
+| `ACCESS_CLIENT_ID` | Step 5 (configure access) | From SaaS OIDC app (created in step 5) |
+| `ACCESS_CLIENT_SECRET` | Step 5 (configure access) | From SaaS OIDC app (created in step 5) |
+| `ACCESS_TOKEN_URL` | Step 5 (configure access) | Derived from team_domain + client_id |
+| `ACCESS_AUTHORIZATION_URL` | Step 5 (configure access) | Derived from team_domain + client_id |
+| `ACCESS_JWKS_URL` | Step 5 (configure access) | Derived from team_domain |
+| `COOKIE_ENCRYPTION_KEY` | Step 5 (configure access) | Generated (32-byte hex) |
+
+Step 5 creates the SaaS OIDC Access Application, stores the credentials, and syncs all secrets to the Worker in a single operation. The deploy script (`scripts/deploy-worker.sh --set-secrets`) can also push them for re-deployment after code changes.
+
+**Important:** After the wizard regenerates a service token (e.g., re-running setup), you must either re-run step 5 or run `deploy-worker.sh --set-secrets` to sync the new token to the Worker.
 
 ## Implementation Status
 
@@ -597,15 +482,14 @@ All phases are complete:
 
 1. **Phase 1: Backend API** - Cloudflare API wrapper endpoints in `backend/app/api/cloudflare.py`
 2. **Phase 2: Database** - CloudflareConfig model with full state persistence
-3. **Phase 3: Frontend Wizard** - Step-by-step UI at `/tunnel/setup`
+3. **Phase 3: Frontend Wizard** - 6-step UI at `/tunnel/setup`
 4. **Phase 4: Status/Health** - Status displayed on `/tunnel` page
 5. **Phase 5: Teardown** - Clean removal of all resources including Access Application
 
 ## Notes
 
-- The wizard requires a domain in the Cloudflare account for the MCP Portal hostname
 - Identity provider configuration (Google, GitHub, etc.) must still be done in the Zero Trust dashboard
 - The tunnel token must be added to `.env` and Docker restarted manually
-- Both Access Applications (MCP type and MCP Portal type) are created automatically by the wizard
-- Access Policies are added to both Access Applications automatically
-- Step 7 (JWT Configuration) is fully automatic - no manual AUD entry required
+- The Access for SaaS OIDC application and Access Policy are created automatically by the wizard
+- Step 5 (Configure Access) is fully automatic -- creates the OIDC app, derives URLs, and syncs all secrets
+- MCP clients connect directly to the Worker URL -- no MCP Server or Portal objects are needed

@@ -28,7 +28,7 @@ MCPbox provides homelab users with a single Docker deployment that:
 
 ### Design Principles
 
-- **MCP-First**: External LLMs create tools via `mcpbox_*` MCP tools — no embedded LLM or visual builders.
+- **MCP-First**: External LLMs create tools via `mcpbox_*` MCP tools -- no embedded LLM or visual builders.
 - **Code-First**: All tools are Python code with `async def main()` entry points.
 - **Sandbox by Default**: All MCP tools run in a hardened shared sandbox with resource limits.
 - **Homelab-First**: Single Docker Compose deployment, minimal external dependencies.
@@ -45,8 +45,9 @@ MCPbox uses a **hybrid architecture** - local-first with optional remote access 
 
 **Key security properties:**
 - The tunnel has **no public hostname** - it's only accessible via Cloudflare Worker through Workers VPC
-- The Worker enforces **OAuth 2.1 authentication** via `@cloudflare/workers-oauth-provider` — all /mcp requests require a valid OAuth token
-- OAuth-only requests (no Cf-Access-Jwt-Assertion) are **sync-only** (can list tools, but cannot execute them)
+- The Worker enforces **OAuth 2.1 authentication** via `@cloudflare/workers-oauth-provider` -- all /mcp requests require a valid OAuth token
+- User identity is verified via **OIDC upstream** (Cloudflare Access for SaaS) -- email comes from a verified id_token at authorization time
+- Requests without a verified email (e.g., Cloudflare sync) are **sync-only** (can list tools, but cannot execute them)
 - MCPbox validates the service token as defense-in-depth
 - Unauthenticated requests to the Worker are rejected with 401
 
@@ -57,51 +58,55 @@ MCPbox uses a **hybrid architecture** - local-first with optional remote access 
 ### High-Level Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              HOMELAB NETWORK                                 │
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                         MCPbox (Docker Compose)                      │    │
-│  │                                                                      │    │
-│  │   LOCAL ONLY (127.0.0.1)                    PRIVATE TUNNEL           │    │
-│  │   ┌──────────┐  ┌──────────────┐           ┌──────────────┐         │    │
-│  │   │ Frontend │  │   Backend    │           │ MCP Gateway  │         │    │
-│  │   │ (React)  │◄─┤  (FastAPI)   │           │ (FastAPI)    │◄── cloudflared
-│  │   │ :3000    │  │  :8000       │           │ :8002        │   (no public URL)
-│  │   └──────────┘  │  /api/*      │           │ /mcp ONLY    │         │    │
-│  │                 └──────┬───────┘           └──────┬───────┘         │    │
-│  │                        │                          │                 │    │
-│  │                        └──────────┬───────────────┘                 │    │
-│  │                                   │                                 │    │
-│  │   ┌────────────┐     ┌──────────────────────────┐                  │    │
-│  │   │ PostgreSQL │◄────┤     Shared Sandbox       │                  │    │
-│  │   │   :5432    │     │        :8001             │                  │    │
-│  │   └────────────┘     └──────────────────────────┘                  │    │
-│  │                                                                      │    │
-│  └──────────────────────────────────────────────────────────────────────┘    │
-│                                                                              │
-│  LOCAL ACCESS ONLY: Admin panel (frontend + /api/*) bound to 127.0.0.1      │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                        │
-                                        │ Workers VPC (private)
-                                        │
-┌───────────────────────────────────────┴─────────────────────────────────────┐
-│                            Cloudflare (Optional)                             │
-│                                                                              │
-│  ┌──────────────────┐     ┌─────────────────────────────────┐              │
-│  │ MCP Server Portal│────►│ Cloudflare Worker (mcpbox-proxy)│              │
-│  │ (handles OAuth)  │     │ - VPC binding to tunnel         │              │
-│  └──────────────────┘     │ - OAuth 2.1 (all /mcp requests) │              │
-│         ▲                 │ - Adds X-MCPbox-Service-Token   │              │
-│  Cloudflare Sync ────────►│ - OAuth-only: sync (no exec)   │              │
-│  (OAuth token)            └─────────────────────────────────┘              │
-│                                        ▲                                     │
-│                                        │ MCP Protocol                        │
-│                                        │                                     │
-└────────────────────────────────────────┼────────────────────────────────────┘
-                                         │
-                                    Claude Web
++---------------------------------------------------------------------------+
+|                              HOMELAB NETWORK                               |
+|                                                                            |
+|  +---------------------------------------------------------------------+  |
+|  |                         MCPbox (Docker Compose)                      |  |
+|  |                                                                      |  |
+|  |   LOCAL ONLY (127.0.0.1)                    PRIVATE TUNNEL           |  |
+|  |   +----------+  +--------------+           +--------------+         |  |
+|  |   | Frontend |  |   Backend    |           | MCP Gateway  |         |  |
+|  |   | (React)  |<-|  (FastAPI)   |           | (FastAPI)    |<-- cloudflared
+|  |   | :3000    |  |  :8000       |           | :8002        |   (no public URL)
+|  |   +----------+  |  /api/*      |           | /mcp ONLY    |         |  |
+|  |                  +------+------+           +------+-------+         |  |
+|  |                         |                         |                 |  |
+|  |                         +---------+---------------+                 |  |
+|  |                                   |                                 |  |
+|  |   +------------+     +--------------------------+                   |  |
+|  |   | PostgreSQL |<----|     Shared Sandbox       |                   |  |
+|  |   |   :5432    |     |        :8001             |                   |  |
+|  |   +------------+     +--------------------------+                   |  |
+|  |                                                                      |  |
+|  +----------------------------------------------------------------------+  |
+|                                                                            |
+|  LOCAL ACCESS ONLY: Admin panel (frontend + /api/*) bound to 127.0.0.1    |
+|                                                                            |
++---------------------------------------------------------------------------+
+                                        |
+                                        | Workers VPC (private)
+                                        |
++---------------------------------------+-----------------------------------+
+|                            Cloudflare (Optional)                           |
+|                                                                            |
+|  +--------------------------------------------------------------------+   |
+|  |                    Cloudflare Worker                                |   |
+|  |              (mcpbox-proxy.you.workers.dev)                        |   |
+|  |                                                                     |   |
+|  |  - @cloudflare/workers-oauth-provider wrapper                      |   |
+|  |  - OAuth 2.1 (downstream to MCP clients)                          |   |
+|  |  - OIDC upstream to Cloudflare Access for SaaS (user identity)    |   |
+|  |  - Accesses tunnel via Workers VPC binding (private)               |   |
+|  |  - Adds X-MCPbox-Service-Token header                              |   |
+|  |  - Sets X-MCPbox-User-Email from OIDC-verified id_token           |   |
+|  +--------------------------------------------------------------------+   |
+|                                        ^                                   |
+|                                        | MCP Protocol (HTTPS)              |
+|                                        |                                   |
++----------------------------------------+----------------------------------+
+                                         |
+                     MCP Clients (Claude Web, etc.)
 ```
 
 ### Container Architecture
@@ -131,19 +136,19 @@ services:
 ### Trust Boundaries
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│ TRUSTED: Your Infrastructure                                    │
-│  - MCPbox containers (frontend, backend, gateway, postgres)    │
-│  - Cloudflare tunnel                                            │
-│  - Your network                                                 │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│ UNTRUSTED: User-Created Tool Code                               │
-│  - Python code submitted via mcpbox_create_tool                │
-│  - Runs in shared sandbox with restricted builtins             │
-└─────────────────────────────────────────────────────────────────┘
++-----------------------------------------------------------------+
+| TRUSTED: Your Infrastructure                                     |
+|  - MCPbox containers (frontend, backend, gateway, postgres)     |
+|  - Cloudflare tunnel                                             |
+|  - Your network                                                  |
++-----------------------------------------------------------------+
+                              |
+                              v
++-----------------------------------------------------------------+
+| UNTRUSTED: User-Created Tool Code                                |
+|  - Python code submitted via mcpbox_create_tool                 |
+|  - Runs in shared sandbox with restricted builtins              |
++-----------------------------------------------------------------+
 ```
 
 ### Sandbox Security
@@ -180,57 +185,57 @@ Tool code runs in a shared sandbox container with application-level protections:
 Tools are created programmatically by external LLMs via `mcpbox_*` MCP tools:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                  TOOL CREATION WORKFLOW                           │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  1. LLM creates server with mcpbox_create_server                │
-│                                                                  │
-│  2. LLM creates tool with mcpbox_create_tool (draft status)     │
-│     └─► Python code with async def main() entry point           │
-│                                                                  │
-│  3. LLM tests code with mcpbox_test_code                        │
-│     └─► Validates execution in sandbox without saving           │
-│                                                                  │
-│  4. LLM validates code with mcpbox_validate_code                │
-│     └─► Checks syntax, module usage, security constraints       │
-│                                                                  │
-│  5. LLM requests publish with mcpbox_request_publish            │
-│     └─► Tool moves to pending_review status                     │
-│                                                                  │
-│  6. Admin reviews in UI at /approvals                           │
-│     └─► Approves or rejects with reason                         │
-│                                                                  │
-│  7. If approved, tool becomes available in tools/list            │
-│     If rejected, LLM can revise and re-submit                   │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
++-----------------------------------------------------------------+
+|                  TOOL CREATION WORKFLOW                           |
++-----------------------------------------------------------------+
+|                                                                  |
+|  1. LLM creates server with mcpbox_create_server               |
+|                                                                  |
+|  2. LLM creates tool with mcpbox_create_tool (draft status)    |
+|     +-> Python code with async def main() entry point           |
+|                                                                  |
+|  3. LLM tests code with mcpbox_test_code                       |
+|     +-> Validates execution in sandbox without saving           |
+|                                                                  |
+|  4. LLM validates code with mcpbox_validate_code               |
+|     +-> Checks syntax, module usage, security constraints       |
+|                                                                  |
+|  5. LLM requests publish with mcpbox_request_publish            |
+|     +-> Tool moves to pending_review status                     |
+|                                                                  |
+|  6. Admin reviews in UI at /approvals                           |
+|     +-> Approves or rejects with reason                         |
+|                                                                  |
+|  7. If approved, tool becomes available in tools/list           |
+|     If rejected, LLM can revise and re-submit                   |
+|                                                                  |
++-----------------------------------------------------------------+
 ```
 
 ### Credential Management
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                   CREDENTIAL STORAGE                             │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  PostgreSQL (encrypted at rest)                                  │
-│  ├─► API keys (AES-256-GCM encrypted)                           │
-│  ├─► OAuth tokens (AES-256-GCM encrypted)                       │
-│  └─► Refresh tokens (AES-256-GCM encrypted)                     │
-│                                                                  │
-│  Encryption key: MCPBOX_ENCRYPTION_KEY env variable              │
-│  ├─► User provides: openssl rand -hex 32                        │
-│  └─► Per-value random IV, authenticated encryption              │
-│                                                                  │
-│  Credentials passed to sandbox via:                              │
-│  └─► Environment variables at execution time                    │
-│                                                                  │
-│  Credential scoping:                                             │
-│  ├─► Each MCP server has its own credential namespace           │
-│  └─► Server A cannot access Server B's credentials              │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
++-----------------------------------------------------------------+
+|                   CREDENTIAL STORAGE                             |
++-----------------------------------------------------------------+
+|                                                                  |
+|  PostgreSQL (encrypted at rest)                                  |
+|  +-> API keys (AES-256-GCM encrypted)                           |
+|  +-> OAuth tokens (AES-256-GCM encrypted)                       |
+|  +-> Refresh tokens (AES-256-GCM encrypted)                     |
+|                                                                  |
+|  Encryption key: MCPBOX_ENCRYPTION_KEY env variable              |
+|  +-> User provides: openssl rand -hex 32                        |
+|  +-> Per-value random IV, authenticated encryption              |
+|                                                                  |
+|  Credentials passed to sandbox via:                              |
+|  +-> Environment variables at execution time                    |
+|                                                                  |
+|  Credential scoping:                                             |
+|  +-> Each MCP server has its own credential namespace           |
+|  +-> Server A cannot access Server B's credentials              |
+|                                                                  |
++-----------------------------------------------------------------+
 ```
 
 ---
@@ -241,19 +246,19 @@ Tools are created programmatically by external LLMs via `mcpbox_*` MCP tools:
 
 ```
 frontend/
-├── src/
-│   ├── components/
-│   │   ├── ServerList/          # List of MCP servers
-│   │   ├── CodePreview/         # Code viewer for tools
-│   │   ├── Server/              # Server management components
-│   │   ├── Tunnel/              # Cloudflare tunnel health
-│   │   ├── Layout/              # App layout components
-│   │   ├── shared/              # Shared components
-│   │   └── ui/                  # Base UI components
-│   ├── pages/                   # Route components
-│   └── api/                     # Backend API client
-├── package.json
-└── Dockerfile
++-- src/
+|   +-- components/
+|   |   +-- ServerList/          # List of MCP servers
+|   |   +-- CodePreview/         # Code viewer for tools
+|   |   +-- Server/              # Server management components
+|   |   +-- Tunnel/              # Cloudflare tunnel health
+|   |   +-- Layout/              # App layout components
+|   |   +-- shared/              # Shared components
+|   |   +-- ui/                  # Base UI components
+|   +-- pages/                   # Route components
+|   +-- api/                     # Backend API client
++-- package.json
++-- Dockerfile
 ```
 
 **Key Libraries:**
@@ -266,47 +271,47 @@ frontend/
 
 ```
 backend/
-├── app/
-│   ├── main.py                  # FastAPI application (admin API)
-│   ├── mcp_only.py              # MCP gateway application (separate service)
-│   ├── api/
-│   │   ├── router.py            # Aggregates all /api routes
-│   │   ├── servers.py           # MCP server CRUD
-│   │   ├── tools.py             # Tool management
-│   │   ├── sandbox.py           # Sandbox management
-│   │   ├── tunnel.py            # Tunnel configuration
-│   │   ├── cloudflare.py        # Cloudflare setup wizard API
-│   │   ├── mcp_gateway.py       # MCP gateway routes (/mcp)
-│   │   ├── approvals.py         # Tool/module approval endpoints
-│   │   ├── credentials.py       # Credential management
-│   │   ├── activity.py          # Activity logging + WebSocket
-│   │   ├── dashboard.py         # Dashboard stats
-│   │   ├── export_import.py     # Server/tool export/import
-│   │   ├── settings.py          # App settings
-│   │   ├── oauth.py             # OAuth token management
-│   │   └── config.py            # Server config endpoints
-│   ├── services/
-│   │   ├── mcp_management.py    # MCP management tools (mcpbox_*)
-│   │   ├── cloudflare.py        # Cloudflare API integration
-│   │   ├── crypto.py            # AES-256-GCM credential encryption
-│   │   ├── sandbox_client.py    # HTTP client for sandbox communication
-│   │   └── ...
-│   ├── models/
-│   │   ├── server.py            # Server model
-│   │   ├── tool.py              # Tool model
-│   │   ├── credential.py        # Encrypted credential model
-│   │   ├── activity_log.py      # Activity log model
-│   │   ├── admin_user.py        # Admin user model
-│   │   ├── cloudflare_config.py # Cloudflare wizard state
-│   │   ├── tunnel_configuration.py # Named tunnel configs
-│   │   └── ...
-│   └── core/
-│       ├── config.py            # Settings
-│       ├── security.py          # Auth utilities (JWT, Argon2id)
-│       └── database.py          # DB connection
-├── alembic/                     # Database migrations
-├── requirements.txt
-└── Dockerfile
++-- app/
+|   +-- main.py                  # FastAPI application (admin API)
+|   +-- mcp_only.py              # MCP gateway application (separate service)
+|   +-- api/
+|   |   +-- router.py            # Aggregates all /api routes
+|   |   +-- servers.py           # MCP server CRUD
+|   |   +-- tools.py             # Tool management
+|   |   +-- sandbox.py           # Sandbox management
+|   |   +-- tunnel.py            # Tunnel configuration
+|   |   +-- cloudflare.py        # Cloudflare setup wizard API
+|   |   +-- mcp_gateway.py       # MCP gateway routes (/mcp)
+|   |   +-- approvals.py         # Tool/module approval endpoints
+|   |   +-- credentials.py       # Credential management
+|   |   +-- activity.py          # Activity logging + WebSocket
+|   |   +-- dashboard.py         # Dashboard stats
+|   |   +-- export_import.py     # Server/tool export/import
+|   |   +-- settings.py          # App settings
+|   |   +-- oauth.py             # OAuth token management
+|   |   +-- config.py            # Server config endpoints
+|   +-- services/
+|   |   +-- mcp_management.py    # MCP management tools (mcpbox_*)
+|   |   +-- cloudflare.py        # Cloudflare API integration
+|   |   +-- crypto.py            # AES-256-GCM credential encryption
+|   |   +-- sandbox_client.py    # HTTP client for sandbox communication
+|   |   +-- ...
+|   +-- models/
+|   |   +-- server.py            # Server model
+|   |   +-- tool.py              # Tool model
+|   |   +-- credential.py        # Encrypted credential model
+|   |   +-- activity_log.py      # Activity log model
+|   |   +-- admin_user.py        # Admin user model
+|   |   +-- cloudflare_config.py # Cloudflare wizard state
+|   |   +-- tunnel_configuration.py # Named tunnel configs
+|   |   +-- ...
+|   +-- core/
+|       +-- config.py            # Settings
+|       +-- security.py          # Auth utilities (JWT, Argon2id)
+|       +-- database.py          # DB connection
++-- alembic/                     # Database migrations
++-- requirements.txt
++-- Dockerfile
 ```
 
 **Key Libraries:**
@@ -323,7 +328,7 @@ The MCP gateway runs as a **separate Docker service** (`mcp-gateway:8002`) using
 **Responsibilities:**
 - Terminate MCP Streamable HTTP connections from Claude
 - Validate service token header (remote mode) or allow all (local mode)
-- Verify JWT from Cf-Access-Jwt-Assertion (remote mode)
+- Trust Worker-supplied `X-MCPbox-User-Email` header (when valid service token is present)
 - Proxy tool execution requests to the sandbox
 - Aggregate tool listings from all enabled servers
 - Log all requests for observability
@@ -332,33 +337,36 @@ The MCP gateway runs as a **separate Docker service** (`mcp-gateway:8002`) using
 
 ```
 sandbox/
-├── app/
-│   ├── routes.py              # Tool execution API, /execute endpoint
-│   ├── registry.py            # Dynamic tool registration
-│   ├── executor.py            # Python code execution with safety checks
-│   ├── ssrf.py                # SSRF prevention for HTTP clients
-│   ├── osv_client.py          # OSV vulnerability checking for modules
-│   └── pypi_client.py         # PyPI package info client
-├── requirements.txt
-└── Dockerfile
++-- app/
+|   +-- routes.py              # Tool execution API, /execute endpoint
+|   +-- registry.py            # Dynamic tool registration
+|   +-- executor.py            # Python code execution with safety checks
+|   +-- ssrf.py                # SSRF prevention for HTTP clients
+|   +-- osv_client.py          # OSV vulnerability checking for modules
+|   +-- pypi_client.py         # PyPI package info client
++-- requirements.txt
++-- Dockerfile
 ```
 
 ### 5. Cloudflare Worker (MCP Proxy)
 
 ```
 worker/
-├── src/index.ts               # Worker code with OAuth 2.1 provider
-├── wrangler.toml              # Generated by deploy-worker.sh (gitignored)
-└── package.json
++-- src/
+|   +-- index.ts               # Worker code with OAuth 2.1 provider
+|   +-- access-handler.ts      # OIDC upstream auth handler (Cloudflare Access for SaaS)
++-- wrangler.toml              # Generated by deploy-worker.sh (gitignored)
++-- package.json
 ```
 
 **Security features:**
 - Wrapped with `@cloudflare/workers-oauth-provider`
 - Path whitelist: only `/mcp` and `/health` allowed
-- JWT verification (RS256) with JWKS caching
+- OIDC upstream: verifies id_token from Cloudflare Access (RS256, JWKS, iss/aud/nonce/exp/nbf)
 - CORS restricted to `claude.ai` domains
 - Service token injection (`X-MCPbox-Service-Token`)
-- User email extraction from JWT for audit logging
+- User email from OIDC id_token stored in encrypted OAuth token props, set as `X-MCPbox-User-Email`
+- Auth method is always `oidc`
 
 ### 6. MCP Management Tools
 
@@ -381,47 +389,44 @@ See `docs/MCP-MANAGEMENT-TOOLS.md` for complete documentation.
 
 ```
                         LOCAL MODE                         REMOTE MODE
-                        ──────────                         ───────────
+                        ----------                         -----------
 Claude Desktop                                Claude Web
-    │                                             │
-    │ HTTP (localhost)                            │ MCP Protocol (HTTPS)
-    │                                             ▼
-    │                                     MCP Server Portal (OAuth)
-    │                                             │
-    │                                             │ Cf-Access-Jwt-Assertion
-    │                                             ▼
-    │                                     Cloudflare Worker
-    │                                             │
-    │                                             │ + X-MCPbox-Service-Token
-    │                                             │ + X-MCPbox-User-Email
-    │                                             ▼
-    │                                     Workers VPC Binding (private)
-    │                                             │
-    └─────────────────┬───────────────────────────┘
-                      │
-                      ▼
+    |                                             |
+    | HTTP (localhost)                            | MCP Protocol (HTTPS)
+    |                                             v
+    |                                     Cloudflare Worker
+    |                                     (OAuth 2.1 + OIDC upstream)
+    |                                             |
+    |                                             | + X-MCPbox-Service-Token
+    |                                             | + X-MCPbox-User-Email (from OIDC)
+    |                                             v
+    |                                     Workers VPC Binding (private)
+    |                                             |
+    +-----------------+---------------------------+
+                      |
+                      v
           MCP Gateway (mcp-gateway:8002)
-                      │
-                      ├─► Validate service token (remote mode)
-                      ├─► Allow all (local mode)
-                      ├─► Parse MCP request
-                      │
-                      ▼
-          ┌─────────────────────────────────────┐
-          │         Request Router              │
-          ├─────────────────────────────────────┤
-          │ initialize  → Return capabilities   │
-          │ tools/list  → Aggregate all servers │
-          │ tools/call  → Route to sandbox      │
-          └─────────────────────────────────────┘
-                      │
-                      │ HTTP (internal sandbox network)
-                      ▼
+                      |
+                      +-> Validate service token (remote mode)
+                      +-> Allow all (local mode)
+                      +-> Parse MCP request
+                      |
+                      v
+          +-------------------------------------+
+          |         Request Router              |
+          +-------------------------------------+
+          | initialize  -> Return capabilities  |
+          | tools/list  -> Aggregate all servers|
+          | tools/call  -> Route to sandbox     |
+          +-------------------------------------+
+                      |
+                      | HTTP (internal sandbox network)
+                      v
           Shared Sandbox (:8001)
-                      │
-                      │ Execute Python code
-                      │
-                      ▼
+                      |
+                      | Execute Python code
+                      |
+                      v
           Response back through chain
 ```
 
@@ -465,7 +470,7 @@ MCPbox uses PostgreSQL with SQLAlchemy async ORM. Key tables:
 | Table | Purpose |
 |-------|---------|
 | `tunnel_configurations` | Named tunnel configurations |
-| `cloudflare_configs` | Cloudflare wizard state (tunnel, VPC, Worker, MCP server/portal) |
+| `cloudflare_configs` | Cloudflare wizard state (tunnel, VPC, Worker, Access for SaaS OIDC) |
 
 ---
 
@@ -516,8 +521,7 @@ POST   /api/cloudflare/verify-token       # Verify Cloudflare API token
 POST   /api/cloudflare/tunnel             # Create tunnel
 POST   /api/cloudflare/vpc-service        # Create VPC service
 POST   /api/cloudflare/worker             # Deploy Worker
-POST   /api/cloudflare/mcp-server         # Create MCP server
-POST   /api/cloudflare/mcp-portal         # Create MCP portal
+POST   /api/cloudflare/access             # Configure Access for SaaS (OIDC)
 ```
 
 **Other:**
@@ -594,15 +598,17 @@ MCPbox uses a **hybrid authentication model**:
 | Mode | Auth | Use Case |
 |------|------|----------|
 | Local (no service token in DB) | None | Claude Desktop via localhost |
-| Remote (service token from wizard) | OAuth 2.1 + JWT + service token | Claude Web via Cloudflare |
+| Remote (service token from wizard) | OAuth 2.1 + OIDC + service token | Claude Web via Cloudflare |
 
 **Remote mode auth paths:**
 
 | Request Source | Auth | Allowed Operations |
 |---|---|---|
-| User via MCP Portal | OAuth + Cf-Access-Jwt-Assertion | All (list + execute) |
-| Cloudflare sync | OAuth only | Sync only (list, initialize) |
+| User via OIDC | OAuth + OIDC-verified email (in token props) | All (list + execute) |
+| Cloudflare sync | OAuth only (no user email) | Sync only (list, initialize) |
 | Unauthenticated | Rejected 401 | None |
+
+User identity comes from OIDC id_token verified at authorization time by the Worker. The verified email is stored in encrypted OAuth token props and set as `X-MCPbox-User-Email` on proxied requests. The gateway trusts this header when a valid service token is present. The `auth_method` is always `oidc` for remote requests.
 
 ---
 
@@ -612,3 +618,4 @@ MCPbox uses a **hybrid authentication model**:
 - [FastMCP Documentation](https://gofastmcp.com/)
 - [Docker Security Best Practices](https://docs.docker.com/engine/security/)
 - [Cloudflare Tunnel Documentation](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
+- [Cloudflare Access for SaaS](https://developers.cloudflare.com/cloudflare-one/applications/configure-apps/saas-apps/)
