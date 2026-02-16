@@ -186,7 +186,7 @@ A remote request is "anonymous" when it has no verified user email. With OIDC, a
 | Method | Local User | OIDC User (email) | Anonymous Remote (no email) |
 |--------|-----------|---------------------|----------------------------|
 | `initialize` | Allowed | Allowed | **Allowed** |
-| `tools/list` | Allowed | Allowed | **Allowed** |
+| `tools/list` | Allowed | Allowed | **Blocked** (-32600) |
 | `notifications/*` | Allowed (202) | Allowed (202) | **Allowed** (202) |
 | `tools/call` | Allowed | Allowed | **Blocked** (-32600) |
 | Unknown methods | Allowed (forwarded) | Allowed (forwarded) | **Blocked** (-32600) |
@@ -247,8 +247,8 @@ Cloudflare sync sends requests to `/mcp`, not `/`. The URL rewriting must handle
 ### Redirect URI Allowlist (Bug #3, #6)
 The Cloudflare dashboard (`one.dash.cloudflare.com`) must be in the redirect URI allowlist.
 
-### Sync Methods Work Without Email, Tool Execution Requires Email (Bug #5)
-Cloudflare's MCP server sync authenticates via OAuth only (no user email). Sync-only methods (`initialize`, `tools/list`, `notifications/*`) are allowed with a valid service token. Tool execution (`tools/call`) and unknown methods require a verified user email from OIDC authentication. This prevents anonymous tool execution.
+### Sync Methods Work Without Email, Tool Access Requires Email (Bug #5)
+Cloudflare's MCP server sync authenticates via OAuth only (no user email). Only protocol-level methods (`initialize`, `notifications/*`) are allowed without a verified email. Tool listing (`tools/list`), tool execution (`tools/call`), and unknown methods require a verified user email from OIDC authentication. This prevents both anonymous tool enumeration and execution.
 
 ### Service Token Must Return 403, Not 401
 Returning 401 for service token failures triggers Cloudflare's OAuth re-auth logic. Always return 403 for service token mismatches.

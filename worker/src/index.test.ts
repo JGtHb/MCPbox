@@ -165,7 +165,9 @@ describe('MCPbox Proxy Worker', () => {
       expect(body.scopes_supported).toEqual([]);
     });
 
-    it('GET /.well-known/oauth-protected-resource/mcp returns PRM with /mcp resource', async () => {
+    it('GET /.well-known/oauth-protected-resource/mcp returns PRM with origin-only resource', async () => {
+      // resource MUST be origin-only (no path) to avoid audience mismatch
+      // with OAuthProvider, which computes resourceServer as origin-only.
       const request = new Request(
         'https://my-worker.workers.dev/.well-known/oauth-protected-resource/mcp',
         { method: 'GET' },
@@ -177,7 +179,7 @@ describe('MCPbox Proxy Worker', () => {
 
       expect(response.status).toBe(200);
       const body = await response.json() as Record<string, unknown>;
-      expect(body.resource).toBe('https://my-worker.workers.dev/mcp');
+      expect(body.resource).toBe('https://my-worker.workers.dev');
       expect(body.authorization_servers).toEqual(['https://my-worker.workers.dev']);
     });
 
@@ -580,6 +582,40 @@ describe('MCPbox Proxy Worker', () => {
       // No redirect_uri → no validation error
       expect(response.status).not.toBe(400);
     });
+
+    it('rate-limits /token auto-registration (shares counter with /register)', async () => {
+      const mockKv = createMockKV();
+      // Simulate rate limit already at threshold
+      mockKv.get.mockImplementation(async (key: string) => {
+        if (key.startsWith('ratelimit:register:')) return '10';
+        if (key.startsWith('client:')) return null; // client not registered
+        return null;
+      });
+      const env = createBaseEnv({ OAUTH_KV: mockKv });
+      const params = new URLSearchParams({
+        client_id: 'new-rate-limited-client',
+        redirect_uri: 'https://mcp.claude.ai/callback',
+        grant_type: 'authorization_code',
+        code: 'test-code',
+      });
+      const request = new Request('https://example.com/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'CF-Connecting-IP': '1.2.3.4',
+        },
+        body: params.toString(),
+      });
+      const ctx = createExecutionContext();
+
+      const response = await worker.fetch(request, env, ctx as any);
+
+      expect(response.status).toBe(429);
+      const body = await response.json() as { error: string };
+      expect(body.error).toBe('too_many_requests');
+      // Should NOT have registered the client
+      expect(mockKv.put).not.toHaveBeenCalled();
+    });
   });
 
   // ===========================================================================
@@ -740,7 +776,7 @@ describe('MCPbox Proxy Worker', () => {
       const response = await worker.fetch(request, env, ctx as any);
 
       expect(response.headers.get('Access-Control-Allow-Methods')).toBe('GET, POST, DELETE, OPTIONS');
-      expect(response.headers.get('Access-Control-Allow-Headers')).toBe('Content-Type, Authorization');
+      expect(response.headers.get('Access-Control-Allow-Headers')).toBe('Content-Type, Authorization, Mcp-Session-Id');
     });
   });
 
@@ -1106,7 +1142,9 @@ describe('MCPbox Proxy Worker', () => {
       expect(wwwAuth).not.toContain('/.well-known/oauth-protected-resource/mcp');
     });
 
-    it('401 for /mcp includes WWW-Authenticate with /mcp resource_metadata', async () => {
+    it('401 for /mcp includes WWW-Authenticate with resource_metadata', async () => {
+      // PRM URL is always origin-only (no /mcp suffix) to match the
+      // resource field in PRM responses and avoid audience mismatch.
       const mockVpc = createMockVpcService({ error: 'Unauthorized' }, 401);
       const env = createBaseEnv({ MCPBOX_TUNNEL: mockVpc });
       const request = new Request('https://my-worker.workers.dev/mcp', {
@@ -1122,7 +1160,9 @@ describe('MCPbox Proxy Worker', () => {
       const wwwAuth = response.headers.get('WWW-Authenticate');
       expect(wwwAuth).toBeTruthy();
       expect(wwwAuth).toContain('resource_metadata=');
-      expect(wwwAuth).toContain('/.well-known/oauth-protected-resource/mcp');
+      expect(wwwAuth).toContain('/.well-known/oauth-protected-resource');
+      // Should NOT contain /mcp suffix — PRM URL is origin-only
+      expect(wwwAuth).not.toContain('/.well-known/oauth-protected-resource/mcp');
     });
 
     it('non-MCP-path 401 does NOT get resource_metadata added', async () => {

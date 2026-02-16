@@ -19,6 +19,8 @@ import os
 
 import httpx
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 # MCP Gateway URL for cross-process notifications.
@@ -36,9 +38,13 @@ async def notify_tools_changed_via_gateway() -> None:
     Used by the backend process (admin API, approval endpoints).
     """
     try:
+        headers: dict[str, str] = {}
+        if settings.sandbox_api_key:
+            headers["Authorization"] = f"Bearer {settings.sandbox_api_key}"
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{MCP_GATEWAY_URL}/mcp/internal/notify-tools-changed",
+                headers=headers,
                 timeout=2.0,
             )
             if response.status_code == 200:

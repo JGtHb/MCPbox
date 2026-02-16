@@ -483,12 +483,14 @@ async function validateOAuthState(
 
   try {
     const parsed = JSON.parse(stored);
-    // Handle both old format (AuthRequest directly) and new format ({ oauthReqInfo, nonce })
-    if (parsed.oauthReqInfo) {
+    // Require the current format with oauthReqInfo and nonce.
+    // Legacy format (AuthRequest without nonce) is no longer supported —
+    // all legacy state entries have expired (5-minute TTL).
+    if (parsed.oauthReqInfo && parsed.nonce) {
       return parsed as OAuthStateData;
     }
-    // Legacy: stored was just AuthRequest
-    return { oauthReqInfo: parsed as AuthRequest, nonce: '' };
+    console.warn('SECURITY: Rejected OAuth state with missing oauthReqInfo or nonce');
+    return null;
   } catch {
     return null;
   }
