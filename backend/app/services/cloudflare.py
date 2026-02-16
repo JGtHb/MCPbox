@@ -488,8 +488,7 @@ class CloudflareService:
                 success=True,
                 tunnel_id=tunnel_id,
                 tunnel_name=tunnel_name,
-                tunnel_token=tunnel_token,
-                message="Tunnel created. Use 'Start Tunnel' button or the Tunnel page to connect.",
+                message="Tunnel created. Token stored securely in database. Use 'Start Tunnel' button or the Tunnel page to connect.",
             )
 
         except CloudflareAPIError as e:
@@ -840,8 +839,8 @@ id = "{kv_namespace_id}"
             except CloudflareAPIError:
                 pass
 
-            # Store the service token encrypted for reference
-            config.encrypted_service_token = encrypt_to_base64(service_token)
+            # Store the service token encrypted with AAD context binding
+            config.encrypted_service_token = encrypt_to_base64(service_token, aad="service_token")
             config.worker_name = name
             config.worker_url = worker_url
             config.completed_step = max(config.completed_step, 4)
@@ -859,8 +858,7 @@ id = "{kv_namespace_id}"
                 success=True,
                 worker_name=name,
                 worker_url=worker_url,
-                service_token=service_token,
-                message="Worker deployed with VPC binding. Service token stored securely.",
+                message="Worker deployed with VPC binding. Service token stored securely in database.",
             )
 
         except CloudflareAPIError as e:

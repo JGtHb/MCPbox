@@ -12,6 +12,7 @@ authorization time via the OIDC id_token from Cloudflare Access.
 """
 
 import logging
+import re
 import secrets
 import time
 from collections import defaultdict
@@ -21,6 +22,11 @@ from fastapi import Header, HTTPException, Request, status
 from pydantic import BaseModel
 
 from app.services.service_token_cache import ServiceTokenCache
+
+# Email format validation pattern — defense-in-depth against audit log poisoning
+# when service token is compromised. Rejects path traversal, control chars, etc.
+_EMAIL_PATTERN = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+_MAX_EMAIL_LENGTH = 254  # RFC 5321 max email length
 
 logger = logging.getLogger(__name__)
 
@@ -103,9 +109,22 @@ async def verify_mcp_auth(
 
         # Valid service token — extract user email from Worker-supplied header.
         # The Worker verified identity via OIDC at authorization time.
+        # SECURITY: Validate email format to prevent audit log poisoning
+        # if service token is compromised. Rejects path traversal, control chars, etc.
         email: str | None = None
         forwarded_email = request.headers.get("X-MCPbox-User-Email")
         if forwarded_email:
+            if len(forwarded_email) > _MAX_EMAIL_LENGTH or not _EMAIL_PATTERN.match(
+                forwarded_email
+            ):
+                logger.warning(
+                    "MCP gateway: invalid email format from Worker: %r",
+                    forwarded_email[:100],
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid user email format",
+                )
             email = forwarded_email
             logger.info("MCP gateway: OIDC-verified email from Worker: %s", email)
 

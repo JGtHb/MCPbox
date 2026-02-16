@@ -104,10 +104,20 @@ async function handleAuthorizePost(
 ): Promise<Response> {
   const formData = await request.formData();
 
-  // Validate CSRF token
+  // Validate CSRF token using constant-time comparison to prevent timing attacks
   const csrfFromForm = formData.get('csrf_token');
   const csrfFromCookie = getCookieValue(request, 'mcpbox_csrf');
-  if (!csrfFromForm || !csrfFromCookie || csrfFromForm !== csrfFromCookie) {
+  if (!csrfFromForm || !csrfFromCookie) {
+    return new Response('CSRF validation failed', { status: 403 });
+  }
+  // Use constant-time comparison (TextEncoder + timingSafeEqual pattern)
+  const formBytes = new TextEncoder().encode(String(csrfFromForm));
+  const cookieBytes = new TextEncoder().encode(String(csrfFromCookie));
+  if (formBytes.byteLength !== cookieBytes.byteLength) {
+    return new Response('CSRF validation failed', { status: 403 });
+  }
+  const csrfMatch = crypto.subtle.timingSafeEqual(formBytes, cookieBytes);
+  if (!csrfMatch) {
     return new Response('CSRF validation failed', { status: 403 });
   }
 

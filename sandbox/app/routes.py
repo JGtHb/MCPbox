@@ -19,6 +19,7 @@ from slowapi.util import get_remote_address
 from app.auth import verify_api_key
 from app.executor import (
     DEFAULT_ALLOWED_MODULES,
+    SafeModuleProxy,
     SizeLimitedStringIO,
     create_safe_builtins,
     validate_code_safety,
@@ -642,8 +643,10 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
 
     namespace = {
         "__builtins__": safe_builtins_with_import,
-        "json": json_module,
-        "datetime": datetime_module,  # datetime module (matches published tools)
+        # Wrap modules with SafeModuleProxy to prevent attribute traversal
+        # (e.g., datetime.sys.modules["os"].popen("id"))
+        "json": SafeModuleProxy(json_module, name="json"),
+        "datetime": SafeModuleProxy(datetime_module, name="datetime"),
         "arguments": body.arguments,
         "secrets": MappingProxyType(body.secrets),  # Read-only secrets dict
         "result": None,

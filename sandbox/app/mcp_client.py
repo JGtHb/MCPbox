@@ -47,7 +47,10 @@ class MCPClient:
     async def __aenter__(self) -> "MCPClient":
         self._client = httpx.AsyncClient(
             timeout=self.timeout,
-            follow_redirects=True,
+            # SECURITY: Disable redirect following to prevent SSRF attacks.
+            # An attacker-controlled MCP server could redirect to internal
+            # services (e.g., cloud metadata at 169.254.169.254).
+            follow_redirects=False,
         )
         return self
 

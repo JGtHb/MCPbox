@@ -64,7 +64,9 @@ class ServiceTokenCache:
 
         if config and config.encrypted_service_token:
             try:
-                self._token = decrypt_from_base64(config.encrypted_service_token)
+                self._token = decrypt_from_base64(
+                    config.encrypted_service_token, aad="service_token"
+                )
                 self._decryption_error = False
                 logger.info("Service token loaded from database (remote auth enabled)")
             except DecryptionError:
