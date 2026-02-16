@@ -1,6 +1,5 @@
 """Tests for the MCP client used for external server discovery and proxying."""
 
-import json
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -424,12 +423,12 @@ class TestCloudflareDetection:
                     await client.initialize()
 
 
-class TestBrowserHeaders:
-    """Tests for browser-like headers on the HTTP client."""
+class TestClientHeaders:
+    """Tests for MCPbox client headers."""
 
     @pytest.mark.asyncio
     async def test_user_agent_is_set(self):
-        """Client sends browser-like User-Agent instead of python-httpx default."""
+        """Client sends honest MCPbox User-Agent."""
         with patch("app.mcp_client.httpx.AsyncClient") as MockClient:
             mock_client = AsyncMock()
             mock_client.post.return_value = httpx.Response(

@@ -7,7 +7,7 @@ export interface ExternalMCPSource {
   server_id: string
   name: string
   url: string
-  auth_type: 'none' | 'bearer' | 'header'
+  auth_type: 'none' | 'bearer' | 'header' | 'oauth'
   auth_secret_name: string | null
   auth_header_name: string | null
   transport_type: 'streamable_http' | 'sse'
@@ -16,12 +16,15 @@ export interface ExternalMCPSource {
   tool_count: number
   created_at: string
   updated_at: string
+  oauth_issuer: string | null
+  oauth_client_id: string | null
+  oauth_authenticated: boolean
 }
 
 export interface ExternalMCPSourceCreateInput {
   name: string
   url: string
-  auth_type?: 'none' | 'bearer' | 'header'
+  auth_type?: 'none' | 'bearer' | 'header' | 'oauth'
   auth_secret_name?: string
   auth_header_name?: string
   transport_type?: 'streamable_http' | 'sse'
@@ -48,6 +51,11 @@ export interface ToolResponse {
   enabled: boolean
   tool_type: string
   approval_status: string
+}
+
+export interface OAuthStartResponse {
+  auth_url: string
+  issuer: string
 }
 
 // Query keys
@@ -96,6 +104,26 @@ export async function importTools(
   return api.post<ToolResponse[]>(
     `/api/external-sources/sources/${sourceId}/import`,
     { tool_names: toolNames }
+  )
+}
+
+export async function startOAuth(
+  sourceId: string,
+  callbackUrl: string
+): Promise<OAuthStartResponse> {
+  return api.post<OAuthStartResponse>(
+    `/api/external-sources/sources/${sourceId}/oauth/start`,
+    { callback_url: callbackUrl }
+  )
+}
+
+export async function exchangeOAuthCode(
+  state: string,
+  code: string
+): Promise<{ success: boolean; source_id: string }> {
+  return api.post<{ success: boolean; source_id: string }>(
+    '/api/external-sources/oauth/exchange',
+    { state, code }
   )
 }
 
@@ -152,6 +180,20 @@ export function useImportTools(serverId: string) {
       })
       // Also invalidate tools list since we created new tools
       queryClient.invalidateQueries({ queryKey: ['tools'] })
+    },
+  })
+}
+
+export function useStartOAuth(serverId: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ sourceId, callbackUrl }: { sourceId: string; callbackUrl: string }) =>
+      startOAuth(sourceId, callbackUrl),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: externalSourceKeys.list(serverId),
+      })
     },
   })
 }

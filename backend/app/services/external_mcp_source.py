@@ -14,6 +14,7 @@ from app.schemas.external_mcp_source import (
     ExternalMCPSourceCreate,
     ExternalMCPSourceUpdate,
 )
+from app.services.mcp_oauth_client import get_oauth_auth_headers
 from app.services.sandbox_client import SandboxClient
 
 logger = logging.getLogger(__name__)
@@ -108,7 +109,7 @@ class ExternalMCPSourceService:
             raise ValueError(f"External MCP source {source_id} not found")
 
         # Build auth headers from source config + server secrets
-        auth_headers = self._build_auth_headers(source, secrets or {})
+        auth_headers = await self._build_auth_headers(source, secrets or {})
 
         # Call sandbox's MCP discover endpoint
         result = await sandbox_client.discover_external_tools(
@@ -207,7 +208,7 @@ class ExternalMCPSourceService:
 
         return created_tools
 
-    def _build_auth_headers(
+    async def _build_auth_headers(
         self, source: ExternalMCPSource, secrets: dict[str, str]
     ) -> dict[str, str]:
         """Build HTTP auth headers for an external MCP source."""
@@ -215,6 +216,9 @@ class ExternalMCPSourceService:
 
         if source.auth_type == "none":
             return headers
+
+        if source.auth_type == "oauth":
+            return await self._build_oauth_headers(source)
 
         if not source.auth_secret_name:
             return headers
@@ -233,6 +237,25 @@ class ExternalMCPSourceService:
             headers[header_name] = secret_value
 
         return headers
+
+    async def _build_oauth_headers(self, source: ExternalMCPSource) -> dict[str, str]:
+        """Build auth headers from stored OAuth tokens, refreshing if needed."""
+        if not source.oauth_tokens_encrypted:
+            logger.warning(
+                f"OAuth source '{source.name}' has no tokens. "
+                f"Admin needs to authenticate via the UI."
+            )
+            return {}
+
+        async def update_tokens(new_encrypted: str) -> None:
+            source.oauth_tokens_encrypted = new_encrypted
+            await self.db.flush()
+
+        return await get_oauth_auth_headers(
+            oauth_tokens_encrypted=source.oauth_tokens_encrypted,
+            source_id=source.id,
+            db_update_callback=update_tokens,
+        )
 
     @staticmethod
     def _sanitize_tool_name(name: str) -> str:

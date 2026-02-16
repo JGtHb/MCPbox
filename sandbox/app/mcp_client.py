@@ -19,14 +19,11 @@ MCP_PROTOCOL_VERSION = "2025-03-26"
 # Fallback protocol versions if the server doesn't support our preferred version
 MCP_FALLBACK_VERSIONS = ["2024-11-05"]
 
-# Browser-like User-Agent to avoid basic bot detection on external MCP servers.
-# Many MCP servers sit behind Cloudflare or similar CDNs that block the default
-# python-httpx/X.Y.Z user-agent string.
-DEFAULT_USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/131.0.0.0 Safari/537.36"
-)
+# Honest User-Agent identifying MCPbox as a server-to-server MCP client.
+# We don't spoof browser UAs — if an external MCP server requires browser-level
+# auth (Cloudflare JS challenge), the proper fix is the MCP OAuth 2.1 flow
+# where the admin authenticates via a real browser popup.
+DEFAULT_USER_AGENT = "MCPbox/1.0.0 (MCP Client; +https://github.com/JGtHb/MCPbox)"
 
 # Patterns that indicate a Cloudflare bot-detection challenge page
 _CF_CHALLENGE_PATTERNS = [
@@ -161,11 +158,10 @@ class MCPClient:
                     f"HTTP {response.status_code}: The external MCP server is behind "
                     f"Cloudflare bot protection (JavaScript challenge). "
                     f"Automated clients cannot bypass this. "
-                    f"Options: (1) contact the MCP server operator to whitelist "
-                    f"server-to-server traffic on their MCP endpoint, "
-                    f"(2) use an API key / auth token if the server provides one, "
-                    f"(3) check if the server offers an alternate endpoint without "
-                    f"bot protection."
+                    f"Options: (1) use the OAuth auth type to authenticate via browser, "
+                    f"(2) use an API key / Bearer token if the server provides one, "
+                    f"(3) contact the MCP server operator to whitelist "
+                    f"server-to-server traffic on their MCP endpoint."
                 )
             raise MCPClientError(f"HTTP {response.status_code}: {response.text[:500]}")
 
