@@ -18,24 +18,24 @@ export function OverviewTab({ server, serverStatus, toolCount }: OverviewTabProp
   return (
     <div className="space-y-6">
       {/* Status and Controls */}
-      <div className="bg-white rounded-lg shadow p-6">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
         <div className="flex items-start justify-between">
           <div>
             <div className="flex items-center space-x-3 mb-2">
               <span
-                className={`px-3 py-1 text-sm font-medium rounded-full ${STATUS_COLORS[statusKey] || 'bg-gray-100 text-gray-800'}`}
+                className={`px-3 py-1 text-sm font-medium rounded-full ${STATUS_COLORS[statusKey] || 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300'}`}
                 role="status"
               >
                 {STATUS_LABELS[statusKey] || server.status}
               </span>
               {serverStatus && serverStatus.registered_tools > 0 && (
-                <span className="text-sm text-gray-500">
+                <span className="text-sm text-gray-500 dark:text-gray-400">
                   {serverStatus.registered_tools} tools registered
                 </span>
               )}
             </div>
             {server.description && (
-              <p className="text-gray-600">{server.description}</p>
+              <p className="text-gray-600 dark:text-gray-400">{server.description}</p>
             )}
           </div>
           <ServerControls
@@ -48,37 +48,37 @@ export function OverviewTab({ server, serverStatus, toolCount }: OverviewTabProp
 
       {/* Info Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-sm font-medium text-gray-500 mb-1">Status</h3>
-          <p className="text-2xl font-semibold text-gray-900 capitalize">{server.status}</p>
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Status</h3>
+          <p className="text-2xl font-semibold text-gray-900 dark:text-white capitalize">{server.status}</p>
         </div>
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-sm font-medium text-gray-500 mb-1">Tools</h3>
-          <p className="text-2xl font-semibold text-gray-900">{toolCount}</p>
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Tools</h3>
+          <p className="text-2xl font-semibold text-gray-900 dark:text-white">{toolCount}</p>
         </div>
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-sm font-medium text-gray-500 mb-1">Registered</h3>
-          <p className="text-2xl font-semibold text-gray-900">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Registered</h3>
+          <p className="text-2xl font-semibold text-gray-900 dark:text-white">
             {isRunning ? (serverStatus?.registered_tools ?? 0) : '-'}
           </p>
         </div>
       </div>
 
       {/* Server Info */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Server Info</h3>
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Server Info</h3>
         <dl className="space-y-3">
           <div className="flex justify-between">
-            <dt className="text-gray-500">Network Mode</dt>
-            <dd className="text-gray-900 capitalize">{server.network_mode}</dd>
+            <dt className="text-gray-500 dark:text-gray-400">Network Mode</dt>
+            <dd className="text-gray-900 dark:text-white capitalize">{server.network_mode}</dd>
           </div>
           <div className="flex justify-between">
-            <dt className="text-gray-500">Default Timeout</dt>
-            <dd className="text-gray-900">{server.default_timeout_ms}ms</dd>
+            <dt className="text-gray-500 dark:text-gray-400">Default Timeout</dt>
+            <dd className="text-gray-900 dark:text-white">{server.default_timeout_ms}ms</dd>
           </div>
           <div className="flex justify-between">
-            <dt className="text-gray-500">Created</dt>
-            <dd className="text-gray-900">
+            <dt className="text-gray-500 dark:text-gray-400">Created</dt>
+            <dd className="text-gray-900 dark:text-white">
               {new Date(server.created_at).toLocaleDateString()}
             </dd>
           </div>
@@ -86,10 +86,10 @@ export function OverviewTab({ server, serverStatus, toolCount }: OverviewTabProp
       </div>
 
       {/* Activity Tip */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
         <div className="flex items-start">
           <svg
-            className="w-5 h-5 text-blue-500 mt-0.5 mr-3 flex-shrink-0"
+            className="w-5 h-5 text-blue-500 dark:text-blue-400 mt-0.5 mr-3 flex-shrink-0"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -103,12 +103,12 @@ export function OverviewTab({ server, serverStatus, toolCount }: OverviewTabProp
             />
           </svg>
           <div>
-            <h4 className="text-sm font-medium text-blue-800">
+            <h4 className="text-sm font-medium text-blue-800 dark:text-blue-200">
               View Activity Logs
             </h4>
-            <p className="text-sm text-blue-700 mt-1">
+            <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
               Monitor requests and responses for this server in the{' '}
-              <Link to="/activity" className="underline focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded">
+              <Link to="/activity" className="underline focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 rounded">
                 Activity dashboard
               </Link>
               .

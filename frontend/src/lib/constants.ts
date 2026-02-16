@@ -8,12 +8,12 @@
 export type ServerStatus = 'imported' | 'building' | 'ready' | 'running' | 'stopped' | 'error'
 
 export const STATUS_COLORS: Record<ServerStatus, string> = {
-  imported: 'bg-gray-100 text-gray-800',
-  building: 'bg-yellow-100 text-yellow-800',
-  ready: 'bg-blue-100 text-blue-800',
-  running: 'bg-green-100 text-green-800',
-  stopped: 'bg-gray-100 text-gray-600',
-  error: 'bg-red-100 text-red-800',
+  imported: 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300',
+  building: 'bg-yellow-100 dark:bg-yellow-900/50 text-yellow-800 dark:text-yellow-300',
+  ready: 'bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300',
+  running: 'bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-300',
+  stopped: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400',
+  error: 'bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-300',
 }
 
 export const STATUS_LABELS: Record<ServerStatus, string> = {

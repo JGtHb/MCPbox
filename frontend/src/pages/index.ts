@@ -6,7 +6,7 @@ export { Login } from './Login'
 export { Setup } from './Setup'
 export { Servers } from './Servers'
 export { ServerDetail } from './ServerDetail'
-export { ServerCodePreview } from './ServerCodePreview'
+export { NotFound } from './NotFound'
 export { Tunnel } from './Tunnel'
 export { Settings } from './Settings'
 

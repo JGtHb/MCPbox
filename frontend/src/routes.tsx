@@ -5,9 +5,9 @@ import {
   Approvals,
   CloudflareWizard,
   Dashboard,
+  NotFound,
   Servers,
   ServerDetail,
-  ServerCodePreview,
   Tunnel,
   Settings,
 } from './pages'
@@ -30,10 +30,6 @@ export const router = createBrowserRouter([
         element: <ServerDetail />,
       },
       {
-        path: 'servers/:id/preview',
-        element: <ServerCodePreview />,
-      },
-      {
         path: 'tunnel',
         element: <Tunnel />,
       },
@@ -52,6 +48,10 @@ export const router = createBrowserRouter([
       {
         path: 'settings',
         element: <Settings />,
+      },
+      {
+        path: '*',
+        element: <NotFound />,
       },
     ],
   },

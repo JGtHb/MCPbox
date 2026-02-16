@@ -1,8 +1,10 @@
+import { useState } from 'react'
 import { useServers } from '../../api/servers'
 import { ServerCard } from './ServerCard'
 
 export function ServerList() {
   const { data: servers, isLoading, error } = useServers()
+  const [search, setSearch] = useState('')
 
   if (isLoading) {
     return (
@@ -57,11 +59,36 @@ export function ServerList() {
     )
   }
 
+  const filteredServers = servers.filter(
+    (server) =>
+      server.name.toLowerCase().includes(search.toLowerCase()) ||
+      (server.description?.toLowerCase().includes(search.toLowerCase()) ?? false)
+  )
+
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {servers.map((server) => (
-        <ServerCard key={server.id} server={server} />
-      ))}
+    <div className="space-y-4">
+      {servers.length > 3 && (
+        <div>
+          <input
+            type="text"
+            placeholder="Search servers..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full sm:w-64 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
+          />
+        </div>
+      )}
+      {filteredServers.length === 0 ? (
+        <div className="text-center py-8 text-gray-500 dark:text-gray-400 text-sm">
+          No servers match &ldquo;{search}&rdquo;
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {filteredServers.map((server) => (
+            <ServerCard key={server.id} server={server} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
