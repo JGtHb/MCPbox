@@ -97,6 +97,10 @@ class ToolResponse(BaseModel):
     code_dependencies: list[str] | None
     input_schema: dict[str, Any] | None
     current_version: int = 1
+    # Tool type
+    tool_type: str = "python_code"
+    external_source_id: UUID | None = None
+    external_tool_name: str | None = None
     # Approval workflow fields
     approval_status: str = "draft"
     approval_requested_at: datetime | None = None
@@ -165,6 +169,7 @@ class ToolListResponse(BaseModel):
     name: str
     description: str | None
     enabled: bool
+    tool_type: str = "python_code"
     approval_status: str = "draft"
     created_by: str | None = None
 

@@ -10,6 +10,7 @@ from app.api import (
     dashboard,
     execution_logs,
     export_import,
+    external_mcp_sources,
     sandbox,
     server_secrets,
     servers,
@@ -36,3 +37,4 @@ api_router.include_router(dashboard.router)
 api_router.include_router(approvals.router)
 api_router.include_router(server_secrets.router)
 api_router.include_router(execution_logs.router)
+api_router.include_router(external_mcp_sources.router)

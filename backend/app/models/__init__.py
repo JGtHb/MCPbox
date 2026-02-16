@@ -3,6 +3,7 @@ from app.models.activity_log import ActivityLog
 from app.models.admin_user import AdminUser
 from app.models.base import BaseModel
 from app.models.cloudflare_config import CloudflareConfig
+from app.models.external_mcp_source import ExternalMCPSource
 from app.models.global_config import GlobalConfig
 from app.models.module_request import ModuleRequest
 from app.models.network_access_request import NetworkAccessRequest
@@ -19,6 +20,7 @@ __all__ = [
     "AdminUser",
     "BaseModel",
     "CloudflareConfig",
+    "ExternalMCPSource",
     "GlobalConfig",
     "ModuleRequest",
     "NetworkAccessRequest",

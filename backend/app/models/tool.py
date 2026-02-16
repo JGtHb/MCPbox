@@ -21,6 +21,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import BaseModel
 
 if TYPE_CHECKING:
+    from app.models.external_mcp_source import ExternalMCPSource
     from app.models.module_request import ModuleRequest
     from app.models.network_access_request import NetworkAccessRequest
     from app.models.server import Server
@@ -37,6 +38,16 @@ ApprovalStatus = Enum(
     "approved",
     "rejected",
     name="approval_status",
+    create_constraint=True,
+)
+
+# Tool type
+# - python_code: Tool with Python code executed in sandbox (default)
+# - mcp_passthrough: Tool proxied to an external MCP server
+ToolType = Enum(
+    "python_code",
+    "mcp_passthrough",
+    name="tool_type",
     create_constraint=True,
 )
 
@@ -70,13 +81,30 @@ class Tool(BaseModel):
     # Per-tool timeout (NULL = inherit from server)
     timeout_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    # Python code for tool execution
+    # Tool type: "python_code" (default) or "mcp_passthrough"
+    tool_type: Mapped[str] = mapped_column(
+        ToolType,
+        nullable=False,
+        default="python_code",
+        server_default="python_code",
+    )
+
+    # Python code for tool execution (python_code tools only)
     # Must contain an async main() function that:
     # - Accepts keyword arguments matching the tool's input schema
     # - Returns the result (dict, list, or primitive)
     # - Has access to injected `http` client (pre-authenticated httpx.AsyncClient)
     # - Can import from _helpers (tool-level shared code)
     python_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # MCP passthrough fields (mcp_passthrough tools only)
+    external_source_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("external_mcp_sources.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # Original tool name on the external MCP server
+    external_tool_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Dependencies for Python code execution (pip packages)
     code_dependencies: Mapped[list[str] | None] = mapped_column(
@@ -113,6 +141,11 @@ class Tool(BaseModel):
 
     # Relationships
     server: Mapped["Server"] = relationship("Server", back_populates="tools")
+    external_source: Mapped["ExternalMCPSource | None"] = relationship(
+        "ExternalMCPSource",
+        back_populates="tools",
+        foreign_keys=[external_source_id],
+    )
     versions: Mapped[list["ToolVersion"]] = relationship(
         "ToolVersion",
         back_populates="tool",

@@ -147,6 +147,112 @@ class TestToolRegistry:
         assert tool_registry.tool_count == 3
 
 
+class TestPassthroughToolRegistration:
+    """Tests for MCP passthrough tool registration and routing."""
+
+    def test_register_passthrough_tool(self, tool_registry):
+        """Can register a passthrough tool with external source."""
+        passthrough_tool_def = {
+            "name": "external_search",
+            "description": "Search via external MCP",
+            "parameters": {"type": "object", "properties": {"query": {"type": "string"}}},
+            "tool_type": "mcp_passthrough",
+            "external_source_id": "source-1",
+            "external_tool_name": "search",
+        }
+        external_sources = [
+            {
+                "source_id": "source-1",
+                "url": "https://external.example.com/mcp",
+                "auth_headers": {"Authorization": "Bearer token"},
+                "transport_type": "streamable_http",
+            }
+        ]
+
+        count = tool_registry.register_server(
+            server_id="server-1",
+            server_name="TestServer",
+            tools=[passthrough_tool_def],
+            external_sources=external_sources,
+        )
+
+        assert count == 1
+        tool = tool_registry.get_tool("TestServer__external_search")
+        assert tool is not None
+        assert tool.is_passthrough is True
+        assert tool.external_source_id == "source-1"
+        assert tool.external_tool_name == "search"
+
+    def test_register_mixed_tools(self, tool_registry, sample_tool_def):
+        """Can register both python_code and passthrough tools in one server."""
+        passthrough_def = {
+            "name": "ext_tool",
+            "description": "External tool",
+            "parameters": {},
+            "tool_type": "mcp_passthrough",
+            "external_source_id": "src-1",
+            "external_tool_name": "original_tool",
+        }
+        external_sources = [
+            {"source_id": "src-1", "url": "https://ext.example.com/mcp"},
+        ]
+
+        count = tool_registry.register_server(
+            server_id="server-1",
+            server_name="MixedServer",
+            tools=[sample_tool_def, passthrough_def],
+            external_sources=external_sources,
+        )
+
+        assert count == 2
+        python_tool = tool_registry.get_tool("MixedServer__get_weather")
+        assert python_tool is not None
+        assert python_tool.is_passthrough is False
+
+        ext_tool = tool_registry.get_tool("MixedServer__ext_tool")
+        assert ext_tool is not None
+        assert ext_tool.is_passthrough is True
+
+    def test_external_sources_stored_on_server(self, tool_registry):
+        """External source configs are stored on the registered server."""
+        external_sources = [
+            {
+                "source_id": "src-1",
+                "url": "https://a.example.com/mcp",
+                "auth_headers": {"Authorization": "Bearer a"},
+            },
+            {
+                "source_id": "src-2",
+                "url": "https://b.example.com/mcp",
+            },
+        ]
+
+        tool_registry.register_server(
+            server_id="server-1",
+            server_name="TestServer",
+            tools=[],
+            external_sources=external_sources,
+        )
+
+        server = tool_registry.servers["server-1"]
+        assert len(server.external_sources) == 2
+        assert "src-1" in server.external_sources
+        assert server.external_sources["src-1"].url == "https://a.example.com/mcp"
+        assert server.external_sources["src-1"].auth_headers == {"Authorization": "Bearer a"}
+
+    def test_python_tool_not_passthrough(self, sample_tool_def, tool_registry):
+        """Regular python_code tools have is_passthrough=False."""
+        tool_registry.register_server(
+            server_id="server-1",
+            server_name="TestServer",
+            tools=[sample_tool_def],
+        )
+
+        tool = tool_registry.get_tool("TestServer__get_weather")
+        assert tool.is_passthrough is False
+        assert tool.tool_type == "python_code"
+
+
 class TestToolFullName:
     """Tests for Tool.full_name property."""
 

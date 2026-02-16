@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import BaseModel
 
 if TYPE_CHECKING:
+    from app.models.external_mcp_source import ExternalMCPSource
     from app.models.server_secret import ServerSecret
     from app.models.tool import Tool
 
@@ -92,6 +93,11 @@ class Server(BaseModel):
     )
     secrets: Mapped[list["ServerSecret"]] = relationship(
         "ServerSecret",
+        back_populates="server",
+        cascade="all, delete-orphan",
+    )
+    external_mcp_sources: Mapped[list["ExternalMCPSource"]] = relationship(
+        "ExternalMCPSource",
         back_populates="server",
         cascade="all, delete-orphan",
     )

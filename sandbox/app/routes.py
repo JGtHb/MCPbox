@@ -54,15 +54,29 @@ class ToolDef(BaseModel):
     name: str
     description: str = ""
     parameters: dict[str, Any] = {}
-    python_code: str
+    python_code: Optional[str] = (
+        None  # Required for python_code tools, None for passthrough
+    )
     timeout_ms: int = 30000
+    tool_type: str = "python_code"
+    external_source_id: Optional[str] = None
+    external_tool_name: Optional[str] = None
 
     def model_post_init(self, __context: Any) -> None:
         """Validate code size limits after model initialization."""
-        if len(self.python_code) > MAX_CODE_SIZE:
+        if self.python_code and len(self.python_code) > MAX_CODE_SIZE:
             raise ValueError(
                 f"python_code exceeds maximum size of {MAX_CODE_SIZE} bytes"
             )
+
+
+class ExternalSourceDef(BaseModel):
+    """External MCP source definition for server registration."""
+
+    source_id: str
+    url: str
+    auth_headers: dict[str, str] = {}
+    transport_type: str = "streamable_http"
 
 
 class RegisterServerRequest(BaseModel):
@@ -79,6 +93,7 @@ class RegisterServerRequest(BaseModel):
         None  # Custom allowed modules (None = defaults)
     )
     secrets: dict[str, str] = {}  # Key-value secrets for injection into tool namespace
+    external_sources: list[ExternalSourceDef] = []  # External MCP source configs
 
     def model_post_init(self, __context: Any) -> None:
         """Validate helper_code size limit after model initialization."""
@@ -196,7 +211,7 @@ async def register_server(request: RegisterServerRequest):
     This makes the server's tools available for execution.
     If the server is already registered, it will be re-registered.
 
-    Tools use Python code with async main() function for execution.
+    Tools can be Python code (with async main() function) or MCP passthrough.
     """
     tools_data = []
 
@@ -207,8 +222,22 @@ async def register_server(request: RegisterServerRequest):
             "parameters": t.parameters,
             "python_code": t.python_code,
             "timeout_ms": t.timeout_ms,
+            "tool_type": t.tool_type,
+            "external_source_id": t.external_source_id,
+            "external_tool_name": t.external_tool_name,
         }
         tools_data.append(tool_data)
+
+    # Build external source configs
+    external_sources_data = [
+        {
+            "source_id": s.source_id,
+            "url": s.url,
+            "auth_headers": s.auth_headers,
+            "transport_type": s.transport_type,
+        }
+        for s in request.external_sources
+    ]
 
     count = tool_registry.register_server(
         server_id=request.server_id,
@@ -217,6 +246,7 @@ async def register_server(request: RegisterServerRequest):
         helper_code=request.helper_code,
         allowed_modules=request.allowed_modules,
         secrets=request.secrets,
+        external_sources=external_sources_data,
     )
 
     return RegisterServerResponse(
@@ -458,6 +488,47 @@ async def mcp_endpoint(request: Request, body: dict[str, Any]):
                 "message": f"Method not found: {method}",
             },
         }
+
+
+# --- External MCP Discovery ---
+
+
+class MCPDiscoverRequest(BaseModel):
+    """Request to discover tools from an external MCP server."""
+
+    url: str
+    transport_type: str = "streamable_http"
+    auth_headers: dict[str, str] = {}
+
+
+class MCPDiscoverResponse(BaseModel):
+    """Response from external MCP tool discovery."""
+
+    success: bool
+    tools: list[dict[str, Any]] = []
+    error: Optional[str] = None
+
+
+@router.post("/mcp-discover", response_model=MCPDiscoverResponse)
+async def discover_external_tools(body: MCPDiscoverRequest):
+    """Discover tools from an external MCP server.
+
+    Connects to the external server, performs MCP handshake,
+    and returns the list of available tools.
+    """
+    from app.mcp_client import discover_tools
+
+    result = await discover_tools(
+        url=body.url,
+        transport_type=body.transport_type,
+        auth_headers=body.auth_headers,
+    )
+
+    return MCPDiscoverResponse(
+        success=result.get("success", False),
+        tools=result.get("tools", []),
+        error=result.get("error"),
+    )
 
 
 # --- Python Code Execution (Direct Endpoint for Testing) ---
