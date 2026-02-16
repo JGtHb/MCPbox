@@ -297,11 +297,23 @@ async function fetchUpstreamTokens(
 let jwksCache: { keys: Array<JsonWebKey & { kid: string }>; cachedAt: number } | null = null;
 const JWKS_CACHE_TTL_MS = 5 * 60 * 1000;
 
+// Negative cache for unknown kid values (prevents repeated JWKS fetches for
+// tokens with fabricated kid values). Entries expire after 60 seconds so
+// legitimate key rotations are picked up quickly.
+const MISSING_KID_CACHE_TTL_MS = 60 * 1000;
+let missingKidCache: Map<string, number> = new Map();
+
 async function fetchAccessPublicKey(
   env: Env,
   kid: string,
 ): Promise<CryptoKey | null> {
   const now = Date.now();
+
+  // Check negative cache first — reject known-missing kids without fetching
+  const missingAt = missingKidCache.get(kid);
+  if (missingAt && (now - missingAt) < MISSING_KID_CACHE_TTL_MS) {
+    return null;
+  }
 
   // Try cached keys first
   if (jwksCache && (now - jwksCache.cachedAt) < JWKS_CACHE_TTL_MS) {
@@ -329,6 +341,14 @@ async function fetchAccessPublicKey(
     const jwk = data.keys.find(k => k.kid === kid);
     if (!jwk) {
       console.error(`Key ${kid} not found in JWKS`);
+      // Negative-cache this kid to avoid repeated fetches
+      missingKidCache.set(kid, now);
+      // Prune old entries to prevent unbounded growth
+      if (missingKidCache.size > 100) {
+        for (const [k, t] of missingKidCache) {
+          if (now - t >= MISSING_KID_CACHE_TTL_MS) missingKidCache.delete(k);
+        }
+      }
       return null;
     }
 
@@ -528,6 +548,9 @@ async function isClientApproved(
   }
 }
 
+// Max approved clients stored in cookie (prevents unbounded cookie growth)
+const MAX_APPROVED_CLIENTS = 50;
+
 async function addApprovedClient(
   request: Request,
   clientId: string,
@@ -546,6 +569,10 @@ async function addApprovedClient(
   }
 
   if (!approved.includes(clientId)) {
+    // LRU eviction: drop oldest entries if at capacity
+    if (approved.length >= MAX_APPROVED_CLIENTS) {
+      approved = approved.slice(approved.length - MAX_APPROVED_CLIENTS + 1);
+    }
     approved.push(clientId);
   }
 
