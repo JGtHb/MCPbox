@@ -442,6 +442,96 @@ MCP_MANAGEMENT_TOOLS = [
             "required": ["tool_id"],
         },
     },
+    # --- External MCP Sources ---
+    {
+        "name": "mcpbox_add_external_source",
+        "description": "Add an external MCP server as a source for a MCPbox server. This allows importing tools from the external server. Auth credentials should be stored as server secrets first (use mcpbox_create_server_secret), then referenced by key name here.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "server_id": {
+                    "type": "string",
+                    "description": "UUID of the MCPbox server to add the source to",
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Human-readable name for this source (e.g., 'GitHub MCP', 'Slack MCP')",
+                },
+                "url": {
+                    "type": "string",
+                    "description": "URL of the external MCP server endpoint (e.g., 'https://mcp.example.com/mcp')",
+                },
+                "auth_type": {
+                    "type": "string",
+                    "enum": ["none", "bearer", "header"],
+                    "description": "Authentication type: 'none', 'bearer' (Authorization: Bearer <secret>), or 'header' (custom header). Default: 'none'",
+                    "default": "none",
+                },
+                "auth_secret_name": {
+                    "type": "string",
+                    "description": "Name of a server secret containing the auth credential (create it first with mcpbox_create_server_secret)",
+                },
+                "auth_header_name": {
+                    "type": "string",
+                    "description": "Custom header name when auth_type='header' (e.g., 'X-API-Key'). Default: 'Authorization'",
+                },
+                "transport_type": {
+                    "type": "string",
+                    "enum": ["streamable_http", "sse"],
+                    "description": "MCP transport type. Default: 'streamable_http'",
+                    "default": "streamable_http",
+                },
+            },
+            "required": ["server_id", "name", "url"],
+        },
+    },
+    {
+        "name": "mcpbox_list_external_sources",
+        "description": "List all external MCP sources configured for a server. Shows name, URL, auth type, status, and discovered tool count.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "server_id": {
+                    "type": "string",
+                    "description": "UUID of the server to list sources for",
+                },
+            },
+            "required": ["server_id"],
+        },
+    },
+    {
+        "name": "mcpbox_discover_external_tools",
+        "description": "Connect to an external MCP server and discover its available tools. Returns tool names, descriptions, and input schemas. Does NOT import the tools - use mcpbox_import_external_tools after discovery.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "source_id": {
+                    "type": "string",
+                    "description": "UUID of the external source to discover tools from",
+                },
+            },
+            "required": ["source_id"],
+        },
+    },
+    {
+        "name": "mcpbox_import_external_tools",
+        "description": "Import selected tools from an external MCP source into the MCPbox server. Imported tools are created in 'draft' status - use mcpbox_request_publish to submit them for admin approval. The admin must approve before the tools become available.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "source_id": {
+                    "type": "string",
+                    "description": "UUID of the external source to import from",
+                },
+                "tool_names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of tool names to import (as returned by mcpbox_discover_external_tools)",
+                },
+            },
+            "required": ["source_id", "tool_names"],
+        },
+    },
 ]
 
 
@@ -501,6 +591,9 @@ class MCPManagementService:
             "mcpbox_list_server_secrets": self._list_server_secrets,
             # Execution logs
             "mcpbox_get_tool_logs": self._get_tool_logs,
+            # External MCP sources (no sandbox needed)
+            "mcpbox_add_external_source": self._add_external_source,
+            "mcpbox_list_external_sources": self._list_external_sources,
         }
 
         # Special handlers that need sandbox client
@@ -508,6 +601,9 @@ class MCPManagementService:
             "mcpbox_test_code": self._test_code,
             "mcpbox_start_server": self._start_server,
             "mcpbox_stop_server": self._stop_server,
+            # External MCP sources (need sandbox for discovery)
+            "mcpbox_discover_external_tools": self._discover_external_tools,
+            "mcpbox_import_external_tools": self._import_external_tools,
         }
 
         if tool_name in handlers:
@@ -1489,6 +1585,205 @@ class MCPManagementService:
             ],
             "total": total,
         }
+
+    # =========================================================================
+    # External MCP Source Handlers
+    # =========================================================================
+
+    async def _add_external_source(self, args: dict) -> dict:
+        """Add an external MCP source to a server."""
+        try:
+            server_id = UUID(args["server_id"])
+        except (ValueError, KeyError):
+            return {"error": "Invalid server_id"}
+
+        name = args.get("name")
+        url = args.get("url")
+        if not name:
+            return {"error": "name is required"}
+        if not url:
+            return {"error": "url is required"}
+
+        # Validate server exists
+        server = await self._server_service.get(server_id)
+        if not server:
+            return {"error": f"Server {server_id} not found"}
+
+        from app.schemas.external_mcp_source import ExternalMCPSourceCreate
+        from app.services.external_mcp_source import ExternalMCPSourceService
+
+        source_service = ExternalMCPSourceService(self.db)
+
+        try:
+            data = ExternalMCPSourceCreate(
+                name=name,
+                url=url,
+                auth_type=args.get("auth_type", "none"),
+                auth_secret_name=args.get("auth_secret_name"),
+                auth_header_name=args.get("auth_header_name"),
+                transport_type=args.get("transport_type", "streamable_http"),
+            )
+            source = await source_service.create(server_id, data)
+
+            return {
+                "success": True,
+                "source_id": str(source.id),
+                "name": source.name,
+                "url": source.url,
+                "auth_type": source.auth_type,
+                "transport_type": source.transport_type,
+                "message": f"External source '{name}' added to server '{server.name}'. "
+                "Use mcpbox_discover_external_tools to see available tools, "
+                "then mcpbox_import_external_tools to import them.",
+            }
+        except Exception as e:
+            logger.exception(f"Failed to add external source: {e}")
+            return {"error": f"Failed to add external source: {e}"}
+
+    async def _list_external_sources(self, args: dict) -> dict:
+        """List external MCP sources for a server."""
+        try:
+            server_id = UUID(args["server_id"])
+        except (ValueError, KeyError):
+            return {"error": "Invalid server_id"}
+
+        server = await self._server_service.get(server_id)
+        if not server:
+            return {"error": f"Server {server_id} not found"}
+
+        from app.services.external_mcp_source import ExternalMCPSourceService
+
+        source_service = ExternalMCPSourceService(self.db)
+        sources = await source_service.list_by_server(server_id)
+
+        return {
+            "server_id": str(server_id),
+            "server_name": server.name,
+            "sources": [
+                {
+                    "id": str(s.id),
+                    "name": s.name,
+                    "url": s.url,
+                    "auth_type": s.auth_type,
+                    "transport_type": s.transport_type,
+                    "status": s.status,
+                    "tool_count": s.tool_count,
+                    "last_discovered_at": (
+                        s.last_discovered_at.isoformat() if s.last_discovered_at else None
+                    ),
+                }
+                for s in sources
+            ],
+            "total": len(sources),
+        }
+
+    async def _discover_external_tools(self, args: dict, sandbox_client: SandboxClient) -> dict:
+        """Discover tools from an external MCP source."""
+        try:
+            source_id = UUID(args["source_id"])
+        except (ValueError, KeyError):
+            return {"error": "Invalid source_id"}
+
+        from app.services.external_mcp_source import ExternalMCPSourceService
+        from app.services.server_secret import ServerSecretService
+
+        source_service = ExternalMCPSourceService(self.db)
+        source = await source_service.get(source_id)
+        if not source:
+            return {"error": f"External source {source_id} not found"}
+
+        # Get decrypted secrets for auth
+        secret_service = ServerSecretService(self.db)
+        secrets = await secret_service.get_decrypted_for_injection(source.server_id)
+
+        try:
+            discovered = await source_service.discover_tools(
+                source_id=source_id,
+                sandbox_client=sandbox_client,
+                secrets=secrets,
+            )
+
+            return {
+                "success": True,
+                "source_id": str(source.id),
+                "source_name": source.name,
+                "tools": [
+                    {
+                        "name": t.name,
+                        "description": t.description,
+                        "input_schema": t.input_schema,
+                    }
+                    for t in discovered
+                ],
+                "total": len(discovered),
+                "message": f"Found {len(discovered)} tools on '{source.name}'. "
+                "Use mcpbox_import_external_tools with the tool names you want to import.",
+            }
+        except RuntimeError as e:
+            return {"error": str(e)}
+        except Exception as e:
+            logger.exception(f"Failed to discover external tools: {e}")
+            return {"error": f"Discovery failed: {e}"}
+
+    async def _import_external_tools(self, args: dict, sandbox_client: SandboxClient) -> dict:
+        """Import selected tools from an external MCP source."""
+        try:
+            source_id = UUID(args["source_id"])
+        except (ValueError, KeyError):
+            return {"error": "Invalid source_id"}
+
+        tool_names = args.get("tool_names", [])
+        if not tool_names:
+            return {"error": "tool_names is required (list of tool names to import)"}
+
+        from app.services.external_mcp_source import ExternalMCPSourceService
+        from app.services.server_secret import ServerSecretService
+
+        source_service = ExternalMCPSourceService(self.db)
+        source = await source_service.get(source_id)
+        if not source:
+            return {"error": f"External source {source_id} not found"}
+
+        # Discover tools first to get full metadata
+        secret_service = ServerSecretService(self.db)
+        secrets = await secret_service.get_decrypted_for_injection(source.server_id)
+
+        try:
+            discovered = await source_service.discover_tools(
+                source_id=source_id,
+                sandbox_client=sandbox_client,
+                secrets=secrets,
+            )
+        except RuntimeError as e:
+            return {"error": str(e)}
+
+        # Import selected tools
+        try:
+            tools = await source_service.import_tools(
+                source_id=source_id,
+                tool_names=tool_names,
+                discovered_tools=discovered,
+            )
+
+            return {
+                "success": True,
+                "imported_tools": [
+                    {
+                        "id": str(t.id),
+                        "name": t.name,
+                        "description": t.description,
+                        "tool_type": t.tool_type,
+                        "approval_status": t.approval_status,
+                    }
+                    for t in tools
+                ],
+                "count": len(tools),
+                "message": f"Imported {len(tools)} tool(s) as drafts. "
+                "Use mcpbox_request_publish for each tool to submit for admin approval.",
+            }
+        except Exception as e:
+            logger.exception(f"Failed to import external tools: {e}")
+            return {"error": f"Import failed: {e}"}
 
     # =========================================================================
     # Helper Methods for Server Registration
