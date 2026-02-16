@@ -105,6 +105,14 @@ class LogRetentionService:
                         f"older than {self._retention_days} days"
                     )
 
+                # Also clean up old execution logs (keep max 100 per tool)
+                from app.services.execution_log import ExecutionLogService
+
+                exec_log_service = ExecutionLogService(db)
+                exec_deleted = await exec_log_service.cleanup(max_per_tool=100)
+                if exec_deleted > 0:
+                    logger.info(f"Execution log cleanup: deleted {exec_deleted} old execution logs")
+
             except Exception as e:
                 logger.exception(f"Error during log cleanup: {e}")
                 await db.rollback()

@@ -12,10 +12,10 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import get_db
-from app.services.credential import CredentialService
 from app.services.global_config import GlobalConfigService
 from app.services.sandbox_client import SandboxClient, get_sandbox_client
 from app.services.server import ServerService
+from app.services.server_secret import ServerSecretService
 from app.services.tool import ToolService
 
 logger = logging.getLogger(__name__)
@@ -49,11 +49,6 @@ def get_tool_service(db: AsyncSession = Depends(get_db)) -> ToolService:
     return ToolService(db)
 
 
-def get_credential_service(db: AsyncSession = Depends(get_db)) -> CredentialService:
-    """Dependency to get credential service."""
-    return CredentialService(db)
-
-
 def get_global_config_service(db: AsyncSession = Depends(get_db)) -> GlobalConfigService:
     """Dependency to get global config service."""
     return GlobalConfigService(db)
@@ -68,7 +63,6 @@ async def start_server(
     db: AsyncSession = Depends(get_db),
     server_service: ServerService = Depends(get_server_service),
     tool_service: ToolService = Depends(get_tool_service),
-    credential_service: CredentialService = Depends(get_credential_service),
     global_config_service: GlobalConfigService = Depends(get_global_config_service),
     sandbox_client: SandboxClient = Depends(get_sandbox_client),
 ) -> ServerStatusResponse:
@@ -100,9 +94,9 @@ async def start_server(
     # Build tool definitions for the sandbox
     tool_defs = _build_tool_definitions(tools)
 
-    # Get credentials and build the credentials list with metadata
-    credentials = await credential_service.get_for_injection(server_id)
-    credentials_list = _build_credentials_list(credentials)
+    # Get decrypted secrets for injection
+    secret_service = ServerSecretService(db)
+    secrets = await secret_service.get_decrypted_for_injection(server_id)
 
     # Get global allowed modules
     allowed_modules = await global_config_service.get_allowed_modules()
@@ -113,9 +107,10 @@ async def start_server(
             server_id=str(server_id),
             server_name=server.name,
             tools=tool_defs,
-            credentials=credentials_list,
+            credentials=[],
             helper_code=server.helper_code,
             allowed_modules=allowed_modules,
+            secrets=secrets,
         )
 
         if not result.get("success"):
@@ -128,6 +123,11 @@ async def start_server(
         # Update server status
         await server_service.update_status(server_id, "running")
         await db.commit()
+
+        # Notify MCP clients that tool list has changed
+        from app.services.tool_change_notifier import fire_and_forget_notify
+
+        fire_and_forget_notify()
 
         return ServerStatusResponse(
             server_id=str(server_id),
@@ -180,6 +180,11 @@ async def stop_server(
         await server_service.update_status(server_id, "stopped")
         await db.commit()
 
+        # Notify MCP clients that tool list has changed
+        from app.services.tool_change_notifier import fire_and_forget_notify
+
+        fire_and_forget_notify()
+
         return ServerStatusResponse(
             server_id=str(server_id),
             status="stopped",
@@ -204,7 +209,6 @@ async def restart_server(
     db: AsyncSession = Depends(get_db),
     server_service: ServerService = Depends(get_server_service),
     tool_service: ToolService = Depends(get_tool_service),
-    credential_service: CredentialService = Depends(get_credential_service),
     global_config_service: GlobalConfigService = Depends(get_global_config_service),
     sandbox_client: SandboxClient = Depends(get_sandbox_client),
 ) -> ServerStatusResponse:
@@ -230,9 +234,9 @@ async def restart_server(
     # Build tool definitions
     tool_defs = _build_tool_definitions(tools)
 
-    # Get credentials
-    credentials = await credential_service.get_for_injection(server_id)
-    credentials_list = _build_credentials_list(credentials)
+    # Get decrypted secrets for injection
+    secret_service = ServerSecretService(db)
+    secrets = await secret_service.get_decrypted_for_injection(server_id)
 
     # Get global allowed modules
     allowed_modules = await global_config_service.get_allowed_modules()
@@ -243,9 +247,10 @@ async def restart_server(
             server_id=str(server_id),
             server_name=server.name,
             tools=tool_defs,
-            credentials=credentials_list,
+            credentials=[],
             helper_code=server.helper_code,
             allowed_modules=allowed_modules,
+            secrets=secrets,
         )
 
         if not result.get("success"):
@@ -348,42 +353,3 @@ def _build_tool_definitions(tools: list) -> list[dict]:
         tool_defs.append(tool_def)
 
     return tool_defs
-
-
-def _build_credentials_list(credentials: list) -> list[dict]:
-    """Build credentials list for sandbox registration.
-
-    Passes full credential metadata so sandbox can properly configure auth.
-    Values are passed encrypted - sandbox will decrypt them.
-    """
-    result = []
-
-    for cred in credentials:
-        cred_data = {
-            "name": cred.name,
-            "auth_type": cred.auth_type,
-            "header_name": cred.header_name,
-            "query_param_name": cred.query_param_name,
-        }
-
-        # Include encrypted values based on auth type
-        if cred.auth_type in ("api_key_header", "api_key_query", "custom_header"):
-            if cred.value:
-                cred_data["value"] = cred.value  # Encrypted
-        elif cred.auth_type == "bearer":
-            if cred.access_token:
-                cred_data["value"] = cred.access_token  # Encrypted
-            elif cred.value:
-                cred_data["value"] = cred.value  # Encrypted
-        elif cred.auth_type == "basic":
-            if cred.username:
-                cred_data["username"] = cred.username  # Encrypted
-            if cred.password:
-                cred_data["password"] = cred.password  # Encrypted
-        elif cred.auth_type == "oauth2":
-            if cred.access_token:
-                cred_data["value"] = cred.access_token  # Encrypted
-
-        result.append(cred_data)
-
-    return result

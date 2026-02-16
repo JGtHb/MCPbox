@@ -273,3 +273,9 @@ The Worker verifies OIDC id_tokens using Cloudflare Access JWKS. The JWKS is cac
 
 ### Cookie Encryption for Client Approval
 The `/authorize` page uses AES-GCM encrypted cookies to pass OAuth state through the OIDC flow. The `COOKIE_ENCRYPTION_KEY` must be 32 bytes (64 hex chars).
+
+### MCP Gateway Must Run Single Worker
+The MCP gateway uses `--workers 1` because MCP Streamable HTTP is stateful. The `Mcp-Session-Id` header correlates all requests in a session to in-memory state (`_active_sessions`, `_sse_subscribers`). Multiple workers cause ~50% of requests to hit the wrong worker, resulting in "Session terminated" errors.
+
+### Server Recovery After Sandbox Restart
+After a sandbox container restart, all in-memory tool registrations are lost. The `server_recovery.py` background task automatically re-registers all "running" servers on backend/gateway startup. It waits for sandbox health (up to 30 seconds) before attempting recovery.

@@ -465,50 +465,6 @@ async def list_tool_versions(
 
 
 @router.get(
-    "/tools/{tool_id}/versions/{version_number}",
-    response_model=ToolVersionResponse,
-    summary="Get specific tool version",
-)
-async def get_tool_version(
-    tool_id: UUID,
-    version_number: int,
-    tool_service: ToolService = Depends(get_tool_service),
-) -> ToolVersionResponse:
-    """Get the full configuration of a specific tool version.
-
-    Use this to view what the tool looked like at a point in history.
-    """
-    tool = await tool_service.get(tool_id)
-    if not tool:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Tool {tool_id} not found",
-        )
-
-    version = await tool_service.get_version(tool_id, version_number)
-    if not version:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Version {version_number} not found for tool {tool_id}",
-        )
-
-    return ToolVersionResponse(
-        id=version.id,
-        tool_id=version.tool_id,
-        version_number=version.version_number,
-        name=version.name,
-        description=version.description,
-        enabled=version.enabled,
-        timeout_ms=version.timeout_ms,
-        python_code=version.python_code,
-        input_schema=version.input_schema,
-        change_summary=version.change_summary,
-        change_source=version.change_source,
-        created_at=version.created_at,
-    )
-
-
-@router.get(
     "/tools/{tool_id}/versions/compare",
     response_model=ToolVersionCompare,
     summary="Compare two tool versions",
@@ -550,6 +506,50 @@ async def compare_tool_versions(
         from_version=from_version,
         to_version=to_version,
         differences=differences,
+    )
+
+
+@router.get(
+    "/tools/{tool_id}/versions/{version_number}",
+    response_model=ToolVersionResponse,
+    summary="Get specific tool version",
+)
+async def get_tool_version(
+    tool_id: UUID,
+    version_number: int,
+    tool_service: ToolService = Depends(get_tool_service),
+) -> ToolVersionResponse:
+    """Get the full configuration of a specific tool version.
+
+    Use this to view what the tool looked like at a point in history.
+    """
+    tool = await tool_service.get(tool_id)
+    if not tool:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Tool {tool_id} not found",
+        )
+
+    version = await tool_service.get_version(tool_id, version_number)
+    if not version:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Version {version_number} not found for tool {tool_id}",
+        )
+
+    return ToolVersionResponse(
+        id=version.id,
+        tool_id=version.tool_id,
+        version_number=version.version_number,
+        name=version.name,
+        description=version.description,
+        enabled=version.enabled,
+        timeout_ms=version.timeout_ms,
+        python_code=version.python_code,
+        input_schema=version.input_schema,
+        change_summary=version.change_summary,
+        change_source=version.change_source,
+        created_at=version.created_at,
     )
 
 

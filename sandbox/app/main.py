@@ -17,7 +17,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from app.registry import tool_registry
-from app.routes import initialize_encryption, router
+from app.routes import router
 from app.package_sync import startup_sync
 
 logging.basicConfig(level=logging.INFO)
@@ -57,10 +57,6 @@ def _check_security_configuration():
     surface immediately rather than at runtime when a request hits.
     """
     sandbox_api_key = os.environ.get("SANDBOX_API_KEY", "")
-    encryption_key = os.environ.get("MCPBOX_ENCRYPTION_KEY", "")
-    allow_missing_encryption = (
-        os.environ.get("SANDBOX_ALLOW_MISSING_ENCRYPTION", "").lower() == "true"
-    )
 
     errors: list[str] = []
 
@@ -74,34 +70,6 @@ def _check_security_configuration():
             f"SANDBOX_API_KEY must be at least 32 characters, got {len(sandbox_api_key)}. "
             'Generate with: python -c "import secrets; print(secrets.token_hex(32))"'
         )
-
-    if not encryption_key:
-        if allow_missing_encryption:
-            logger.warning(
-                "MCPBOX_ENCRYPTION_KEY not set but SANDBOX_ALLOW_MISSING_ENCRYPTION=true. "
-                "Credentials cannot be decrypted - tools using credentials will fail."
-            )
-        else:
-            errors.append(
-                "MCPBOX_ENCRYPTION_KEY is required but not set. "
-                "Set SANDBOX_ALLOW_MISSING_ENCRYPTION=true to suppress in development. "
-                'Generate with: python -c "import secrets; print(secrets.token_hex(32))"'
-            )
-    else:
-        # Validate encryption key format (must match backend validation)
-        import re
-
-        if len(encryption_key) != 64:
-            errors.append(
-                f"MCPBOX_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes), "
-                f"got {len(encryption_key)} characters. "
-                'Generate with: python -c "import secrets; print(secrets.token_hex(32))"'
-            )
-        elif not re.fullmatch(r"[0-9a-fA-F]+", encryption_key):
-            errors.append(
-                "MCPBOX_ENCRYPTION_KEY must contain only hexadecimal characters (0-9, a-f). "
-                'Generate with: python -c "import secrets; print(secrets.token_hex(32))"'
-            )
 
     if errors:
         for error in errors:
@@ -117,7 +85,6 @@ async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     logger.info("Sandbox service starting up")
     _check_security_configuration()
-    initialize_encryption()
 
     # Start background task to sync packages with backend
     # This runs asynchronously so the service can start accepting requests immediately

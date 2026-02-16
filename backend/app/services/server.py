@@ -32,12 +32,11 @@ class ServerService:
         return result
 
     async def get(self, server_id: UUID) -> Server | None:
-        """Get a server by ID with tools and credentials."""
+        """Get a server by ID with tools."""
         result = await self.db.execute(
             select(Server)
             .options(
                 selectinload(Server.tools),
-                selectinload(Server.credentials),
             )
             .where(Server.id == server_id)
         )

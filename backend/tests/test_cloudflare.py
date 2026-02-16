@@ -198,15 +198,23 @@ async def test_create_tunnel_success(
 
     def mock_request(method, url, **kwargs):
         response = Mock()
+        response.content = b'{"success": true}'
+        response.is_success = True
         if "cfd_tunnel" in url and "/token" in url:
             response.json.return_value = {
                 "success": True,
                 "result": "tunnel-token-abc123",
             }
-        elif "cfd_tunnel" in url:
+        elif "cfd_tunnel" in url and method == "POST":
             response.json.return_value = {
                 "success": True,
                 "result": {"id": "tunnel123", "name": "mcpbox-tunnel"},
+            }
+        elif "cfd_tunnel" in url and method == "GET":
+            # List tunnels — result is a list, not dict
+            response.json.return_value = {
+                "success": True,
+                "result": [],
             }
         else:
             response.json.return_value = {"success": True, "result": {}}
@@ -250,10 +258,17 @@ async def test_create_vpc_service_success(
 
     def mock_request(method, url, **kwargs):
         response = Mock()
-        if "directory/services" in url:
+        response.content = b'{"success": true}'
+        response.is_success = True
+        if "directory/services" in url and method == "POST":
             response.json.return_value = {
                 "success": True,
                 "result": {"service_id": "vpc123"},
+            }
+        elif "directory/services" in url and method == "GET":
+            response.json.return_value = {
+                "success": True,
+                "result": [],
             }
         else:
             response.json.return_value = {"success": True, "result": {}}
@@ -361,14 +376,42 @@ async def test_configure_jwt_success(async_client, admin_headers, cloudflare_con
         result.stderr = ""
         return result
 
-    # Mock worker URL test - expects a network error since test Worker doesn't exist
+    # Build mock responses for _cf_request calls.
+    # _cf_request uses `response.content`, `response.is_success`, and `response.json()`
+    # — all sync attributes/methods. Must use Mock (not AsyncMock) for responses.
+    def mock_request(method, url, **kwargs):
+        response = Mock()
+        response.is_success = True
+        if "/access/apps" in url and method == "POST":
+            response.content = b'{"success": true}'
+            response.json.return_value = {
+                "success": True,
+                "result": {
+                    "id": "saas-app-id-123",
+                    "saas_app": {
+                        "client_id": "oidc-client-id",
+                        "client_secret": "oidc-client-secret",
+                    },
+                },
+            }
+        elif "/access/apps" in url and "/policies" in url:
+            response.content = b'{"success": true}'
+            response.json.return_value = {"success": True, "result": {"id": "policy-123"}}
+        else:
+            response.content = b'{"success": true}'
+            response.json.return_value = {"success": True, "result": {}}
+        return response
+
     with (
         patch("app.services.cloudflare.subprocess.run", side_effect=mock_subprocess_run),
         patch("app.services.cloudflare.httpx.AsyncClient") as mock_client,
     ):
-        mock_instance = AsyncMock()
-        mock_client.return_value.__aenter__.return_value = mock_instance
-        mock_instance.post.side_effect = Exception("Connection failed")
+        mock_instance = Mock()
+        mock_instance.request = AsyncMock(side_effect=mock_request)
+        # Mock post for the worker URL test (expects a network error)
+        mock_instance.post = AsyncMock(side_effect=Exception("Connection failed"))
+        mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
 
         response = await async_client.post(
             "/api/cloudflare/worker-jwt-config",

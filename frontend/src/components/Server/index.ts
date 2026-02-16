@@ -1,3 +1,10 @@
 export { ServerControls } from './ServerControls'
 export { LogViewer } from './LogViewer'
+export { ToolExecutionLogs } from './ToolExecutionLogs'
+export { SecretsManager } from './SecretsManager'
+export { ServerTabs, type TabId } from './ServerTabs'
+export { OverviewTab } from './OverviewTab'
+export { ToolsTab } from './ToolsTab'
+export { ExecutionLogsTab } from './ExecutionLogsTab'
+export { SettingsTab } from './SettingsTab'
 // NOTE: ModuleConfig removed - module configuration is now global in Settings

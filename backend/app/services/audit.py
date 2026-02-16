@@ -1,8 +1,8 @@
 """Security Audit Logging Service.
 
 Logs security-relevant events for compliance and monitoring:
-- Credential modifications
 - Tunnel configuration changes
+- Secret modifications
 """
 
 import logging
@@ -18,11 +18,6 @@ logger = logging.getLogger(__name__)
 
 class AuditAction(StrEnum):
     """Security audit action types."""
-
-    # Credential events (used by credentials API)
-    CREDENTIAL_CREATE = "credential.create"
-    CREDENTIAL_UPDATE = "credential.update"
-    CREDENTIAL_DELETE = "credential.delete"
 
     # Tunnel events (used by tunnel API)
     TUNNEL_START = "tunnel.start"
@@ -61,7 +56,7 @@ class AuditService:
 
         Args:
             action: The audit action type
-            resource_type: Type of resource (credential, server, tool, etc.)
+            resource_type: Type of resource (server, tool, etc.)
             resource_id: ID of the affected resource
             server_id: Associated server ID if applicable
             details: Additional audit details
@@ -111,7 +106,7 @@ class AuditService:
             "access_token",
             "refresh_token",
             "client_secret",
-            "value",  # Generic credential value
+            "value",  # Generic credential/secret value
         }
 
         sanitized: dict[str, Any] = {}
@@ -131,62 +126,6 @@ class AuditService:
         return sanitized
 
     # Convenience methods for common audit events
-
-    async def log_credential_create(
-        self,
-        credential_id: UUID,
-        server_id: UUID,
-        credential_name: str,
-        auth_type: str,
-        actor_ip: str | None = None,
-    ) -> dict:
-        """Log credential creation."""
-        return await self.log(
-            action=AuditAction.CREDENTIAL_CREATE,
-            resource_type="credential",
-            resource_id=credential_id,
-            server_id=server_id,
-            details={
-                "name": credential_name,
-                "auth_type": auth_type,
-            },
-            actor_ip=actor_ip,
-        )
-
-    async def log_credential_update(
-        self,
-        credential_id: UUID,
-        server_id: UUID | None,
-        changes: dict[str, Any],
-        actor_ip: str | None = None,
-    ) -> dict:
-        """Log credential update."""
-        return await self.log(
-            action=AuditAction.CREDENTIAL_UPDATE,
-            resource_type="credential",
-            resource_id=credential_id,
-            server_id=server_id,
-            details={"changes": changes},
-            actor_ip=actor_ip,
-        )
-
-    async def log_credential_delete(
-        self,
-        credential_id: UUID,
-        credential_name: str,
-        server_id: UUID | None,
-        actor_ip: str | None = None,
-    ) -> dict:
-        """Log credential deletion."""
-        return await self.log(
-            action=AuditAction.CREDENTIAL_DELETE,
-            resource_type="credential",
-            resource_id=credential_id,
-            server_id=server_id,
-            details={"name": credential_name},
-            actor_ip=actor_ip,
-            level="warning",
-        )
 
     async def log_tunnel_action(
         self,

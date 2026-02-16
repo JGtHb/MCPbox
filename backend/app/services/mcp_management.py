@@ -12,7 +12,6 @@ from uuid import UUID
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.credential import CredentialService
 from app.services.sandbox_client import SandboxClient
 from app.services.server import ServerService
 from app.services.tool import ToolService
@@ -169,7 +168,7 @@ MCP_MANAGEMENT_TOOLS = [
                 },
                 "enabled": {
                     "type": "boolean",
-                    "description": "Enable or disable the tool (optional)",
+                    "description": "Enable or disable the tool (optional). Disabled tools are excluded when the server starts. Requires server restart to take effect.",
                 },
             },
             "required": ["tool_id"],
@@ -213,7 +212,7 @@ MCP_MANAGEMENT_TOOLS = [
     },
     {
         "name": "mcpbox_start_server",
-        "description": "Start an MCP server, making its tools available.",
+        "description": "Start an MCP server, making its tools available. Only tools with approval_status='approved' and enabled=True are registered. Tools that are disabled or not yet approved are excluded.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -227,7 +226,7 @@ MCP_MANAGEMENT_TOOLS = [
     },
     {
         "name": "mcpbox_stop_server",
-        "description": "Stop an MCP server, making its tools unavailable.",
+        "description": "Stop an MCP server, making its tools unavailable. All tools are unregistered from the sandbox. Individual tool states (enabled, approval_status) are preserved.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -343,6 +342,106 @@ MCP_MANAGEMENT_TOOLS = [
             "required": ["tool_id"],
         },
     },
+    # Versioning tools
+    {
+        "name": "mcpbox_list_tool_versions",
+        "description": "List version history of a tool. Shows all previous versions with change summaries and timestamps.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tool_id": {
+                    "type": "string",
+                    "description": "UUID of the tool to list versions for",
+                },
+            },
+            "required": ["tool_id"],
+        },
+    },
+    {
+        "name": "mcpbox_rollback_tool",
+        "description": "Rollback a tool to a previous version. Creates a new version with the old code (non-destructive). The tool's approval status is preserved.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tool_id": {
+                    "type": "string",
+                    "description": "UUID of the tool to rollback",
+                },
+                "version": {
+                    "type": "integer",
+                    "description": "Version number to rollback to",
+                },
+            },
+            "required": ["tool_id", "version"],
+        },
+    },
+    # Secrets management
+    {
+        "name": "mcpbox_create_server_secret",
+        "description": 'Create an empty secret placeholder for a server. The secret value must be set by an admin in the MCPBox UI — secrets never pass through the LLM. Tool code accesses secrets via secrets["KEY_NAME"].',
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "server_id": {
+                    "type": "string",
+                    "description": "UUID of the server to add the secret to",
+                },
+                "key": {
+                    "type": "string",
+                    "description": "Secret key name (UPPER_SNAKE_CASE, e.g., 'THEIRSTACK_API_KEY')",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Human-readable description of what this secret is for",
+                },
+            },
+            "required": ["server_id", "key"],
+        },
+    },
+    {
+        "name": "mcpbox_list_server_secrets",
+        "description": "List all secret key names configured for a server. Returns key names and whether each has a value set. Never returns actual secret values.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "server_id": {
+                    "type": "string",
+                    "description": "UUID of the server to list secrets for",
+                },
+            },
+            "required": ["server_id"],
+        },
+    },
+    # Pending approvals overview
+    {
+        "name": "mcpbox_list_pending_requests",
+        "description": "List all pending approval requests across the system. Returns pending tool publishes, module whitelist requests, and network access requests grouped by server.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    # Execution logs
+    {
+        "name": "mcpbox_get_tool_logs",
+        "description": "Get recent execution logs for a tool. Shows input arguments (secrets redacted), result, errors, stdout, duration, and success status for each invocation.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tool_id": {
+                    "type": "string",
+                    "description": "UUID of the tool to get logs for",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of logs to return (default: 10, max: 50)",
+                    "default": 10,
+                },
+            },
+            "required": ["tool_id"],
+        },
+    },
 ]
 
 
@@ -353,7 +452,6 @@ class MCPManagementService:
         self.db = db
         self._server_service = ServerService(db)
         self._tool_service = ToolService(db)
-        self._credential_service = CredentialService(db)
 
     def get_tools(self) -> list[dict]:
         """Get all available management tools in MCP format."""
@@ -393,6 +491,16 @@ class MCPManagementService:
             "mcpbox_request_module": self._request_module,
             "mcpbox_request_network_access": self._request_network_access,
             "mcpbox_get_tool_status": self._get_tool_status,
+            # Versioning handlers
+            "mcpbox_list_tool_versions": self._list_tool_versions,
+            "mcpbox_rollback_tool": self._rollback_tool,
+            # Pending approvals overview
+            "mcpbox_list_pending_requests": self._list_pending_requests,
+            # Secrets management
+            "mcpbox_create_server_secret": self._create_server_secret,
+            "mcpbox_list_server_secrets": self._list_server_secrets,
+            # Execution logs
+            "mcpbox_get_tool_logs": self._get_tool_logs,
         }
 
         # Special handlers that need sandbox client
@@ -445,6 +553,45 @@ class MCPManagementService:
         if not server:
             return {"error": f"Server {server_id} not found"}
 
+        # Build tool list
+        tools_list = []
+        for tool in server.tools or []:
+            tools_list.append(
+                {
+                    "id": str(tool.id),
+                    "name": tool.name,
+                    "description": tool.description,
+                    "enabled": tool.enabled,
+                    "approval_status": tool.approval_status,
+                }
+            )
+
+        # Count pending requests across all tools in this server
+        from sqlalchemy import func, select
+
+        from app.models.module_request import ModuleRequest
+        from app.models.network_access_request import NetworkAccessRequest
+
+        tool_ids = [tool.id for tool in (server.tools or [])]
+        pending_modules = 0
+        pending_network = 0
+        if tool_ids:
+            mod_count = await self.db.execute(
+                select(func.count(ModuleRequest.id)).where(
+                    ModuleRequest.tool_id.in_(tool_ids),
+                    ModuleRequest.status == "pending",
+                )
+            )
+            pending_modules = mod_count.scalar() or 0
+
+            net_count = await self.db.execute(
+                select(func.count(NetworkAccessRequest.id)).where(
+                    NetworkAccessRequest.tool_id.in_(tool_ids),
+                    NetworkAccessRequest.status == "pending",
+                )
+            )
+            pending_network = net_count.scalar() or 0
+
         return {
             "id": str(server.id),
             "name": server.name,
@@ -455,6 +602,12 @@ class MCPManagementService:
             "helper_code": server.helper_code,
             "created_at": server.created_at.isoformat() if server.created_at else None,
             "updated_at": server.updated_at.isoformat() if server.updated_at else None,
+            "tools": tools_list,
+            "tool_count": len(tools_list),
+            "pending_requests": {
+                "modules": pending_modules,
+                "network": pending_network,
+            },
         }
 
     async def _create_server(self, args: dict) -> dict:
@@ -658,6 +811,19 @@ class MCPManagementService:
             if updated_tool is None:
                 return {"error": f"Tool {tool_id} not found"}
 
+            # If enabled/disabled changed and server is running, notify clients
+            if "enabled" in update_fields:
+                try:
+                    server = await self._server_service.get(updated_tool.server_id)
+                    if server and server.status == "running":
+                        from app.services.tool_change_notifier import (
+                            notify_tools_changed_local,
+                        )
+
+                        await notify_tools_changed_local()
+                except Exception as e:
+                    logger.warning(f"Failed to notify tool change: {e}")
+
             return {
                 "success": True,
                 "id": str(updated_tool.id),
@@ -708,9 +874,11 @@ class MCPManagementService:
         # Build tool definitions for sandbox
         tool_defs = self._build_tool_definitions(tools)
 
-        # Get credentials and build the credentials list
-        credentials = await self._credential_service.get_for_injection(server_id)
-        credentials_list = self._build_credentials_list(credentials)
+        # Get secrets for injection
+        from app.services.server_secret import ServerSecretService
+
+        secret_service = ServerSecretService(self.db)
+        secrets = await secret_service.get_decrypted_for_injection(server_id)
 
         # Get global allowed modules
         from app.services.global_config import GlobalConfigService
@@ -724,9 +892,10 @@ class MCPManagementService:
                 server_id=str(server_id),
                 server_name=server.name,
                 tools=tool_defs,
-                credentials=credentials_list,
+                credentials=[],
                 helper_code=server.helper_code,
                 allowed_modules=allowed_modules,
+                secrets=secrets,
             )
 
             if not result.get("success"):
@@ -736,6 +905,11 @@ class MCPManagementService:
             # Update server status
             await self._server_service.update_status(server_id, "running")
             await self.db.commit()
+
+            # Notify MCP clients that tool list has changed
+            from app.services.tool_change_notifier import notify_tools_changed_local
+
+            await notify_tools_changed_local()
 
             return {
                 "success": True,
@@ -770,6 +944,11 @@ class MCPManagementService:
             # Update server status
             await self._server_service.update_status(server_id, "stopped")
             await self.db.commit()
+
+            # Notify MCP clients that tool list has changed
+            from app.services.tool_change_notifier import notify_tools_changed_local
+
+            await notify_tools_changed_local()
 
             return {
                 "success": True,
@@ -836,14 +1015,9 @@ class MCPManagementService:
 
         arguments = args.get("arguments", {})
 
-        # Detect async def main() pattern and wrap it to call main() with arguments
-        # Arguments are passed via the sandbox's arguments injection mechanism (not string interpolation)
-        if "async def main" in code:
-            code = f"""{code}
-
-import asyncio
-result = asyncio.get_running_loop().run_until_complete(main(**arguments))
-"""
+        # The sandbox /execute endpoint natively handles async def main() —
+        # it detects the function after exec(), creates an httpx client on the
+        # same event loop, and awaits main() directly. No wrapping needed.
 
         # Get global allowed modules
         from app.services.global_config import GlobalConfigService
@@ -851,12 +1025,26 @@ result = asyncio.get_running_loop().run_until_complete(main(**arguments))
         config_service = GlobalConfigService(self.db)
         allowed_modules = await config_service.get_allowed_modules()
 
+        # Get secrets if server_id is provided
+        secrets: dict[str, str] = {}
+        server_id_str = args.get("server_id")
+        if server_id_str:
+            try:
+                server_id = UUID(server_id_str)
+                from app.services.server_secret import ServerSecretService
+
+                secret_service = ServerSecretService(self.db)
+                secrets = await secret_service.get_decrypted_for_injection(server_id)
+            except (ValueError, TypeError):
+                pass  # Invalid server_id, skip secrets
+
         try:
             result = await sandbox_client.execute_code(
                 code=code,
                 arguments=arguments,
                 timeout_seconds=30,
                 allowed_modules=allowed_modules,
+                secrets=secrets,
             )
             return result
         except httpx.TimeoutException:
@@ -1043,6 +1231,266 @@ result = asyncio.get_running_loop().run_until_complete(main(**arguments))
         }
 
     # =========================================================================
+    # Secrets Management Handlers
+    # =========================================================================
+
+    async def _create_server_secret(self, args: dict) -> dict:
+        """Create an empty secret placeholder for a server."""
+        try:
+            server_id = UUID(args["server_id"])
+        except (ValueError, KeyError):
+            return {"error": "Invalid server_id"}
+
+        key = args.get("key")
+        if not key:
+            return {"error": "key is required"}
+
+        description = args.get("description")
+
+        server = await self._server_service.get(server_id)
+        if not server:
+            return {"error": f"Server {server_id} not found"}
+
+        from app.services.server_secret import ServerSecretService
+
+        secret_service = ServerSecretService(self.db)
+
+        try:
+            secret = await secret_service.create(
+                server_id=server_id,
+                key_name=key,
+                description=description,
+            )
+            return {
+                "success": True,
+                "server_id": str(server_id),
+                "key": secret.key_name,
+                "description": secret.description,
+                "has_value": False,
+                "message": f"Secret placeholder '{key}' created. "
+                "An admin must set the value in the MCPBox UI before it can be used.",
+            }
+        except Exception as e:
+            if "uq_server_secrets_server_key" in str(e):
+                return {"error": f"Secret '{key}' already exists for this server"}
+            logger.exception(f"Failed to create secret: {e}")
+            return {"error": "Failed to create secret due to an internal error"}
+
+    async def _list_server_secrets(self, args: dict) -> dict:
+        """List secret key names for a server (never returns values)."""
+        try:
+            server_id = UUID(args["server_id"])
+        except (ValueError, KeyError):
+            return {"error": "Invalid server_id"}
+
+        server = await self._server_service.get(server_id)
+        if not server:
+            return {"error": f"Server {server_id} not found"}
+
+        from app.services.server_secret import ServerSecretService
+
+        secret_service = ServerSecretService(self.db)
+        secrets = await secret_service.list_by_server(server_id)
+
+        return {
+            "server_id": str(server_id),
+            "server_name": server.name,
+            "secrets": [
+                {
+                    "key": s.key_name,
+                    "description": s.description,
+                    "has_value": s.has_value,
+                }
+                for s in secrets
+            ],
+            "total": len(secrets),
+        }
+
+    # =========================================================================
+    # Version Management Handlers
+    # =========================================================================
+
+    async def _list_tool_versions(self, args: dict) -> dict:
+        """List version history for a tool."""
+        try:
+            tool_id = UUID(args["tool_id"])
+        except (ValueError, KeyError):
+            return {"error": "Invalid tool_id"}
+
+        tool = await self._tool_service.get(tool_id)
+        if not tool:
+            return {"error": f"Tool {tool_id} not found"}
+
+        versions, total = await self._tool_service.list_versions(tool_id)
+
+        return {
+            "tool_id": str(tool.id),
+            "tool_name": tool.name,
+            "current_version": tool.current_version,
+            "total_versions": total,
+            "versions": [
+                {
+                    "version": v.version_number,
+                    "change_summary": v.change_summary,
+                    "change_source": v.change_source,
+                    "created_at": v.created_at.isoformat() if v.created_at else None,
+                }
+                for v in versions
+            ],
+        }
+
+    async def _rollback_tool(self, args: dict) -> dict:
+        """Rollback a tool to a previous version."""
+        try:
+            tool_id = UUID(args["tool_id"])
+        except (ValueError, KeyError):
+            return {"error": "Invalid tool_id"}
+
+        version = args.get("version")
+        if version is None:
+            return {"error": "version is required"}
+
+        try:
+            version = int(version)
+        except (ValueError, TypeError):
+            return {"error": "version must be an integer"}
+
+        tool = await self._tool_service.rollback(tool_id, version)
+        if not tool:
+            return {"error": f"Tool {tool_id} not found or version {version} does not exist"}
+
+        return {
+            "success": True,
+            "tool_id": str(tool.id),
+            "name": tool.name,
+            "current_version": tool.current_version,
+            "message": f"Tool '{tool.name}' rolled back to version {version}. "
+            f"Current version is now {tool.current_version}.",
+        }
+
+    # =========================================================================
+    # Pending Approvals Overview Handler
+    # =========================================================================
+
+    async def _list_pending_requests(self, args: dict) -> dict:
+        """List all pending approval requests across the system."""
+        from app.services.approval import ApprovalService
+
+        approval_service = ApprovalService(self.db)
+
+        try:
+            # Get pending tools
+            pending_tools_raw, tools_total = await approval_service.get_pending_tools(
+                page=1, page_size=50
+            )
+            pending_tools = [
+                {
+                    "id": str(t["id"]) if isinstance(t, dict) else str(t.id),
+                    "name": t["name"] if isinstance(t, dict) else t.name,
+                    "server_name": t.get("server_name", "") if isinstance(t, dict) else "",
+                    "requested_at": (
+                        t["approval_requested_at"].isoformat()
+                        if isinstance(t, dict) and t.get("approval_requested_at")
+                        else (
+                            t.approval_requested_at.isoformat()
+                            if hasattr(t, "approval_requested_at") and t.approval_requested_at
+                            else None
+                        )
+                    ),
+                }
+                for t in pending_tools_raw
+            ]
+
+            # Get pending module requests
+            pending_modules_raw, modules_total = await approval_service.get_pending_module_requests(
+                page=1, page_size=50
+            )
+            pending_modules = [
+                {
+                    "id": str(m["id"]) if isinstance(m, dict) else str(m.id),
+                    "module_name": m["module_name"] if isinstance(m, dict) else m.module_name,
+                    "tool_name": m.get("tool_name", "") if isinstance(m, dict) else "",
+                    "server_name": m.get("server_name", "") if isinstance(m, dict) else "",
+                }
+                for m in pending_modules_raw
+            ]
+
+            # Get pending network access requests
+            (
+                pending_network_raw,
+                network_total,
+            ) = await approval_service.get_pending_network_access_requests(page=1, page_size=50)
+            pending_network = [
+                {
+                    "id": str(n["id"]) if isinstance(n, dict) else str(n.id),
+                    "host": n["host"] if isinstance(n, dict) else n.host,
+                    "port": n.get("port") if isinstance(n, dict) else n.port,
+                    "tool_name": n.get("tool_name", "") if isinstance(n, dict) else "",
+                    "server_name": n.get("server_name", "") if isinstance(n, dict) else "",
+                }
+                for n in pending_network_raw
+            ]
+
+            total = tools_total + modules_total + network_total
+
+            return {
+                "pending_tools": pending_tools,
+                "pending_module_requests": pending_modules,
+                "pending_network_requests": pending_network,
+                "summary": {
+                    "tools": tools_total,
+                    "modules": modules_total,
+                    "network": network_total,
+                    "total": total,
+                },
+            }
+        except Exception as e:
+            logger.exception(f"Failed to list pending requests: {e}")
+            return {"error": "Failed to list pending requests due to an internal error"}
+
+    # =========================================================================
+    # Execution Log Handlers
+    # =========================================================================
+
+    async def _get_tool_logs(self, args: dict) -> dict:
+        """Get recent execution logs for a tool."""
+        try:
+            tool_id = UUID(args["tool_id"])
+        except (ValueError, KeyError):
+            return {"error": "Invalid tool_id"}
+
+        tool = await self._tool_service.get(tool_id)
+        if not tool:
+            return {"error": f"Tool {tool_id} not found"}
+
+        limit = min(args.get("limit", 10), 50)
+
+        from app.services.execution_log import ExecutionLogService
+
+        log_service = ExecutionLogService(self.db)
+        logs, total = await log_service.list_by_tool(tool_id, page=1, page_size=limit)
+
+        return {
+            "tool_id": str(tool.id),
+            "tool_name": tool.name,
+            "logs": [
+                {
+                    "id": str(log.id),
+                    "success": log.success,
+                    "duration_ms": log.duration_ms,
+                    "error": log.error,
+                    "input_args": log.input_args,
+                    "result": log.result,
+                    "stdout": log.stdout,
+                    "executed_by": log.executed_by,
+                    "created_at": log.created_at.isoformat() if log.created_at else None,
+                }
+                for log in logs
+            ],
+            "total": total,
+        }
+
+    # =========================================================================
     # Helper Methods for Server Registration
     # =========================================================================
 
@@ -1068,44 +1516,6 @@ result = asyncio.get_running_loop().run_until_complete(main(**arguments))
             tool_defs.append(tool_def)
 
         return tool_defs
-
-    def _build_credentials_list(self, credentials: list) -> list[dict]:
-        """Build credentials list for sandbox registration.
-
-        Passes full credential metadata so sandbox can properly configure auth.
-        Values are passed encrypted - sandbox will decrypt them.
-        """
-        result = []
-
-        for cred in credentials:
-            cred_data = {
-                "name": cred.name,
-                "auth_type": cred.auth_type,
-                "header_name": cred.header_name,
-                "query_param_name": cred.query_param_name,
-            }
-
-            # Include encrypted values based on auth type
-            if cred.auth_type in ("api_key_header", "api_key_query", "custom_header"):
-                if cred.value:
-                    cred_data["value"] = cred.value  # Encrypted
-            elif cred.auth_type == "bearer":
-                if cred.access_token:
-                    cred_data["value"] = cred.access_token  # Encrypted
-                elif cred.value:
-                    cred_data["value"] = cred.value  # Encrypted
-            elif cred.auth_type == "basic":
-                if cred.username:
-                    cred_data["username"] = cred.username  # Encrypted
-                if cred.password:
-                    cred_data["password"] = cred.password  # Encrypted
-            elif cred.auth_type == "oauth2":
-                if cred.access_token:
-                    cred_data["value"] = cred.access_token  # Encrypted
-
-            result.append(cred_data)
-
-        return result
 
 
 def get_management_tools_list() -> list[dict]:

@@ -62,9 +62,9 @@ docker-compose up -d
 
 ---
 
-## 2. Sandbox Failure
+## 2. Sandbox Failure / Tool Registration Loss
 
-**Symptoms:** Tool execution fails, health check shows `"sandbox": "disconnected"`, circuit breaker opens.
+**Symptoms:** Tool execution fails, health check shows `"sandbox": "disconnected"`, circuit breaker opens. After sandbox restart, servers show "running" but tools return "not found".
 
 ### Diagnosis
 
@@ -87,6 +87,15 @@ docker-compose exec sandbox curl -s http://localhost:8001/health
 ```bash
 # Restart sandbox container
 docker-compose restart sandbox
+
+# Server recovery happens automatically — backend and mcp-gateway both run
+# a background task (server_recovery.py) that re-registers all "running"
+# servers with the sandbox on startup. Check logs for recovery status:
+docker-compose logs --tail=20 backend | grep -i "recover"
+docker-compose logs --tail=20 mcp-gateway | grep -i "recover"
+
+# If automatic recovery failed, restart backend/mcp-gateway to trigger it again:
+docker-compose restart backend mcp-gateway
 
 # If circuit breaker is stuck open, reset it (requires admin JWT)
 curl -X POST http://localhost:8000/health/circuits/reset \
@@ -135,7 +144,7 @@ sed -i "s/MCPBOX_ENCRYPTION_KEY=.*/MCPBOX_ENCRYPTION_KEY=$NEW_KEY/" .env
 docker-compose restart backend mcp-gateway
 ```
 
-3. **Rotate all stored credentials** — even after re-encryption, treat any stored API keys/tokens as potentially compromised. Re-issue them at their respective providers.
+3. **Rotate all stored server secrets** — even after re-encryption, treat any stored API keys/tokens as potentially compromised. Re-issue them at their respective providers and update the secret values in the MCPbox admin UI.
 
 ---
 
@@ -229,7 +238,38 @@ docker-compose restart backend
 
 ---
 
-## 7. Sandbox Escape Attempt
+## 7. "Session Terminated" MCP Errors
+
+**Symptoms:** MCP clients intermittently receive "Session terminated" errors. Roughly 50% of requests fail.
+
+### Diagnosis
+
+This is almost always caused by running the MCP gateway with more than 1 worker. MCP Streamable HTTP is stateful — the `Mcp-Session-Id` header must always reach the same worker process.
+
+```bash
+# Check if mcp-gateway is running with multiple workers
+docker-compose logs mcp-gateway | grep -i "worker\|started"
+
+# Check session creation/termination in logs
+docker-compose logs mcp-gateway | grep -i "session"
+```
+
+### Resolution
+
+```bash
+# Ensure docker-compose.yml has --workers 1 for mcp-gateway
+# The command should be:
+# ["python", "-m", "uvicorn", "app.mcp_only:app", "--host", "0.0.0.0", "--port", "8002", "--workers", "1", ...]
+
+# Restart mcp-gateway
+docker-compose restart mcp-gateway
+```
+
+**Root cause:** `--workers N` spawns N separate Python processes, each with its own in-memory `_active_sessions` dict. Session created on Worker A gets routed to Worker B on the next request, which doesn't know about it.
+
+---
+
+## 8. Sandbox Escape Attempt
 
 **Symptoms:** Activity logs show blocked code patterns, `validate_code_safety` rejections.
 

@@ -27,9 +27,16 @@ This file provides context for AI assistants (like Claude) working on this codeb
 
 ### Recent Changes
 
-- **Access for SaaS (OIDC)** - Worker authenticates users via Cloudflare Access as OIDC identity provider instead of self-hosted Access. Eliminates server-side JWT verification; user identity from OIDC id_token at authorization time. Single source of truth for access policy at Cloudflare Access OIDC layer.
-- **Tunnel Security Review** - Worker simplified (apiRoute: '/', eliminated Bug #108 workaround), /internal/* auth, fail-closed ServiceTokenCache, isolated DB network, OAuth redirect_uri validation, HMAC-based timingSafeEqual
-- **Pre-Production Security Review** - Two review cycles completed, all findings fixed
+- **Server Secrets** - Per-server encrypted key-value secrets. LLMs create placeholders via `mcpbox_create_server_secret`, admins set values in the UI. Secrets are injected into tool execution as `secrets["KEY_NAME"]`. Values never flow through LLMs.
+- **Tool Execution Logging** - Every tool invocation is logged with args (secrets redacted), results (truncated), errors, stdout, duration, and success status. Viewable per-tool and per-server in the UI.
+- **Server Recovery** - Servers marked as "running" are automatically re-registered with the sandbox on startup. Handles sandbox container restarts that lose in-memory tool registrations.
+- **Tool Change Notifications** - MCP `tools/list_changed` notifications broadcast to all connected clients when tools are added, removed, approved, or servers start/stop.
+- **Tool Version History** - View previous versions of tools via `mcpbox_list_tool_versions` and rollback via `mcpbox_rollback_tool`.
+- **Async Tool Execution Fix** - Sandbox natively handles `async def main()` by awaiting on the current event loop. The `http` client is created on the same loop, fixing event loop affinity issues.
+- **SNI Fix for SSRF IP Pinning** - HTTPS requests through the SSRF-protected client now set SNI hostname correctly when connecting via pinned IP addresses.
+- **MCP Session Management** - Full `Mcp-Session-Id` support for stateful sessions. MCP gateway runs with `--workers 1` to maintain session state in-memory.
+- **Credentials System Removed** - Old OAuth/token-refresh credential system replaced by server secrets. Models, services, and API endpoints for credentials, OAuth, and token refresh have been removed.
+- **Access for SaaS (OIDC)** - Worker authenticates users via Cloudflare Access as OIDC identity provider. No server-side JWT verification; user identity from OIDC id_token at authorization time.
 - **Sandbox Hardening** - `validate_code_safety()` on all execution paths, consolidated builtins, SSRF redirect prevention
 - **Cloudflare Setup Wizard** - Automated 5-step wizard at `/tunnel/setup` for configuring remote access (tunnel, VPC, Worker, OIDC). MCP clients connect directly to the Worker URL.
 - **Hybrid Architecture** - Local-first with optional Cloudflare Worker for remote access
@@ -39,14 +46,9 @@ This file provides context for AI assistants (like Claude) working on this codeb
 - **Module Whitelist Requests** - LLMs can request Python modules to be whitelisted via MCP tools
 - **Network Access Requests** - LLMs can request network access to external hosts via MCP tools
 - **Admin Approval Queue** - New UI for reviewing and approving/rejecting pending requests
-- **Admin API Authentication** - API key protection for admin endpoints (defense-in-depth)
 - **Separate MCP Gateway** - Tunnel-exposed service that physically cannot serve admin endpoints
-- **Activity Log Retention** - Automatic cleanup of old logs (configurable retention period)
-- **Production Security Checks** - Startup warnings for missing security configuration
-- **Named Tunnel Management** - Save and manage multiple tunnel configurations
 - **MCP Management Tools** - MCPbox management exposed as MCP tools (`mcpbox_*`)
 - **MCP-First Architecture** - Tools are created via `mcpbox_create_tool` with Python code only (legacy API Builder removed)
-- Comprehensive test coverage for MCP gateway and tool management
 
 ### Production Configuration
 
@@ -55,7 +57,7 @@ Essential environment variables for production deployment:
 ```bash
 # Required
 DATABASE_URL=postgresql+asyncpg://user:pass@host/mcpbox
-MCPBOX_ENCRYPTION_KEY=<64-char-hex-key>  # 32-byte key for credential encryption
+MCPBOX_ENCRYPTION_KEY=<64-char-hex-key>  # 32-byte key for server secret encryption
 SANDBOX_API_KEY=<secret>  # Required, min 32 chars. Generate: openssl rand -hex 32
 
 # For Remote Access (optional)
@@ -76,7 +78,7 @@ MCPbox exposes its management functions as MCP tools, allowing external LLMs (li
 
 - **No API key management** - Users leverage their existing Claude access
 - **Better UX** - LLM does the heavy lifting externally
-- **18 management tools** - Full CRUD for servers, tools, and approval workflow
+- **24 management tools** - Full CRUD for servers, tools, secrets, and approval workflow
 
 See `docs/MCP-MANAGEMENT-TOOLS.md` for complete documentation.
 
@@ -86,8 +88,11 @@ See `docs/MCP-MANAGEMENT-TOOLS.md` for complete documentation.
 |----------|-------|
 | Servers | `list_servers`, `get_server`, `create_server`, `delete_server`, `start_server`, `stop_server`, `get_server_modules` |
 | Tools | `list_tools`, `get_tool`, `create_tool`, `update_tool`, `delete_tool` |
+| Versioning | `list_tool_versions`, `rollback_tool` |
 | Development | `test_code`, `validate_code` |
-| Approval | `request_publish`, `request_module`, `request_network_access`, `get_tool_status` |
+| Secrets | `create_server_secret`, `list_server_secrets` |
+| Approval | `request_publish`, `request_module`, `request_network_access`, `get_tool_status`, `list_pending_requests` |
+| Observability | `get_tool_logs` |
 
 ### Tool Approval Workflow
 
@@ -134,11 +139,16 @@ MCPbox uses a **hybrid architecture** - local-first with optional remote access 
 ┌───────────────────────────────────┴─────────────────────────────────────────┐
 │                         Cloudflare (Optional)                                │
 │                                                                              │
-│  ┌──────────────────┐     ┌─────────────────────────────────┐              │
-│  │ MCP Server Portal│────►│ Cloudflare Worker (mcpbox-proxy)│              │
-│  │ (handles OAuth)  │     │ - VPC binding to tunnel         │              │
-│  └──────────────────┘     │ - Adds X-MCPbox-Service-Token   │              │
-│                           └─────────────────────────────────┘              │
+│  ┌─────────────────────────────────────────────┐                            │
+│  │ Cloudflare Worker (mcpbox-proxy)            │                            │
+│  │ - OAuth 2.1 (downstream to MCP clients)     │                            │
+│  │ - OIDC upstream (Cloudflare Access for SaaS)│                            │
+│  │ - VPC binding to tunnel                     │                            │
+│  │ - Adds X-MCPbox-Service-Token               │                            │
+│  └─────────────────────────────────────────────┘                            │
+│                           ▲                                                  │
+│                           │ MCP Protocol (HTTPS)                             │
+│                  MCP Clients (Claude Web, etc.)                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -310,16 +320,15 @@ tool = await tool_factory(server_id=server.id, name="test_tool", python_code="as
 
 ### Security Considerations
 
-- **OAuth 2.1 Worker Protection** - Worker wrapped with `@cloudflare/workers-oauth-provider`, all requests to `/` (MCP endpoint) require a valid OAuth token. Cloudflare sync and MCP Portal users both authenticate via OAuth.
+- **OAuth 2.1 Worker Protection** - Worker wrapped with `@cloudflare/workers-oauth-provider`, all requests to `/` (MCP endpoint) require a valid OAuth token. MCP clients connect directly to the Worker URL.
 - **Tool execution requires verified user email** - Sync-only methods (`initialize`, `tools/list`, `notifications/*`) work with OAuth + service token. Tool execution (`tools/call`) and unknown methods require a verified user email from OIDC authentication. This prevents anonymous tool execution. See `docs/AUTH-FLOW.md` for the complete method authorization table.
-- **MCP Server uses OAuth auth** - Created with `auth_type: "oauth"` at the Worker's origin (no `/mcp` subpath), so Cloudflare performs full OAuth 2.1 discovery+flow against the Worker's OAuthProvider
 - **Access for SaaS (OIDC upstream)** - Worker authenticates users via Cloudflare Access as an OIDC identity provider. User email comes from OIDC id_token verified at authorization time (stored in encrypted OAuth token props). No server-side JWT verification needed — the gateway trusts the Worker-supplied X-MCPbox-User-Email header when a valid service token is present.
 - **Service Token Authentication** - Shared secret between Worker and MCPbox gateway (defense-in-depth via `X-MCPbox-Service-Token`, returns 403 on mismatch). Fail-closed on database errors.
 - **Internal Endpoint Auth** - `/internal/*` endpoints require `Authorization: Bearer <SANDBOX_API_KEY>` for defense-in-depth
 - **OAuth Client Registration** - Redirect URIs validated against allowlist (claude.ai, localhost)
 - **Isolated Database** - PostgreSQL on dedicated internal-only network (no outbound internet)
 - **SSRF Prevention** via URL validation (blocks private IPs, localhost)
-- **AES-256-GCM Encryption** for stored credentials
+- **AES-256-GCM Encryption** for stored server secrets and service tokens
 - **Rate Limiting** on API endpoints (100 req/min default)
 - **Production Warnings** - Security issues logged on startup
 - **X-Forwarded-For Support** - Proper client IP handling behind proxies
@@ -371,7 +380,7 @@ tool = await tool_factory(server_id=server.id, name="test_tool", python_code="as
 - Don't create per-server Docker containers (use shared sandbox)
 - Don't duplicate constants (use lib/constants.ts)
 - Don't skip pagination on list endpoints
-- Don't expose credentials in API responses
+- Don't expose secrets in API responses
 - Don't add embedded LLM features (use MCP management tools instead)
 - **Don't skip tests** - All new endpoints and bug fixes require tests
 - **Don't commit with failing tests** - Run the test suite before pushing

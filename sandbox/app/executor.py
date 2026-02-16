@@ -9,7 +9,7 @@ import sys
 import time
 import traceback
 from dataclasses import dataclass
-from datetime import datetime
+import datetime
 from io import StringIO
 from typing import Any, Optional
 
@@ -1126,6 +1126,7 @@ class PythonExecutor:
         http_client: httpx.AsyncClient,
         helper_code: Optional[str] = None,
         allowed_modules: set[str] | None = None,
+        secrets: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Create the execution namespace with injected dependencies.
 
@@ -1133,7 +1134,10 @@ class PythonExecutor:
             http_client: HTTP client for making requests
             helper_code: Optional shared code to execute in namespace
             allowed_modules: Set of allowed module names (None = use defaults)
+            secrets: Dict of secret key→value pairs (read-only)
         """
+        from types import MappingProxyType
+
         # Wrap HTTP client with SSRF protection to prevent access to internal IPs
         protected_client = SSRFProtectedAsyncHttpClient(http_client)
 
@@ -1144,6 +1148,8 @@ class PythonExecutor:
             # Inject commonly used modules
             "json": json,
             "datetime": datetime,
+            # Inject read-only secrets dict
+            "secrets": MappingProxyType(secrets or {}),
         }
 
         # Execute helper code to add to namespace
@@ -1165,6 +1171,7 @@ class PythonExecutor:
         timeout: float = DEFAULT_TIMEOUT,
         debug_mode: bool = False,
         allowed_modules: set[str] | None = None,
+        secrets: dict[str, str] | None = None,
     ) -> ExecutionResult:
         """Execute Python code with the provided arguments.
 
@@ -1228,7 +1235,7 @@ class PythonExecutor:
             # Create execution namespace
             try:
                 namespace = self._create_execution_namespace(
-                    http_client, helper_code, allowed_modules
+                    http_client, helper_code, allowed_modules, secrets
                 )
             except ValueError as e:
                 # Error loading helper code

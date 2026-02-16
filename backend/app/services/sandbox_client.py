@@ -185,6 +185,7 @@ class SandboxClient:
         credentials: list[dict[str, Any]],
         helper_code: str | None = None,
         allowed_modules: list[str] | None = None,
+        secrets: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Register a server with its tools in the sandbox.
 
@@ -195,6 +196,7 @@ class SandboxClient:
             credentials: List of credential dicts with auth_type metadata and encrypted values
             helper_code: Optional shared Python code for all tools
             allowed_modules: Custom list of allowed Python modules (None = use defaults)
+            secrets: Dict of secret key→value pairs for injection into tool namespace
 
         Returns:
             Registration result with success status and tool count
@@ -213,6 +215,7 @@ class SandboxClient:
                         "credentials": credentials,
                         "helper_code": helper_code,
                         "allowed_modules": allowed_modules,
+                        "secrets": secrets or {},
                     },
                 )
 
@@ -488,9 +491,9 @@ class SandboxClient:
         self,
         code: str,
         arguments: dict[str, Any] | None = None,
-        credentials: dict[str, str] | None = None,
         timeout_seconds: int = 30,
         allowed_modules: list[str] | None = None,
+        secrets: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Execute Python code directly in the sandbox.
 
@@ -499,9 +502,9 @@ class SandboxClient:
         Args:
             code: Python code with async def main() or result assignment
             arguments: Arguments to pass to the code
-            credentials: Credential values to make available via os.environ
             timeout_seconds: Execution timeout
             allowed_modules: Custom list of allowed Python modules (None = use defaults)
+            secrets: Dict of secret key→value pairs for injection into namespace
 
         Returns:
             Execution result with success, result, error, and stdout
@@ -513,8 +516,8 @@ class SandboxClient:
                 payload: dict[str, Any] = {
                     "code": code,
                     "arguments": arguments or {},
-                    "credentials": credentials or {},
                     "timeout_seconds": timeout_seconds,
+                    "secrets": secrets or {},
                 }
                 if allowed_modules is not None:
                     payload["allowed_modules"] = allowed_modules

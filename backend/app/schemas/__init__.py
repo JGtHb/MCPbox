@@ -16,13 +16,6 @@ from app.schemas.approval import (
     ToolApprovalQueueResponse,
     ToolApprovalRequest,
 )
-from app.schemas.credential import (
-    CredentialCreate,
-    CredentialForInjection,
-    CredentialListResponse,
-    CredentialResponse,
-    CredentialUpdate,
-)
 from app.schemas.server import (
     ServerCreate,
     ServerListResponse,
@@ -62,12 +55,6 @@ __all__ = [
     "ToolApprovalQueueItem",
     "ToolApprovalQueueResponse",
     "ToolApprovalRequest",
-    # Credential
-    "CredentialCreate",
-    "CredentialForInjection",
-    "CredentialListResponse",
-    "CredentialResponse",
-    "CredentialUpdate",
     # Server
     "ServerCreate",
     "ServerListResponse",

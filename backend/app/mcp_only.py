@@ -34,17 +34,17 @@ from app.middleware import (
 # Import models for table creation
 from app.models import (  # noqa: F401
     ActivityLog,
-    Credential,
     Server,
+    ServerSecret,
     Setting,
     Tool,
+    ToolExecutionLog,
     ToolVersion,
     TunnelConfiguration,
 )
 from app.services.log_retention import LogRetentionService
 from app.services.sandbox_client import SandboxClient
 from app.services.service_token_cache import ServiceTokenCache
-from app.services.token_refresh import TokenRefreshService
 
 logger = get_logger("mcp_gateway")
 
@@ -94,9 +94,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.warning(f"SECURITY: {warning}")
 
     # Start background services
-    token_refresh_service = TokenRefreshService.get_instance()
-    await token_refresh_service.start()
-
     log_retention_service = LogRetentionService.get_instance()
     log_retention_service.retention_days = settings.log_retention_days
     await log_retention_service.start()
@@ -104,6 +101,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     global _rate_limit_cleanup_task
     _rate_limit_cleanup_task = asyncio.create_task(rate_limit_cleanup_loop())
     _rate_limit_cleanup_task.add_done_callback(_task_done_callback)
+
+    # Re-register servers that were "running" before container restart
+    from app.services.server_recovery import recover_running_servers
+
+    recovery_task = asyncio.create_task(recover_running_servers())
+    recovery_task.add_done_callback(_task_done_callback)
 
     yield
 
@@ -117,7 +120,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except asyncio.CancelledError:
             pass
 
-    await token_refresh_service.stop()
     await log_retention_service.stop()
 
     sandbox_client = SandboxClient.get_instance()

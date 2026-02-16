@@ -62,7 +62,6 @@ class ServerResponse(BaseModel):
     updated_at: datetime
     tools: list[ToolSummary] = []
     tool_count: int = 0
-    credential_count: int = 0
 
 
 class ServerListResponse(BaseModel):

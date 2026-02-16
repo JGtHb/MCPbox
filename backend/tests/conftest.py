@@ -203,12 +203,48 @@ def _reset_rate_limiter_state():
     rate_limiter._default_config = test_config
 
 
+def _reset_auth_rate_limiter_state():
+    """Reset auth failure rate limiter state for tests.
+
+    The auth_simple module tracks failed auth attempts per IP in a module-level dict.
+    Without resetting this between tests, failures from earlier test modules accumulate
+    and cause subsequent MCP gateway tests to get 429 errors.
+    """
+    from app.api.auth_simple import _failed_auth_attempts
+
+    _failed_auth_attempts.clear()
+
+
+def _reset_service_token_cache():
+    """Reset ServiceTokenCache to local mode for tests.
+
+    Ensures the singleton is in a clean "no token loaded" state (local mode),
+    so MCP gateway tests that expect local mode aren't affected by CloudflareConfig
+    rows created by other test modules (e.g., test_cloudflare.py).
+
+    IMPORTANT: Set _last_loaded to current time so _refresh_if_stale() does NOT
+    trigger a DB reload (which would find CloudflareConfig rows from other tests).
+    """
+    import time
+
+    from app.services.service_token_cache import ServiceTokenCache
+
+    cache = ServiceTokenCache.get_instance()
+    cache._token = None
+    cache._db_error = False
+    cache._decryption_error = False
+    cache._last_loaded = time.monotonic()  # Prevent stale refresh from re-loading
+
+
 @pytest.fixture(autouse=True)
 def reset_rate_limiter(request):
     """Reset rate limiter before each test to avoid 429 errors.
 
     This is an autouse fixture that runs before every test to ensure
-    clean rate limiter state.
+    clean rate limiter state. Resets both:
+    - Middleware rate limiter (requests per minute/hour)
+    - Auth failure rate limiter (failed auth attempts per IP)
+    - ServiceTokenCache (ensures local mode unless test explicitly mocks it)
 
     Tests marked with pytest.mark.skip_rate_limiter_reset will skip this
     fixture (useful for config tests that reload the config module).
@@ -219,8 +255,12 @@ def reset_rate_limiter(request):
         return
 
     _reset_rate_limiter_state()
+    _reset_auth_rate_limiter_state()
+    _reset_service_token_cache()
     yield
     _reset_rate_limiter_state()
+    _reset_auth_rate_limiter_state()
+    _reset_service_token_cache()
 
 
 # --- Database Fixtures ---
@@ -317,8 +357,10 @@ async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, 
 
     app.dependency_overrides[get_db] = override_get_db
 
-    # Reset rate limiter to ensure clean state for each test
+    # Reset rate limiter and auth state to ensure clean state for each test
     _reset_rate_limiter_state()
+    _reset_auth_rate_limiter_state()
+    _reset_service_token_cache()
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -326,8 +368,10 @@ async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, 
 
     # Clean up
     app.dependency_overrides.clear()
-    # Reset rate limiter after test
+    # Reset rate limiter and auth state after test
     _reset_rate_limiter_state()
+    _reset_auth_rate_limiter_state()
+    _reset_service_token_cache()
 
 
 @pytest.fixture(scope="module")
@@ -342,14 +386,18 @@ def sync_client() -> Generator[TestClient, None, None]:
 
     from app.main import app
 
-    # Reset rate limiter before tests
+    # Reset rate limiter and auth state before tests
     _reset_rate_limiter_state()
+    _reset_auth_rate_limiter_state()
+    _reset_service_token_cache()
 
     with TestClient(app) as client:
         yield client
 
-    # Reset rate limiter after tests
+    # Reset rate limiter and auth state after tests
     _reset_rate_limiter_state()
+    _reset_auth_rate_limiter_state()
+    _reset_service_token_cache()
 
 
 # --- Test Factories ---
@@ -446,38 +494,6 @@ def tool_factory(db_session, server_factory):
         return tool
 
     return _create_tool
-
-
-@pytest.fixture
-def credential_factory(db_session, server_factory):
-    """Factory for creating test Credential objects."""
-    from app.models.credential import Credential
-
-    async def _create_credential(
-        server=None,
-        name: str = "TEST_API_KEY",
-        auth_type: str = "api_key_header",
-        header_name: str = "X-API-Key",
-        encrypted_value: bytes = b"test-encrypted-value",
-        **kwargs,
-    ) -> Credential:
-        if server is None:
-            server = await server_factory()
-
-        credential = Credential(
-            server_id=server.id,
-            name=name,
-            auth_type=auth_type,
-            header_name=header_name,
-            encrypted_value=encrypted_value,
-            **kwargs,
-        )
-        db_session.add(credential)
-        await db_session.flush()
-        await db_session.refresh(credential)
-        return credential
-
-    return _create_credential
 
 
 # --- Sample Data Fixtures ---

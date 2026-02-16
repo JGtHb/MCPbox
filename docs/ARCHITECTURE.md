@@ -212,28 +212,31 @@ Tools are created programmatically by external LLMs via `mcpbox_*` MCP tools:
 +-----------------------------------------------------------------+
 ```
 
-### Credential Management
+### Server Secrets
 
 ```
 +-----------------------------------------------------------------+
-|                   CREDENTIAL STORAGE                             |
+|                   SECRET STORAGE                                  |
 +-----------------------------------------------------------------+
 |                                                                  |
 |  PostgreSQL (encrypted at rest)                                  |
-|  +-> API keys (AES-256-GCM encrypted)                           |
-|  +-> OAuth tokens (AES-256-GCM encrypted)                       |
-|  +-> Refresh tokens (AES-256-GCM encrypted)                     |
+|  +-> Per-server key-value secrets (AES-256-GCM encrypted)       |
 |                                                                  |
 |  Encryption key: MCPBOX_ENCRYPTION_KEY env variable              |
 |  +-> User provides: openssl rand -hex 32                        |
 |  +-> Per-value random IV, authenticated encryption              |
 |                                                                  |
-|  Credentials passed to sandbox via:                              |
-|  +-> Environment variables at execution time                    |
+|  Workflow:                                                       |
+|  +-> LLM creates placeholder: mcpbox_create_server_secret       |
+|  +-> Admin sets actual value in web UI                          |
+|  +-> Values NEVER flow through LLMs                             |
 |                                                                  |
-|  Credential scoping:                                             |
-|  +-> Each MCP server has its own credential namespace           |
-|  +-> Server A cannot access Server B's credentials              |
+|  Secrets passed to sandbox via:                                  |
+|  +-> secrets["KEY_NAME"] dict at execution time                 |
+|                                                                  |
+|  Secret scoping:                                                 |
+|  +-> Each MCP server has its own secret namespace               |
+|  +-> Server A cannot access Server B's secrets                  |
 |                                                                  |
 +-----------------------------------------------------------------+
 ```
@@ -283,23 +286,28 @@ backend/
 |   |   +-- cloudflare.py        # Cloudflare setup wizard API
 |   |   +-- mcp_gateway.py       # MCP gateway routes (/mcp)
 |   |   +-- approvals.py         # Tool/module approval endpoints
-|   |   +-- credentials.py       # Credential management
+|   |   +-- server_secrets.py    # Server secret management
+|   |   +-- execution_logs.py    # Tool execution log viewer
 |   |   +-- activity.py          # Activity logging + WebSocket
 |   |   +-- dashboard.py         # Dashboard stats
 |   |   +-- export_import.py     # Server/tool export/import
 |   |   +-- settings.py          # App settings
-|   |   +-- oauth.py             # OAuth token management
 |   |   +-- config.py            # Server config endpoints
 |   +-- services/
 |   |   +-- mcp_management.py    # MCP management tools (mcpbox_*)
 |   |   +-- cloudflare.py        # Cloudflare API integration
-|   |   +-- crypto.py            # AES-256-GCM credential encryption
+|   |   +-- crypto.py            # AES-256-GCM secret encryption
 |   |   +-- sandbox_client.py    # HTTP client for sandbox communication
+|   |   +-- server_secret.py     # Server secret service
+|   |   +-- execution_log.py     # Tool execution logging
+|   |   +-- server_recovery.py   # Re-register running servers on startup
+|   |   +-- tool_change_notifier.py # MCP tools/list_changed notifications
 |   |   +-- ...
 |   +-- models/
 |   |   +-- server.py            # Server model
 |   |   +-- tool.py              # Tool model
-|   |   +-- credential.py        # Encrypted credential model
+|   |   +-- server_secret.py     # Encrypted server secrets
+|   |   +-- tool_execution_log.py # Tool execution log
 |   |   +-- activity_log.py      # Activity log model
 |   |   +-- admin_user.py        # Admin user model
 |   |   +-- cloudflare_config.py # Cloudflare wizard state
@@ -317,7 +325,7 @@ backend/
 **Key Libraries:**
 - FastAPI (web framework)
 - SQLAlchemy (async ORM)
-- cryptography (AES-256-GCM credential encryption)
+- cryptography (AES-256-GCM secret encryption)
 - httpx (async HTTP client)
 - argon2-cffi (password hashing)
 
@@ -326,12 +334,15 @@ backend/
 The MCP gateway runs as a **separate Docker service** (`mcp-gateway:8002`) using `app.mcp_only:app`. It shares the backend codebase but only exposes `/mcp` and `/health` endpoints. This ensures the tunnel can **never** reach admin API endpoints.
 
 **Responsibilities:**
-- Terminate MCP Streamable HTTP connections from Claude
+- Terminate MCP Streamable HTTP connections from Claude (stateful sessions via `Mcp-Session-Id`)
 - Validate service token header (remote mode) or allow all (local mode)
 - Trust Worker-supplied `X-MCPbox-User-Email` header (when valid service token is present)
 - Proxy tool execution requests to the sandbox
 - Aggregate tool listings from all enabled servers
+- Broadcast `tools/list_changed` notifications when tools change
 - Log all requests for observability
+
+**Important:** Runs with `--workers 1` because MCP sessions are stateful (in-memory `_active_sessions` dict). Multiple workers would cause ~50% of requests to hit the wrong worker.
 
 ### 4. Sandbox (Python Tool Execution)
 
@@ -370,14 +381,17 @@ worker/
 
 ### 6. MCP Management Tools
 
-MCPbox exposes 18 management tools with the `mcpbox_` prefix:
+MCPbox exposes 24 management tools with the `mcpbox_` prefix:
 
 | Category | Tools |
 |----------|-------|
 | Servers | `list_servers`, `get_server`, `create_server`, `delete_server`, `start_server`, `stop_server`, `get_server_modules` |
 | Tools | `list_tools`, `get_tool`, `create_tool`, `update_tool`, `delete_tool` |
+| Versioning | `list_tool_versions`, `rollback_tool` |
 | Development | `test_code`, `validate_code` |
-| Approval | `request_publish`, `request_module`, `request_network_access`, `get_tool_status` |
+| Secrets | `create_server_secret`, `list_server_secrets` |
+| Approval | `request_publish`, `request_module`, `request_network_access`, `get_tool_status`, `list_pending_requests` |
+| Observability | `get_tool_logs` |
 
 See `docs/MCP-MANAGEMENT-TOOLS.md` for complete documentation.
 
@@ -447,7 +461,7 @@ MCPbox uses PostgreSQL with SQLAlchemy async ORM. Key tables:
 | `servers` | MCP server definitions (name, status, allowed_hosts, allowed_modules) |
 | `tools` | Tool definitions (name, description, python_code, input_schema, status) |
 | `tool_versions` | Version history for tools |
-| `credentials` | Encrypted API credentials per server |
+| `server_secrets` | Encrypted per-server key-value secrets (AES-256-GCM) |
 | `admin_users` | Admin panel users (JWT auth) |
 | `settings` | Application settings (key-value) |
 | `global_configs` | Global configuration (allowed modules, etc.) |
@@ -457,6 +471,7 @@ MCPbox uses PostgreSQL with SQLAlchemy async ORM. Key tables:
 | Table | Purpose |
 |-------|---------|
 | `activity_logs` | All system activity (tool calls, server changes, etc.) |
+| `tool_execution_logs` | Per-tool execution logs (args, results, errors, duration) |
 
 ### Approval Workflow
 
@@ -498,11 +513,17 @@ PUT    /api/tools/{id}              # Update tool
 DELETE /api/tools/{id}              # Delete tool
 ```
 
-**Credentials:**
+**Server Secrets:**
 ```
-POST   /api/servers/{id}/credentials      # Add credential
-GET    /api/servers/{id}/credentials      # List credentials (names only)
-DELETE /api/credentials/{id}              # Remove credential
+POST   /api/servers/{id}/secrets          # Create secret placeholder
+GET    /api/servers/{id}/secrets          # List secrets (keys + has_value, no values)
+PUT    /api/secrets/{id}/value            # Set secret value (admin only)
+DELETE /api/secrets/{id}                  # Remove secret
+```
+
+**Tool Execution Logs:**
+```
+GET    /api/tools/{id}/logs               # Get execution logs for a tool (paginated)
 ```
 
 **Approval Workflow:**
@@ -539,6 +560,7 @@ PUT    /api/settings                      # Update settings
 
 ```
 POST   /mcp                              # MCP Streamable HTTP endpoint
+GET    /mcp                              # SSE stream for server-to-client notifications
 GET    /health                           # Health check
 ```
 

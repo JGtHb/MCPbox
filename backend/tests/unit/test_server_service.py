@@ -51,9 +51,7 @@ class TestServerServiceCreate:
 
         # Should be able to access relationships without additional queries
         assert hasattr(server, "tools")
-        assert hasattr(server, "credentials")
         assert server.tools == []
-        assert server.credentials == []
 
 
 class TestServerServiceGet:
@@ -79,7 +77,7 @@ class TestServerServiceGet:
         assert server is None
 
     async def test_get_server_loads_relationships(self, db_session, server_factory, tool_factory):
-        """Get server eagerly loads tools and credentials."""
+        """Get server eagerly loads tools."""
         created = await server_factory(name="with_tools")
         await tool_factory(server=created, name="tool1")
         await tool_factory(server=created, name="tool2")

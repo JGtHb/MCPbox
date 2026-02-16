@@ -136,39 +136,17 @@ class TestAuditServiceSanitization:
         assert sanitized == details
 
     @pytest.mark.asyncio
-    async def test_log_credential_create_sanitizes(self, audit_service, mock_activity_logger):
-        """Test that credential creation logs sanitize sensitive data."""
-        credential_id = uuid4()
-        server_id = uuid4()
-
-        await audit_service.log_credential_create(
-            credential_id=credential_id,
-            server_id=server_id,
-            credential_name="API_KEY",
-            auth_type="api_key_header",
-            actor_ip="192.168.1.1",
-        )
-
-        # Verify log was called
-        mock_activity_logger.log.assert_called_once()
-        call_args = mock_activity_logger.log.call_args
-
-        # Verify sensitive data is not in the log
-        details = call_args.kwargs.get("details", {})
-        assert "password" not in str(details).lower() or "redacted" in str(details).lower()
-
-    @pytest.mark.asyncio
     async def test_log_includes_action_and_timestamp(self, audit_service, mock_activity_logger):
         """Test that audit logs include action type and timestamp."""
         await audit_service.log(
-            action=AuditAction.CREDENTIAL_CREATE,
-            resource_type="credential",
-            details={"name": "test-credential"},
+            action=AuditAction.TUNNEL_START,
+            resource_type="tunnel",
+            details={"name": "test-tunnel"},
         )
 
         mock_activity_logger.log.assert_called_once()
         call_args = mock_activity_logger.log.call_args
         details = call_args.kwargs.get("details", {})
 
-        assert details["action"] == "credential.create"
+        assert details["action"] == "tunnel.start"
         assert "timestamp" in details

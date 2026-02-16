@@ -9,22 +9,30 @@ Authentication:
 """
 
 import asyncio
+import json
 import logging
 import time
+import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth_simple import AuthenticatedUser, verify_mcp_auth
-from app.core.database import get_db
+from app.core.database import async_session_maker, get_db
 from app.services.activity_logger import ActivityLoggerService, get_activity_logger
+from app.services.execution_log import ExecutionLogService
 from app.services.mcp_management import MCPManagementService, get_management_tools_list
 from app.services.sandbox_client import SandboxClient, get_sandbox_client
 
 logger = logging.getLogger(__name__)
+
+# MCP protocol version — must match what we actually implement.
+# 2025-11-25 introduced tasks, elicitation, icons (all optional).
+# Core Streamable HTTP transport is unchanged from 2025-03-26.
+MCP_PROTOCOL_VERSION = "2025-11-25"
 
 # Management tool prefix - all tools starting with this are handled locally
 MANAGEMENT_TOOL_PREFIX = "mcpbox_"
@@ -40,6 +48,93 @@ LOCAL_ONLY_TOOLS = {
 # Maximum concurrent SSE connections to prevent resource exhaustion
 MAX_SSE_CONNECTIONS = 50
 _active_sse_connections = 0
+
+# --- Session Management ---
+# Per MCP Streamable HTTP spec (2025-03-26+), servers MAY assign a session ID
+# at initialization time. Clients MUST include it on all subsequent requests.
+# This allows the server to correlate GET SSE streams with POST sessions.
+SESSION_EXPIRY_SECONDS = 3600  # 1 hour
+_active_sessions: dict[str, float] = {}  # session_id -> last_activity_timestamp
+_sessions_lock = asyncio.Lock()
+
+
+def _generate_session_id() -> str:
+    """Generate a cryptographically secure session ID."""
+    return str(uuid.uuid4())
+
+
+async def _validate_session(session_id: str | None) -> bool:
+    """Validate a session ID exists and hasn't expired."""
+    if not session_id:
+        return False
+    async with _sessions_lock:
+        last_activity = _active_sessions.get(session_id)
+        if last_activity is None:
+            return False
+        if time.time() - last_activity > SESSION_EXPIRY_SECONDS:
+            del _active_sessions[session_id]
+            return False
+        # Touch session
+        _active_sessions[session_id] = time.time()
+        return True
+
+
+async def _create_session() -> str:
+    """Create a new session and return the session ID."""
+    session_id = _generate_session_id()
+    async with _sessions_lock:
+        _active_sessions[session_id] = time.time()
+        # Cleanup expired sessions opportunistically
+        now = time.time()
+        expired = [
+            sid for sid, last in _active_sessions.items() if now - last > SESSION_EXPIRY_SECONDS
+        ]
+        for sid in expired:
+            del _active_sessions[sid]
+    return session_id
+
+
+async def _delete_session(session_id: str) -> bool:
+    """Delete a session. Returns True if it existed."""
+    async with _sessions_lock:
+        if session_id in _active_sessions:
+            del _active_sessions[session_id]
+            return True
+        return False
+
+
+# --- SSE Notification Event Bus ---
+# Simple pub/sub for broadcasting notifications to active SSE connections.
+# Each SSE subscriber gets its own asyncio.Queue to receive events.
+_sse_subscribers: list[asyncio.Queue[str]] = []
+_sse_subscribers_lock = asyncio.Lock()
+
+
+async def broadcast_tools_changed() -> None:
+    """Broadcast a tools/list_changed notification to all active SSE subscribers.
+
+    This is called when tools change (approved, enabled/disabled, server start/stop)
+    to tell MCP clients to re-fetch their tool list.
+    """
+    notification = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "method": "notifications/tools/list_changed",
+        }
+    )
+    event_data = f"event: message\ndata: {notification}\n\n"
+
+    async with _sse_subscribers_lock:
+        subscriber_count = len(_sse_subscribers)
+        for queue in _sse_subscribers:
+            try:
+                queue.put_nowait(event_data)
+            except asyncio.QueueFull:
+                logger.warning("SSE subscriber queue full, dropping notification")
+
+    if subscriber_count > 0:
+        logger.info("Broadcast tools/list_changed to %d SSE subscriber(s)", subscriber_count)
+
 
 # MCP Gateway router - exposed at /mcp (not /api/mcp)
 router = APIRouter(tags=["mcp"])
@@ -87,12 +182,25 @@ async def mcp_sse(
 ) -> StreamingResponse:
     """MCP Streamable HTTP SSE endpoint for server-to-client streaming.
 
-    Per the MCP Streamable HTTP transport spec, GET to the MCP endpoint
-    opens an SSE stream for server-initiated messages (notifications, requests).
-    We don't currently send server-initiated messages, so this returns a
-    keep-alive stream that stays open until the client disconnects.
+    Per the MCP Streamable HTTP transport spec (2025-03-26+), GET to the MCP
+    endpoint opens an SSE stream for server-initiated messages (notifications).
+
+    Clients MUST include Mcp-Session-Id header (obtained from initialize).
+    This stream broadcasts notifications such as notifications/tools/list_changed
+    when tools are approved, enabled/disabled, or servers start/stop.
     """
     global _active_sse_connections
+
+    # Validate session — clients must have initialized first
+    session_id = request.headers.get("mcp-session-id")
+    if session_id:
+        if not await _validate_session(session_id):
+            raise HTTPException(
+                status_code=404,
+                detail="Session not found or expired",
+            )
+    # If no session_id provided, allow connection anyway (backwards compat)
+    # Some clients may not implement session management yet
 
     if _active_sse_connections >= MAX_SSE_CONNECTIONS:
         raise HTTPException(
@@ -100,29 +208,79 @@ async def mcp_sse(
             detail="Too many active SSE connections",
         )
 
-    logger.info("SSE stream opened (active: %d)", _active_sse_connections + 1)
+    logger.info(
+        "SSE stream opened (active: %d, session: %s)", _active_sse_connections + 1, session_id
+    )
+
+    # Create a subscriber queue for this SSE connection
+    subscriber_queue: asyncio.Queue[str] = asyncio.Queue(maxsize=100)
 
     async def event_generator():  # type: ignore[no-untyped-def]
         global _active_sse_connections
         _active_sse_connections += 1
+
+        # Register subscriber
+        async with _sse_subscribers_lock:
+            _sse_subscribers.append(subscriber_queue)
+
         try:
             # Send initial keepalive to confirm the stream is working
             yield ": keepalive\n\n"
             while True:
-                await asyncio.sleep(15)
-                yield ": keepalive\n\n"
+                # Wait for either a notification event or keepalive timeout
+                try:
+                    event_data = await asyncio.wait_for(subscriber_queue.get(), timeout=15.0)
+                    yield event_data
+                except TimeoutError:
+                    # No events received — send keepalive
+                    yield ": keepalive\n\n"
         except asyncio.CancelledError:
-            logger.info("SSE stream closed by client")
+            logger.info("SSE stream closed by client (session: %s)", session_id)
         finally:
+            # Unregister subscriber
+            async with _sse_subscribers_lock:
+                try:
+                    _sse_subscribers.remove(subscriber_queue)
+                except ValueError:
+                    pass
             _active_sse_connections -= 1
+            logger.info("SSE stream cleaned up (active: %d)", _active_sse_connections)
+
+    response_headers: dict[str, str] = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",  # Prevent nginx/proxy buffering
+    }
+    if session_id:
+        response_headers["Mcp-Session-Id"] = session_id
 
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-        },
+        headers=response_headers,
     )
+
+
+@router.delete("/mcp")
+async def mcp_delete_session(
+    request: Request,
+    _user: AuthenticatedUser = Depends(verify_mcp_auth),
+) -> Response:
+    """MCP session termination endpoint.
+
+    Per the MCP Streamable HTTP spec, clients SHOULD send DELETE to the
+    MCP endpoint with Mcp-Session-Id to explicitly terminate a session.
+    """
+    session_id = request.headers.get("mcp-session-id")
+    if not session_id:
+        raise HTTPException(status_code=400, detail="Missing Mcp-Session-Id header")
+
+    deleted = await _delete_session(session_id)
+    if deleted:
+        logger.info("MCP session terminated: %s", session_id)
+        return Response(status_code=200)
+    else:
+        raise HTTPException(status_code=404, detail="Session not found")
 
 
 # --- MCP Gateway Endpoint ---
@@ -131,11 +289,12 @@ async def mcp_sse(
 @router.post("/mcp", response_model=None)
 async def mcp_gateway(
     request: MCPRequest,
+    raw_request: Request,
     _user: AuthenticatedUser = Depends(verify_mcp_auth),
     db: AsyncSession = Depends(get_db),
     activity_logger: ActivityLoggerService = Depends(get_activity_logger),
     sandbox_client: SandboxClient = Depends(get_sandbox_client),
-) -> dict[str, Any] | Response | MCPResponse:
+) -> dict[str, Any] | Response | MCPResponse | JSONResponse:
     """MCP JSON-RPC gateway endpoint.
 
     Handles MCP protocol requests. Routes tool requests to the shared
@@ -149,6 +308,15 @@ async def mcp_gateway(
     method = request.method
     params = request.params or {}
 
+    # Session management: validate Mcp-Session-Id on non-initialize requests
+    session_id = raw_request.headers.get("mcp-session-id")
+    if method != "initialize" and session_id:
+        if not await _validate_session(session_id):
+            raise HTTPException(
+                status_code=404,
+                detail="Session not found or expired. Send a new InitializeRequest.",
+            )
+
     # Log incoming request
     request_id = await activity_logger.log_mcp_request(
         method=method,
@@ -158,6 +326,7 @@ async def mcp_gateway(
     try:
         response_result = None
         response_error = None
+        new_session_id = ""  # Set during initialize
 
         # Log incoming request for diagnostics
         logger.info(
@@ -183,10 +352,14 @@ async def mcp_gateway(
         if method == "initialize":
             # MCP initialization handshake - required for Streamable HTTP transport.
             # Allowed without user email (needed for Cloudflare sync).
+            # Create a new session for this client.
+            new_session_id = await _create_session()
+            logger.info("MCP session created: %s", new_session_id)
+
             response_result = {
-                "protocolVersion": "2024-11-05",
+                "protocolVersion": MCP_PROTOCOL_VERSION,
                 "capabilities": {
-                    "tools": {},  # We support tools
+                    "tools": {"listChanged": True},  # We support tools + change notifications
                 },
                 "serverInfo": {
                     "name": "mcpbox",
@@ -285,6 +458,18 @@ async def mcp_gateway(
                     response_error = sandbox_response["error"]
                 else:
                     response_result = sandbox_response.get("result")
+
+                # Fire-and-forget: log execution (don't block response)
+                _tool_call_duration = int((time.time() - start_time) * 1000)
+                asyncio.create_task(
+                    _log_tool_execution(
+                        tool_name=tool_name,
+                        arguments=arguments,
+                        sandbox_response=sandbox_response,
+                        duration_ms=_tool_call_duration,
+                        executed_by=_user.email if _user else None,
+                    )
+                )
         else:
             # Unknown methods: forward to sandbox.
             # Require authenticated user for remote requests as defense-in-depth.
@@ -336,7 +521,17 @@ async def mcp_gateway(
         )
 
         # Return response, excluding None fields for cleaner JSON-RPC
-        return response.model_dump(exclude_none=True)
+        response_body = response.model_dump(exclude_none=True)
+
+        # For initialize responses, include Mcp-Session-Id header
+        # per MCP Streamable HTTP spec (2025-03-26+)
+        if method == "initialize" and is_success:
+            return JSONResponse(
+                content=response_body,
+                headers={"Mcp-Session-Id": new_session_id},
+            )
+
+        return response_body
 
     except HTTPException:
         # Log HTTP exceptions
@@ -501,6 +696,91 @@ async def _handle_management_tool_call(
         }
 
 
+# --- Execution Log Capture ---
+
+
+async def _log_tool_execution(
+    tool_name: str,
+    arguments: dict[str, Any],
+    sandbox_response: dict[str, Any],
+    duration_ms: int,
+    executed_by: str | None = None,
+) -> None:
+    """Log a tool execution result to the database (fire-and-forget).
+
+    Resolves the tool from its MCP name (ServerName__tool_name) to get
+    tool_id and server_id.  Uses a fresh DB session since this runs
+    as a background task after the request session is closed.
+    """
+    try:
+        from sqlalchemy import select
+
+        from app.models import Tool
+
+        async with async_session_maker() as session:
+            # Resolve MCP tool name → tool record
+            # MCP tool name format: ServerName__tool_name
+            short_name = tool_name.split("__", 1)[-1] if "__" in tool_name else tool_name
+
+            result = await session.execute(select(Tool).where(Tool.name == short_name).limit(1))
+            tool = result.scalar_one_or_none()
+
+            if not tool:
+                # Tool not found in DB — skip logging (might be a race condition)
+                logger.debug(f"Tool {short_name} not found for execution logging")
+                return
+
+            # Parse sandbox response
+            has_error = "error" in sandbox_response
+            error_msg = None
+            tool_result = None
+            stdout = None
+
+            if has_error:
+                error_data = sandbox_response["error"]
+                error_msg = (
+                    error_data.get("message", str(error_data))
+                    if isinstance(error_data, dict)
+                    else str(error_data)
+                )
+            else:
+                raw_result = sandbox_response.get("result", {})
+                # MCP tools/call result has content array
+                if isinstance(raw_result, dict) and "content" in raw_result:
+                    content = raw_result["content"]
+                    if isinstance(content, list) and content:
+                        # Extract text content
+                        texts = [
+                            c.get("text", "")
+                            for c in content
+                            if isinstance(c, dict) and c.get("type") == "text"
+                        ]
+                        tool_result = {"content": texts} if texts else raw_result
+                    else:
+                        tool_result = raw_result
+                else:
+                    tool_result = raw_result
+
+            log_service = ExecutionLogService(session)
+            await log_service.create_log(
+                tool_id=tool.id,
+                server_id=tool.server_id,
+                tool_name=short_name,
+                input_args=arguments,
+                result=tool_result,
+                error=error_msg,
+                stdout=stdout,
+                duration_ms=duration_ms,
+                success=not has_error,
+                executed_by=executed_by,
+            )
+            await session.commit()
+
+    except Exception as e:
+        # Never let logging failures propagate — this is fire-and-forget
+        logger.warning(f"Failed to log tool execution: {e}")
+
+
 # --- Health endpoint for tunnel target ---
 
 
@@ -516,4 +796,23 @@ async def mcp_health(
 
     return {
         "status": "ok" if sandbox_healthy else "degraded",
+        "sandbox": "healthy" if sandbox_healthy else "unhealthy",
     }
+
+
+# --- Internal Notification Endpoint ---
+
+
+@router.post("/mcp/internal/notify-tools-changed")
+async def notify_tools_changed(request: Request) -> dict[str, str]:
+    """Internal endpoint to trigger tools/list_changed notification to all SSE clients.
+
+    Called by the backend process when tools change (approval, enable/disable,
+    server start/stop). This endpoint is internal-only — not exposed through
+    the tunnel and not authenticated (Docker-internal network only).
+
+    The backend and MCP gateway run as separate processes, so this HTTP endpoint
+    bridges the inter-process notification gap.
+    """
+    await broadcast_tools_changed()
+    return {"status": "ok", "message": "Notification broadcast sent"}
