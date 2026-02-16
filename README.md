@@ -22,10 +22,11 @@ MCPbox is a Docker-based platform that lets you:
 
 ### MCP-First Architecture
 
-MCPbox exposes 18 management tools that external LLMs can use:
+MCPbox exposes 24 management tools that external LLMs can use:
 - `mcpbox_create_server`, `mcpbox_create_tool`, `mcpbox_test_code`
+- `mcpbox_create_server_secret`, `mcpbox_list_tool_versions`, `mcpbox_get_tool_logs`
 - `mcpbox_request_publish`, `mcpbox_request_module`, `mcpbox_request_network_access`
-- Full CRUD for servers, tools, and approval workflow
+- Full CRUD for servers, tools, secrets, and approval workflow
 
 See [MCP Management Tools](docs/MCP-MANAGEMENT-TOOLS.md) for details.
 
@@ -38,7 +39,7 @@ See [MCP Management Tools](docs/MCP-MANAGEMENT-TOOLS.md) for details.
   - Resource limits (256MB memory, 60s CPU, 256 file descriptors)
   - Code safety validation via regex pattern scanning before execution
 - **SSRF Prevention**: URL validation blocks requests to private IPs, metadata endpoints, with DNS rebinding protection
-- **Credential Encryption**: AES-256-GCM encryption for stored credentials
+- **Server Secrets**: AES-256-GCM encrypted per-server secrets (LLMs create placeholders, admins set values)
 - **Separate MCP Gateway**: Tunnel-exposed service physically cannot serve admin endpoints
 - **Rate Limiting**: API rate limiting prevents abuse (100 req/min default)
 - **Timing-Safe Auth**: Constant-time token comparison prevents timing attacks
@@ -47,7 +48,8 @@ See [MCP Management Tools](docs/MCP-MANAGEMENT-TOOLS.md) for details.
 
 - Named tunnels for production (stable URLs)
 - Workers VPC for truly private tunnel access
-- Service token authentication
+- OAuth 2.1 + OIDC authentication (Cloudflare Access for SaaS)
+- Service token defense-in-depth
 - Works with Claude Web's remote MCP feature
 
 ## Quick Start
@@ -101,11 +103,11 @@ open http://localhost:3000
 └──────────────────────────────────────────────────────────────────┘
                              │ Workers VPC (private)
                              ▼
-                  ┌─────────────────────┐
-                  │ Cloudflare Worker   │
-                  │ + MCP Server Portal │
-                  └─────────┬───────────┘
-                            ▼
+                  ┌──────────────────────────┐
+                  │ Cloudflare Worker         │
+                  │ (OAuth 2.1 + OIDC)       │
+                  └──────────┬───────────────┘
+                             ▼
                     ┌───────────────┐
                     │  Claude Web   │
                     └───────────────┘
@@ -137,14 +139,18 @@ MCPbox is **stable and production-ready** with the following epics implemented:
 
 ### Recent Improvements
 
-- ✅ MCP-first architecture - tools created via `mcpbox_*` MCP tools
+- ✅ Server secrets - encrypted key-value secrets per server (LLMs create placeholders, admins set values)
+- ✅ Tool execution logging - per-tool invocation history with args, results, errors
+- ✅ Server recovery - automatic re-registration after sandbox restart
+- ✅ Tool change notifications - MCP `tools/list_changed` broadcast
+- ✅ Tool versioning with rollback support
+- ✅ Access for SaaS (OIDC) - Cloudflare Access as OIDC identity provider
+- ✅ MCP session management - stateful `Mcp-Session-Id` support
+- ✅ MCP-first architecture - tools created via 24 `mcpbox_*` MCP tools
 - ✅ Tool approval workflow with draft/pending/approved states
-- ✅ Module and network access request system
 - ✅ Separate MCP Gateway for secure tunnel access
 - ✅ Workers VPC integration (no public tunnel URL)
-- ✅ Activity log retention with automatic cleanup
 - ✅ Cloudflare setup wizard for automated remote access configuration
-- ✅ Production readiness review - security audit, bug fixes, test coverage
 
 ## Running Tests
 

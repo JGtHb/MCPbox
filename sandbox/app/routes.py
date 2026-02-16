@@ -1,14 +1,16 @@
 """Sandbox API routes."""
 
 import asyncio
+import datetime as datetime_module
 import json as json_module
 import logging
 import os
 import time
-from concurrent.futures import ThreadPoolExecutor
+
 from contextlib import redirect_stdout
 from typing import Any, Optional
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from slowapi import Limiter
@@ -22,6 +24,7 @@ from app.executor import (
     validate_code_safety,
 )
 from app.registry import tool_registry
+from app.ssrf import SSRFProtectedAsyncHttpClient
 from app.ssrf import SSRFProtectedHttpx as _BaseSsrfProtectedHttpx
 
 logger = logging.getLogger(__name__)
@@ -62,29 +65,20 @@ class ToolDef(BaseModel):
             )
 
 
-class CredentialDef(BaseModel):
-    """Credential definition with auth type metadata."""
-
-    name: str
-    auth_type: str
-    header_name: Optional[str] = None
-    query_param_name: Optional[str] = None
-    value: Optional[str] = None  # Encrypted
-    username: Optional[str] = None  # Encrypted (for basic auth)
-    password: Optional[str] = None  # Encrypted (for basic auth)
-
-
 class RegisterServerRequest(BaseModel):
     """Request to register a server with tools."""
 
     server_id: str
     server_name: str
     tools: list[ToolDef]
-    credentials: list[CredentialDef] = []
+    credentials: list[
+        dict[str, Any]
+    ] = []  # Deprecated, ignored. Kept for API compatibility.
     helper_code: Optional[str] = None
     allowed_modules: Optional[list[str]] = (
         None  # Custom allowed modules (None = defaults)
     )
+    secrets: dict[str, str] = {}  # Key-value secrets for injection into tool namespace
 
     def model_post_init(self, __context: Any) -> None:
         """Validate helper_code size limit after model initialization."""
@@ -192,17 +186,6 @@ class ListServersResponse(BaseModel):
 # --- Lifecycle Endpoints ---
 
 
-def initialize_encryption():
-    """Initialize encryption key from environment.
-
-    Called from the lifespan handler in main.py.
-    """
-    encryption_key = os.environ.get("MCPBOX_ENCRYPTION_KEY")
-    if encryption_key:
-        tool_registry.set_encryption_key(encryption_key)
-        logger.info("Encryption key configured for credential decryption")
-
-
 # --- Server Management ---
 
 
@@ -227,27 +210,13 @@ async def register_server(request: RegisterServerRequest):
         }
         tools_data.append(tool_data)
 
-    # Convert credentials to list of dicts
-    credentials_data = [
-        {
-            "name": c.name,
-            "auth_type": c.auth_type,
-            "header_name": c.header_name,
-            "query_param_name": c.query_param_name,
-            "value": c.value,
-            "username": c.username,
-            "password": c.password,
-        }
-        for c in request.credentials
-    ]
-
     count = tool_registry.register_server(
         server_id=request.server_id,
         server_name=request.server_name,
         tools=tools_data,
-        credentials=credentials_data,
         helper_code=request.helper_code,
         allowed_modules=request.allowed_modules,
+        secrets=request.secrets,
     )
 
     return RegisterServerResponse(
@@ -504,6 +473,7 @@ class ExecuteCodeRequest(BaseModel):
     allowed_modules: Optional[list[str]] = (
         None  # Custom allowed modules (None = defaults)
     )
+    secrets: dict[str, str] = {}  # Key-value secrets for injection into namespace
 
 
 class ExecuteCodeResponse(BaseModel):
@@ -546,77 +516,6 @@ class SSRFProtectedHttpx(_BaseSsrfProtectedHttpx):
 _ssrf_protected_httpx = SSRFProtectedHttpx()
 
 
-class IsolatedEnv:
-    """Isolated environment that only exposes provided credentials.
-
-    Prevents credential leakage between requests by not touching global os.environ.
-    """
-
-    def __init__(self, credentials: dict[str, str]):
-        self._env = credentials.copy()
-
-    def get(self, key: str, default: str = None) -> Optional[str]:
-        """Get an environment variable from the isolated env."""
-        return self._env.get(key, default)
-
-    def __getitem__(self, key: str) -> str:
-        """Get an environment variable, raises KeyError if not found."""
-        if key not in self._env:
-            raise KeyError(key)
-        return self._env[key]
-
-    def __contains__(self, key: str) -> bool:
-        """Check if key exists in isolated env."""
-        return key in self._env
-
-    def keys(self):
-        """Return keys in isolated env."""
-        return self._env.keys()
-
-    def values(self):
-        """Return values in isolated env."""
-        return self._env.values()
-
-    def items(self):
-        """Return items in isolated env."""
-        return self._env.items()
-
-
-class IsolatedOs:
-    """Isolated os module that only provides safe, sandboxed access.
-
-    This class explicitly blocks all os module functionality except for
-    safe environment variable access. Any attempt to access other attributes
-    (like path, system, getcwd, etc.) will raise an AttributeError.
-    """
-
-    # Explicitly define allowed attributes to prevent __getattr__ bypass
-    __slots__ = ("environ", "_credentials")
-
-    def __init__(self, credentials: dict[str, str]):
-        object.__setattr__(self, "_credentials", credentials)
-        object.__setattr__(self, "environ", IsolatedEnv(credentials))
-
-    def getenv(self, key: str, default: str = None) -> Optional[str]:
-        """Get environment variable from isolated env."""
-        return self.environ.get(key, default)
-
-    def __getattr__(self, name: str):
-        """Block access to any os attributes not explicitly defined."""
-        raise AttributeError(
-            f"'os' module attribute '{name}' is not available in the sandbox. "
-            "Only os.environ and os.getenv() are allowed."
-        )
-
-    def __setattr__(self, name: str, value):
-        """Prevent setting arbitrary attributes."""
-        raise AttributeError("Cannot set attributes on sandboxed os module")
-
-    def __delattr__(self, name: str):
-        """Prevent deleting attributes."""
-        raise AttributeError("Cannot delete attributes on sandboxed os module")
-
-
 @router.post("/execute", response_model=ExecuteCodeResponse)
 @limiter.limit(TOOL_RATE_LIMIT)
 async def execute_python_code(request: Request, body: ExecuteCodeRequest):
@@ -629,13 +528,12 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
     - Limited builtins (no file/network access from builtins)
     - Access to httpx for HTTP requests
     - Access to json for JSON parsing
-    - Credentials available via isolated os.environ (NOT the real os.environ)
+    - Secrets available via read-only `secrets` dict
 
     The code must set a 'result' variable to return data.
 
     Security:
-    - Credentials are injected into an isolated environment, NOT the global os.environ
-    - Code cannot access credentials from other requests
+    - Secrets are injected as a read-only MappingProxyType
     - Code cannot access the real system environment
     """
     # Validate code length
@@ -657,11 +555,6 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
     # Validate timeout bounds (1 second to 5 minutes max)
     timeout_seconds = max(1, min(body.timeout_seconds, 300))
 
-    # Create isolated os module with ONLY the provided credentials
-    # This prevents leakage of credentials between requests and
-    # prevents access to the real system environment
-    isolated_os = IsolatedOs(body.credentials)
-
     # Determine effective allowed modules (admin-configured whitelist)
     allowed_modules_set = (
         set(body.allowed_modules) if body.allowed_modules else DEFAULT_ALLOWED_MODULES
@@ -672,112 +565,101 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
         allowed_modules=allowed_modules_set
     )
 
-    # Create isolated namespace
-    # NOTE: httpx is wrapped with SSRF protection to prevent access to internal IPs
+    # Create isolated namespace matching published tool environment
+    # This ensures test_code results match production behavior
+    from types import MappingProxyType
+
     namespace = {
         "__builtins__": safe_builtins_with_import,
-        "httpx": _ssrf_protected_httpx,
         "json": json_module,
-        "os": isolated_os,
+        "datetime": datetime_module,  # datetime module (matches published tools)
         "arguments": body.arguments,
+        "secrets": MappingProxyType(body.secrets),  # Read-only secrets dict
         "result": None,
     }
 
     # Capture stdout (size-limited to prevent memory exhaustion)
     stdout_capture = SizeLimitedStringIO()
 
-    def execute_code_sync() -> None:
-        """Execute code synchronously in a thread."""
-        with redirect_stdout(stdout_capture):
-            exec(body.code, namespace)
-
-    # Execute with asyncio timeout (cross-platform, no race conditions)
+    # Phase 1: exec() the code to define functions (synchronous, just defines main())
+    # Phase 2: If async main() is defined, create http client on THIS loop and await it
+    # This mirrors PythonExecutor.execute() which does exec() then await main_func()
+    _http_client = None
     try:
-        loop = asyncio.get_running_loop()
         try:
-            with ThreadPoolExecutor(max_workers=1) as executor:
-                await asyncio.wait_for(
-                    loop.run_in_executor(executor, execute_code_sync),
+            # Phase 1: Define functions by executing the code
+            with redirect_stdout(stdout_capture):
+                exec(body.code, namespace)
+
+            # Phase 2: Check if an async main() was defined
+            main_func = namespace.get("main")
+            if main_func is not None and asyncio.iscoroutinefunction(main_func):
+                # Create SSRF-protected HTTP client on the CURRENT event loop
+                # (same loop we'll await main() on — avoids event loop affinity issues)
+                _http_client = httpx.AsyncClient()
+                _protected_http = SSRFProtectedAsyncHttpClient(_http_client)
+                namespace["http"] = _protected_http
+
+                # Await main() directly on this event loop (matches production executor)
+                result = await asyncio.wait_for(
+                    main_func(**body.arguments),
                     timeout=timeout_seconds,
                 )
-        except RuntimeError as thread_err:
-            # Thread creation failed (e.g., in restricted CI environments)
-            # Fall back to synchronous execution with signal-based timeout
-            if "can't start new thread" in str(thread_err):
-                logger.warning(
-                    "Threading unavailable, falling back to synchronous execution with signal timeout"
-                )
-                import signal
-                import threading
+                namespace["result"] = result
+            elif main_func is not None and callable(main_func):
+                # Synchronous main() — call it directly
+                result = main_func(**body.arguments)
+                namespace["result"] = result
 
-                def timeout_handler(signum, frame):
-                    raise TimeoutError(
-                        f"Execution timed out after {timeout_seconds} seconds"
-                    )
+        except asyncio.TimeoutError:
+            return ExecuteCodeResponse(
+                success=False,
+                error=f"Execution timed out after {timeout_seconds} seconds",
+                stdout=stdout_capture.getvalue()[:10000],
+            )
+        except (
+            ValueError,
+            TypeError,
+            KeyError,
+            AttributeError,
+            IndexError,
+            ZeroDivisionError,
+            SyntaxError,
+            ImportError,
+            NameError,
+            StopIteration,
+            ArithmeticError,
+            LookupError,
+        ) as e:
+            # Known safe exceptions — return details to help debugging
+            return ExecuteCodeResponse(
+                success=False,
+                error=f"Execution error: {type(e).__name__}: {str(e)}",
+                stdout=stdout_capture.getvalue()[:10000],
+            )
+        except Exception as e:
+            # Unknown/unexpected exceptions may contain sensitive internal details
+            # (e.g., database connection strings, file paths, infrastructure info).
+            # Return a generic error message and log the real error server-side.
+            logger.error(f"Unexpected execution error: {type(e).__name__}: {e}")
+            return ExecuteCodeResponse(
+                success=False,
+                error="An internal error occurred during code execution",
+                stdout=stdout_capture.getvalue()[:10000],
+            )
 
-                # Signal-based timeout only works in the main thread
-                if threading.current_thread() is threading.main_thread():
-                    old_handler = signal.signal(signal.SIGALRM, timeout_handler)
-                    signal.alarm(int(timeout_seconds))
-                    try:
-                        execute_code_sync()
-                    finally:
-                        signal.alarm(0)  # Cancel the alarm
-                        signal.signal(signal.SIGALRM, old_handler)
-                else:
-                    # Not in main thread (e.g., pytest worker) - execute without signal timeout
-                    # This is acceptable because the ThreadPoolExecutor with asyncio.wait_for
-                    # is the primary timeout mechanism; this is just a fallback
-                    logger.warning(
-                        "Signal timeout unavailable (not in main thread), executing without timeout"
-                    )
-                    execute_code_sync()
-            else:
-                raise
+        # Get result
+        result = namespace.get("result")
 
-    except asyncio.TimeoutError:
         return ExecuteCodeResponse(
-            success=False,
-            error=f"Execution timed out after {timeout_seconds} seconds",
-            stdout=stdout_capture.getvalue()[:10000],
+            success=True,
+            result=result,
+            stdout=stdout_capture.getvalue()[:10000],  # Limit stdout
         )
-    except (
-        ValueError,
-        TypeError,
-        KeyError,
-        AttributeError,
-        IndexError,
-        ZeroDivisionError,
-        SyntaxError,
-        ImportError,
-        NameError,
-        StopIteration,
-        ArithmeticError,
-        LookupError,
-    ) as e:
-        # Known safe exceptions — return details to help debugging
-        return ExecuteCodeResponse(
-            success=False,
-            error=f"Execution error: {type(e).__name__}: {str(e)}",
-            stdout=stdout_capture.getvalue()[:10000],
-        )
-    except Exception as e:
-        # Return error type and message to help diagnose test_code failures
-        # This is user-submitted code, so the error details are about their code, not our internals
-        return ExecuteCodeResponse(
-            success=False,
-            error=f"Execution error: {type(e).__name__}: {str(e)}",
-            stdout=stdout_capture.getvalue()[:10000],
-        )
-
-    # Get result
-    result = namespace.get("result")
-
-    return ExecuteCodeResponse(
-        success=True,
-        result=result,
-        stdout=stdout_capture.getvalue()[:10000],  # Limit stdout
-    )
+    finally:
+        # Clean up HTTP client
+        if _http_client is not None:
+            await _http_client.aclose()
 
 
 # Note: Health check is defined in main.py at /health (without auth requirement)

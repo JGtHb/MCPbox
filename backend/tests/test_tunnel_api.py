@@ -111,12 +111,14 @@ class TestTunnelStatus:
         # Set up mock tunnel service with connected state
         mock_service = MagicMock()
         mock_service.status = "connected"
-        mock_service.get_status.return_value = {
-            "status": "connected",
-            "url": "https://test.cloudflare.com",
-            "started_at": "2025-01-01T00:00:00Z",
-            "error": None,
-        }
+        mock_service.get_effective_status = AsyncMock(
+            return_value={
+                "status": "connected",
+                "url": "https://test.cloudflare.com",
+                "started_at": "2025-01-01T00:00:00Z",
+                "error": None,
+            }
+        )
         mock_service.health_check = AsyncMock()
 
         with override_tunnel_service(mock_service):
@@ -133,12 +135,14 @@ class TestTunnelStatus:
         """Test that status returns error details when tunnel has errors."""
         mock_service = MagicMock()
         mock_service.status = "error"
-        mock_service.get_status.return_value = {
-            "status": "error",
-            "url": None,
-            "started_at": None,
-            "error": "Connection refused",
-        }
+        mock_service.get_effective_status = AsyncMock(
+            return_value={
+                "status": "error",
+                "url": None,
+                "started_at": None,
+                "error": "Connection refused",
+            }
+        )
         mock_service.health_check = AsyncMock()
 
         with override_tunnel_service(mock_service):

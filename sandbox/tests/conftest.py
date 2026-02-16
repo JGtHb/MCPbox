@@ -6,12 +6,7 @@ from typing import Generator
 from unittest.mock import patch
 
 import pytest
-from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
-
-# Generate a valid Fernet key for testing
-# Fernet requires a 32-byte key encoded as URL-safe base64
-TEST_FERNET_KEY = Fernet.generate_key().decode()
 
 # The test API key - used for authenticating sandbox requests
 TEST_API_KEY = "test-sandbox-api-key-for-testing-only"
@@ -19,7 +14,6 @@ TEST_API_KEY = "test-sandbox-api-key-for-testing-only"
 # Set test environment variables BEFORE any app imports
 # A test API key is required (sandbox enforces authentication)
 os.environ["SANDBOX_API_KEY"] = TEST_API_KEY
-os.environ["MCPBOX_ENCRYPTION_KEY"] = TEST_FERNET_KEY
 
 
 # --- Authenticated Test Client ---
@@ -118,7 +112,6 @@ def tool_registry():
     from app.registry import ToolRegistry
 
     registry = ToolRegistry()
-    registry.set_encryption_key(os.environ["MCPBOX_ENCRYPTION_KEY"])
     return registry
 
 

@@ -12,7 +12,7 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import get_db
-from app.models import ActivityLog, Credential, Server, Tool
+from app.models import ActivityLog, Server, Tool
 
 router = APIRouter(
     prefix="/dashboard",
@@ -48,7 +48,6 @@ class DashboardStats(BaseModel):
     active_servers: int = 0
     total_tools: int = 0
     enabled_tools: int = 0
-    total_credentials: int = 0
     total_requests_24h: int = 0
     total_errors_24h: int = 0
     error_rate_24h: float = 0.0
@@ -122,9 +121,6 @@ async def get_dashboard(
     )
     enabled_tools = enabled_tools_result.scalar() or 0
 
-    credential_count_result = await db.execute(select(func.count(Credential.id)))
-    total_credentials = credential_count_result.scalar() or 0
-
     # Get activity stats for period
     activity_stats = await db.execute(
         select(
@@ -149,7 +145,6 @@ async def get_dashboard(
         active_servers=active_servers,
         total_tools=total_tools,
         enabled_tools=enabled_tools,
-        total_credentials=total_credentials,
         total_requests_24h=total_requests,
         total_errors_24h=total_errors,
         error_rate_24h=round(error_rate, 2),

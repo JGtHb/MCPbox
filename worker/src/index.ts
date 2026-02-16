@@ -65,7 +65,7 @@ export interface Env {
 }
 
 // CORS headers to include in all responses
-const CORS_HEADERS_LIST = 'Content-Type, Authorization';
+const CORS_HEADERS_LIST = 'Content-Type, Authorization, Mcp-Session-Id';
 
 /**
  * Get allowed CORS origin from config.
@@ -101,6 +101,7 @@ function getCorsHeaders(corsOrigin: string): Record<string, string> {
     'Access-Control-Allow-Origin': corsOrigin,
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': CORS_HEADERS_LIST,
+    'Access-Control-Expose-Headers': 'Mcp-Session-Id',
   };
 }
 

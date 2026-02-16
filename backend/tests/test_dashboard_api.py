@@ -27,8 +27,6 @@ class TestDashboardEndpoint:
         assert data["stats"]["total_servers"] == 0
         assert data["stats"]["active_servers"] == 0
         assert data["stats"]["total_tools"] == 0
-        assert data["stats"]["total_credentials"] == 0
-
     @pytest.mark.asyncio
     async def test_dashboard_with_servers(
         self, async_client: AsyncClient, server_factory, admin_headers
@@ -307,24 +305,3 @@ class TestDashboardEndpoint:
         # Should be limited to 10 servers
         assert len(data["servers"]) <= 10
 
-    @pytest.mark.asyncio
-    async def test_dashboard_credentials_count(
-        self,
-        async_client: AsyncClient,
-        server_factory,
-        credential_factory,
-        admin_headers,
-    ):
-        """Test credentials count in dashboard."""
-        server = await server_factory()
-
-        # Create some credentials
-        await credential_factory(server=server, name="CRED_1")
-        await credential_factory(server=server, name="CRED_2")
-
-        response = await async_client.get("/api/dashboard", headers=admin_headers)
-
-        assert response.status_code == 200
-        data = response.json()
-
-        assert data["stats"]["total_credentials"] >= 2

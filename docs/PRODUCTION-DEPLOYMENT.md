@@ -36,7 +36,7 @@ docker-compose up -d
 
 | Variable | Description | Generation |
 |----------|-------------|------------|
-| `MCPBOX_ENCRYPTION_KEY` | 32-byte hex key for credential encryption | `openssl rand -hex 32` |
+| `MCPBOX_ENCRYPTION_KEY` | 32-byte hex key for server secret encryption | `openssl rand -hex 32` |
 | `POSTGRES_PASSWORD` | PostgreSQL password | `openssl rand -hex 16` |
 | `SANDBOX_API_KEY` | Backend-to-sandbox auth (min 32 chars) | `openssl rand -hex 32` |
 
@@ -62,7 +62,11 @@ tokens to the Worker after completing the wizard.
 
 ### Using Alembic Migrations (Recommended)
 
-Always use Alembic migrations in production instead of auto-creation:
+Always use Alembic migrations in production instead of auto-creation.
+
+**Recent migrations:**
+- `0029_add_server_secrets` — Creates `server_secrets` table for encrypted per-server key-value secrets
+- `0030_add_tool_execution_logs` — Creates `tool_execution_logs` table for tool invocation history
 
 ```bash
 # Run all pending migrations

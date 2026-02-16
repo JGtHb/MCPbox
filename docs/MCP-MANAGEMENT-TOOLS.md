@@ -34,12 +34,26 @@ All management tools use the `mcpbox_` prefix to distinguish them from user-crea
 | `mcpbox_update_tool` | Update an existing tool |
 | `mcpbox_delete_tool` | Delete a tool |
 
+### Versioning
+
+| Tool | Description |
+|------|-------------|
+| `mcpbox_list_tool_versions` | List version history for a tool |
+| `mcpbox_rollback_tool` | Rollback a tool to a previous version |
+
 ### Development & Testing
 
 | Tool | Description |
 |------|-------------|
-| `mcpbox_test_code` | Test Python code execution with global module config |
+| `mcpbox_test_code` | Test Python code execution in the sandbox (supports async) |
 | `mcpbox_validate_code` | Validate Python code syntax and structure |
+
+### Server Secrets
+
+| Tool | Description |
+|------|-------------|
+| `mcpbox_create_server_secret` | Create a secret placeholder (admin sets value in UI) |
+| `mcpbox_list_server_secrets` | List secrets for a server (keys only, no values) |
 
 ### Approval Workflow
 
@@ -49,6 +63,13 @@ All management tools use the `mcpbox_` prefix to distinguish them from user-crea
 | `mcpbox_request_module` | Request a Python module to be whitelisted |
 | `mcpbox_request_network_access` | Request network access to an external host |
 | `mcpbox_get_tool_status` | Get approval status and pending requests for a tool |
+| `mcpbox_list_pending_requests` | List all pending approval requests |
+
+### Observability
+
+| Tool | Description |
+|------|-------------|
+| `mcpbox_get_tool_logs` | Get recent execution logs for a tool |
 
 ## Tool Approval Workflow
 
@@ -82,21 +103,25 @@ Tools are created in **draft** status and must be approved by an admin before th
 1. Create a server for weather-related tools:
    mcpbox_create_server(name="weather_api", description="Weather data tools")
 
-2. First check what modules are available:
-   mcpbox_get_server_modules(server_id="<uuid from step 1>")
+2. Create a secret placeholder for the API key:
+   mcpbox_create_server_secret(
+     server_id="<uuid>",
+     key_name="OPENWEATHERMAP_API_KEY",
+     description="OpenWeatherMap API key for weather data"
+   )
+   -> Admin sets the actual value in the web UI at /servers/<uuid>
 
-3. Create a tool that fetches weather data:
+3. Create a tool that fetches weather data using the secret:
    mcpbox_create_tool(
      server_id="<uuid>",
      name="get_current_weather",
      description="Get current weather for a city",
      python_code='''
-   async def main(city: str, api_key: str) -> dict:
+   async def main(city: str) -> dict:
        """Get current weather for a city using OpenWeatherMap."""
-       import httpx
-
+       api_key = secrets["OPENWEATHERMAP_API_KEY"]
        url = f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}"
-       response = await httpx.get(url)
+       response = await http.get(url)
        return response.json()
    '''
    )
@@ -195,8 +220,14 @@ All tools use Python code with an `async def main()` function. Requirements:
 - Must have an `async def main()` function
 - Parameters become tool inputs (automatically extracted for input schema)
 - Return value becomes tool output
-- Available globals: `httpx` (SSRF-protected), `json`, `os.environ` (isolated credentials)
+- Available globals:
+  - `http` — SSRF-protected `httpx.AsyncClient` (use `await http.get(url)`, etc.)
+  - `json` — JSON module
+  - `datetime` — datetime module
+  - `arguments` — dict of input arguments
+  - `secrets` — `MappingProxyType` dict of server secrets (read-only, e.g. `secrets["API_KEY"]`)
 - Additional modules can be imported if whitelisted (see `mcpbox_get_server_modules`)
+- Each tool invocation is logged (args redacted, results truncated) — viewable via `mcpbox_get_tool_logs`
 
 ## Module Whitelist
 
@@ -256,14 +287,13 @@ All tools return structured responses:
 LOCAL MODE:                                REMOTE MODE:
 Claude Desktop                             Claude Web
     |                                          |
-    | localhost                                | MCP Protocol
+    | localhost                                | MCP Protocol (HTTPS)
     v                                          v
-                                         MCP Server Portal (OAuth)
-                                               |
-                                               v
                                          Cloudflare Worker
+                                         (OAuth 2.1 + OIDC upstream)
                                                |
                                                | + X-MCPbox-Service-Token
+                                               | + X-MCPbox-User-Email
                                                v
                                          Workers VPC (private)
     |                                          |

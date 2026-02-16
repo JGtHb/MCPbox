@@ -17,7 +17,7 @@ class TestManagementToolDefinitions:
         """Test that management tools are defined."""
         tools = get_management_tools_list()
         assert len(tools) > 0
-        assert len(tools) == 18  # 18 management tools (test_endpoint removed for security)
+        assert len(tools) == 24  # 18 original + 6 new (versioning, secrets, pending, logs)
 
     def test_all_tools_have_required_fields(self):
         """Test that all tools have required MCP fields."""
@@ -52,7 +52,7 @@ class TestMCPManagementService:
         """Test getting tool definitions."""
         service = MCPManagementService(db_session)
         tools = service.get_tools()
-        assert len(tools) == 19
+        assert len(tools) == 24
 
     async def test_list_servers_empty(self, db_session):
         """Test listing servers when none exist."""

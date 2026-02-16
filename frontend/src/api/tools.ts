@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 
 // Types
@@ -21,6 +21,8 @@ export interface ToolListItem {
   name: string
   description: string | null
   enabled: boolean
+  approval_status: string
+  created_by: string | null
 }
 
 // Code validation types (used by test mocks)
@@ -77,6 +79,7 @@ export const toolKeys = {
   all: ['tools'] as const,
   lists: () => [...toolKeys.all, 'list'] as const,
   list: (serverId: string) => [...toolKeys.lists(), serverId] as const,
+  detail: (toolId: string) => [...toolKeys.all, 'detail', toolId] as const,
 }
 
 // Paginated response type
@@ -94,11 +97,39 @@ export async function fetchTools(serverId: string): Promise<ToolListItem[]> {
   return response.items
 }
 
+export async function fetchTool(toolId: string): Promise<Tool> {
+  return api.get<Tool>(`/api/tools/${toolId}`)
+}
+
+export async function updateToolEnabled(toolId: string, enabled: boolean): Promise<Tool> {
+  return api.patch<Tool>(`/api/tools/${toolId}`, { enabled })
+}
+
 // React Query hooks
 export function useTools(serverId: string) {
   return useQuery({
     queryKey: toolKeys.list(serverId),
     queryFn: () => fetchTools(serverId),
     enabled: !!serverId,
+  })
+}
+
+export function useTool(toolId: string | undefined) {
+  return useQuery({
+    queryKey: toolKeys.detail(toolId || ''),
+    queryFn: () => fetchTool(toolId!),
+    enabled: !!toolId,
+  })
+}
+
+export function useUpdateToolEnabled() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ toolId, enabled }: { toolId: string; enabled: boolean }) =>
+      updateToolEnabled(toolId, enabled),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: toolKeys.all })
+    },
   })
 }

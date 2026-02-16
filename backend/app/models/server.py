@@ -9,7 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import BaseModel
 
 if TYPE_CHECKING:
-    from app.models.credential import Credential
+    from app.models.server_secret import ServerSecret
     from app.models.tool import Tool
 
 # Server status
@@ -90,8 +90,8 @@ class Server(BaseModel):
         back_populates="server",
         cascade="all, delete-orphan",
     )
-    credentials: Mapped[list["Credential"]] = relationship(
-        "Credential",
+    secrets: Mapped[list["ServerSecret"]] = relationship(
+        "ServerSecret",
         back_populates="server",
         cascade="all, delete-orphan",
     )

@@ -203,20 +203,35 @@ result = dict(sorted(data.items()))
         assert data["success"] is True
         assert data["result"] == {"a": 1, "b": 2, "c": 3}
 
-    def test_execute_credentials_injected(self, client):
-        """Test that credentials are available as environment variables."""
+    def test_execute_secrets_injected(self, client):
+        """Test that secrets are available via the secrets dict."""
         response = client.post(
             "/execute",
             json={
-                "code": "result = os.getenv('TEST_API_KEY')",
+                "code": "result = secrets.get('TEST_API_KEY')",
                 "arguments": {},
-                "credentials": {"TEST_API_KEY": "secret123"},
+                "secrets": {"TEST_API_KEY": "secret123"},
             },
         )
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
         assert data["result"] == "secret123"
+
+    def test_execute_secrets_read_only(self, client):
+        """Test that secrets dict is read-only."""
+        response = client.post(
+            "/execute",
+            json={
+                "code": "secrets['NEW_KEY'] = 'value'\nresult = True",
+                "arguments": {},
+                "secrets": {"API_KEY": "test"},
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+        assert "does not support item assignment" in data["error"] or "TypeError" in data["error"]
 
     def test_execute_no_result_returns_none(self, client):
         """Test that if no result is set, None is returned."""
@@ -233,17 +248,17 @@ result = dict(sorted(data.items()))
         assert data["result"] is None
 
 
-class TestIsolatedOsSecurity:
-    """Tests for IsolatedOs wrapper security."""
+class TestSecretsSecurity:
+    """Tests for secrets dict security in execute endpoint."""
 
-    def test_os_environ_access(self, client):
-        """Test that os.environ can be accessed for credentials."""
+    def test_secrets_dict_access(self, client):
+        """Test that secrets can be accessed via dict-style access."""
         response = client.post(
             "/execute",
             json={
-                "code": "result = os.environ.get('API_KEY')",
+                "code": "result = secrets['API_KEY']",
                 "arguments": {},
-                "credentials": {"API_KEY": "test-key"},
+                "secrets": {"API_KEY": "test-key"},
             },
         )
         assert response.status_code == 200
@@ -251,14 +266,14 @@ class TestIsolatedOsSecurity:
         assert data["success"] is True
         assert data["result"] == "test-key"
 
-    def test_os_environ_dict_access(self, client):
-        """Test that os.environ supports dict-like access."""
+    def test_secrets_get_method(self, client):
+        """Test that secrets.get() works with default."""
         response = client.post(
             "/execute",
             json={
-                "code": "result = os.environ['API_KEY']",
+                "code": "result = secrets.get('API_KEY', 'default')",
                 "arguments": {},
-                "credentials": {"API_KEY": "test-key"},
+                "secrets": {"API_KEY": "test-key"},
             },
         )
         assert response.status_code == 200
@@ -266,44 +281,14 @@ class TestIsolatedOsSecurity:
         assert data["success"] is True
         assert data["result"] == "test-key"
 
-    def test_os_environ_contains_check(self, client):
-        """Test that 'in' operator works for os.environ."""
+    def test_secrets_get_missing_key_default(self, client):
+        """Test that secrets.get() returns default for missing keys."""
         response = client.post(
             "/execute",
             json={
-                "code": "result = 'API_KEY' in os.environ",
+                "code": "result = secrets.get('NONEXISTENT', 'default_value')",
                 "arguments": {},
-                "credentials": {"API_KEY": "test-key"},
-            },
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["success"] is True
-        assert data["result"] is True
-
-    def test_os_getenv_function(self, client):
-        """Test that os.getenv() function works."""
-        response = client.post(
-            "/execute",
-            json={
-                "code": "result = os.getenv('API_KEY', 'default')",
-                "arguments": {},
-                "credentials": {"API_KEY": "test-key"},
-            },
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["success"] is True
-        assert data["result"] == "test-key"
-
-    def test_os_getenv_with_default(self, client):
-        """Test that os.getenv() returns default for missing keys."""
-        response = client.post(
-            "/execute",
-            json={
-                "code": "result = os.getenv('NONEXISTENT', 'default_value')",
-                "arguments": {},
-                "credentials": {},
+                "secrets": {},
             },
         )
         assert response.status_code == 200
@@ -311,8 +296,37 @@ class TestIsolatedOsSecurity:
         assert data["success"] is True
         assert data["result"] == "default_value"
 
-    def test_os_path_blocked(self, client):
-        """Test that os.path is not accessible."""
+    def test_secrets_contains_check(self, client):
+        """Test that 'in' operator works for secrets."""
+        response = client.post(
+            "/execute",
+            json={
+                "code": "result = 'API_KEY' in secrets",
+                "arguments": {},
+                "secrets": {"API_KEY": "test-key"},
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["result"] is True
+
+    def test_secrets_read_only(self, client):
+        """Test that secrets dict cannot be modified."""
+        response = client.post(
+            "/execute",
+            json={
+                "code": "secrets['NEW_KEY'] = 'hacked'\nresult = True",
+                "arguments": {},
+                "secrets": {"API_KEY": "test-key"},
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+
+    def test_os_not_in_namespace(self, client):
+        """Test that os module is not available in the namespace."""
         response = client.post(
             "/execute",
             json={
@@ -323,79 +337,6 @@ class TestIsolatedOsSecurity:
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is False
-        assert "not available" in data["error"] or "AttributeError" in data["error"]
-
-    def test_os_system_blocked(self, client):
-        """Test that os.system is not accessible."""
-        response = client.post(
-            "/execute",
-            json={
-                "code": "result = os.system('ls')",
-                "arguments": {},
-            },
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["success"] is False
-        assert "not available" in data["error"] or "AttributeError" in data["error"]
-
-    def test_os_getcwd_blocked(self, client):
-        """Test that os.getcwd is not accessible."""
-        response = client.post(
-            "/execute",
-            json={
-                "code": "result = os.getcwd()",
-                "arguments": {},
-            },
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["success"] is False
-        assert "not available" in data["error"] or "AttributeError" in data["error"]
-
-    def test_os_listdir_blocked(self, client):
-        """Test that os.listdir is not accessible."""
-        response = client.post(
-            "/execute",
-            json={
-                "code": "result = os.listdir('/')",
-                "arguments": {},
-            },
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["success"] is False
-        assert "not available" in data["error"] or "AttributeError" in data["error"]
-
-    def test_os_environ_isolated_from_real_env(self, client):
-        """Test that os.environ doesn't expose real environment variables."""
-        response = client.post(
-            "/execute",
-            json={
-                "code": "result = os.environ.get('PATH')",
-                "arguments": {},
-                "credentials": {},  # No PATH credential provided
-            },
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["success"] is True
-        # PATH should not be accessible as it's not in the credentials
-        assert data["result"] is None
-
-    def test_os_setattr_blocked(self, client):
-        """Test that setting attributes on os is blocked."""
-        response = client.post(
-            "/execute",
-            json={
-                "code": "os.custom_attr = 'value'\nresult = os.custom_attr",
-                "arguments": {},
-            },
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["success"] is False
-        assert "Cannot set" in data["error"] or "AttributeError" in data["error"]
 
 
 class TestErrorSanitization:

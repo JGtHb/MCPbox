@@ -143,7 +143,6 @@ def _to_response(server: Any) -> ServerResponse:
         updated_at=server.updated_at,
         tools=tools,
         tool_count=len(tools),
-        credential_count=len(server.credentials or []),
     )
 
 

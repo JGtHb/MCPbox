@@ -222,7 +222,7 @@ def validate_url_with_pinning(url: str) -> ValidatedURL:
 def _prepare_pinned_request(url: str, kwargs: dict) -> tuple[str, dict]:
     """Validate URL and prepare request with IP pinning.
 
-    Returns the pinned URL and updated kwargs with Host header.
+    Returns the pinned URL and updated kwargs with Host header and SNI hostname.
     """
     validated = validate_url_with_pinning(str(url))
     pinned_url = validated.get_pinned_url()
@@ -233,6 +233,15 @@ def _prepare_pinned_request(url: str, kwargs: dict) -> tuple[str, dict]:
         headers = dict(headers)  # Don't modify original
     headers["Host"] = validated.hostname
     kwargs["headers"] = headers
+
+    # Set SNI hostname for HTTPS connections with IP pinning.
+    # When we rewrite the URL to use the resolved IP, TLS SNI defaults to the IP
+    # instead of the original hostname. Servers that require hostname-based SNI
+    # will reject the handshake. httpx supports overriding SNI via extensions.
+    if validated.scheme == "https" and validated.pinned_ip != validated.hostname:
+        extensions = kwargs.get("extensions", {})
+        extensions["sni_hostname"] = validated.hostname.encode("ascii")
+        kwargs["extensions"] = extensions
 
     return pinned_url, kwargs
 

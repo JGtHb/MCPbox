@@ -7,11 +7,11 @@ from app.api import (
     approvals,
     cloudflare,
     config,
-    credentials,
     dashboard,
+    execution_logs,
     export_import,
-    oauth,
     sandbox,
+    server_secrets,
     servers,
     settings,
     tools,
@@ -25,8 +25,6 @@ api_router = APIRouter(prefix="/api")
 api_router.include_router(config.router)
 api_router.include_router(servers.router)
 api_router.include_router(tools.router)
-api_router.include_router(credentials.router)
-api_router.include_router(oauth.router)
 api_router.include_router(sandbox.router)
 api_router.include_router(tunnel.router)
 api_router.include_router(cloudflare.router)
@@ -36,3 +34,5 @@ api_router.include_router(settings.router)
 api_router.include_router(export_import.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(approvals.router)
+api_router.include_router(server_secrets.router)
+api_router.include_router(execution_logs.router)

@@ -58,8 +58,6 @@ async def _refresh_server_registration(tool: Any, db: AsyncSession) -> bool:
 
     Returns True if successful, False if server not running or registration failed.
     """
-    from app.services.credential import CredentialService
-
     # Get server info
     server = tool.server
     if not server or server.status != "running":
@@ -88,32 +86,11 @@ async def _refresh_server_registration(tool: Any, db: AsyncSession) -> bool:
             }
             tool_defs.append(tool_def)
 
-        # Get credentials - build list with full metadata for sandbox
-        credential_service = CredentialService(db)
-        credentials = await credential_service.get_for_injection(server.id)
-        creds_list = []
-        for cred in credentials:
-            cred_data = {
-                "name": cred.name,
-                "auth_type": cred.auth_type,
-                "header_name": cred.header_name,
-                "query_param_name": cred.query_param_name,
-            }
-            # Include values based on auth type
-            if cred.auth_type in ("api_key_header", "api_key_query", "custom_header"):
-                if cred.value:
-                    cred_data["value"] = cred.value
-            elif cred.auth_type == "bearer":
-                if cred.access_token:
-                    cred_data["value"] = cred.access_token
-                elif cred.value:
-                    cred_data["value"] = cred.value
-            elif cred.auth_type == "basic":
-                if cred.username:
-                    cred_data["username"] = cred.username
-                if cred.password:
-                    cred_data["password"] = cred.password
-            creds_list.append(cred_data)
+        # Get decrypted secrets for injection
+        from app.services.server_secret import ServerSecretService
+
+        secret_service = ServerSecretService(db)
+        secrets = await secret_service.get_decrypted_for_injection(server.id)
 
         # Get global allowed modules
         from app.services.global_config import GlobalConfigService
@@ -127,8 +104,9 @@ async def _refresh_server_registration(tool: Any, db: AsyncSession) -> bool:
             server_id=str(server.id),
             server_name=server.name,
             tools=tool_defs,
-            credentials=creds_list,
+            credentials=[],
             allowed_modules=allowed_modules,
+            secrets=secrets,
         )
 
         success = (
@@ -249,6 +227,11 @@ async def take_tool_action(
             # Auto-refresh server registration so tool is immediately available
             refreshed = await _refresh_server_registration(tool, db)
 
+            # Notify MCP clients that tool list has changed
+            from app.services.tool_change_notifier import fire_and_forget_notify
+
+            fire_and_forget_notify()
+
             return {
                 "success": True,
                 "message": f"Tool '{tool.name}' has been approved",
@@ -324,6 +307,11 @@ async def bulk_tool_action(
                         await _refresh_server_registration(tool, db)
                 except Exception as e:
                     logger.warning(f"Failed to refresh server for tool {tool_id}: {e}")
+
+        # Notify MCP clients that tool list has changed
+        from app.services.tool_change_notifier import fire_and_forget_notify
+
+        fire_and_forget_notify()
     else:
         result = await service.bulk_reject_tools(
             tool_ids=action.tool_ids,

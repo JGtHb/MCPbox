@@ -25,12 +25,13 @@ from app.middleware import (
 from app.models import (  # noqa: F401
     ActivityLog,
     AdminUser,
-    Credential,
     ModuleRequest,
     NetworkAccessRequest,
     Server,
+    ServerSecret,
     Setting,
     Tool,
+    ToolExecutionLog,
     ToolVersion,
     TunnelConfiguration,
 )
@@ -38,7 +39,6 @@ from app.services.activity_logger import ActivityLoggerService
 from app.services.log_retention import LogRetentionService
 from app.services.sandbox_client import SandboxClient
 from app.services.service_token_cache import ServiceTokenCache
-from app.services.token_refresh import TokenRefreshService
 from app.services.tunnel import TunnelService
 
 logger = get_logger("main")
@@ -80,10 +80,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     for warning in security_warnings:
         logger.warning(f"SECURITY: {warning}")
 
-    # Start background token refresh service
-    token_refresh_service = TokenRefreshService.get_instance()
-    await token_refresh_service.start()
-
     # Start background log retention service
     log_retention_service = LogRetentionService.get_instance()
     log_retention_service.retention_days = settings.log_retention_days
@@ -93,6 +89,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     global _rate_limit_cleanup_task
     _rate_limit_cleanup_task = asyncio.create_task(rate_limit_cleanup_loop())
     _rate_limit_cleanup_task.add_done_callback(_task_done_callback)
+
+    # Re-register servers that were "running" before container restart
+    from app.services.server_recovery import recover_running_servers
+
+    recovery_task = asyncio.create_task(recover_running_servers())
+    recovery_task.add_done_callback(_task_done_callback)
 
     yield
 
@@ -106,9 +108,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             await _rate_limit_cleanup_task
         except asyncio.CancelledError:
             pass
-
-    # Stop token refresh service
-    await token_refresh_service.stop()
 
     # Stop log retention service
     await log_retention_service.stop()

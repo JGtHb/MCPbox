@@ -545,7 +545,7 @@ class TestMCPProtocolHandshake:
         assert result["jsonrpc"] == "2.0"
         assert result["id"] == "init-1"
         assert "result" in result
-        assert result["result"]["protocolVersion"] == "2024-11-05"
+        assert result["result"]["protocolVersion"] == "2025-11-25"
         assert "tools" in result["result"]["capabilities"]
         assert result["result"]["serverInfo"]["name"] == "mcpbox"
 
@@ -804,7 +804,7 @@ class TestMCPGatewaySyncAuth:
         assert response.status_code == 200
         result = response.json()
         assert "result" in result
-        assert result["result"]["protocolVersion"] == "2024-11-05"
+        assert result["result"]["protocolVersion"] == "2025-11-25"
         assert result["result"]["serverInfo"]["name"] == "mcpbox"
 
     @pytest.mark.asyncio
