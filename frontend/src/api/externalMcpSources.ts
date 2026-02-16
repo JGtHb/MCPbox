@@ -1,0 +1,157 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { api } from './client'
+
+// Types
+export interface ExternalMCPSource {
+  id: string
+  server_id: string
+  name: string
+  url: string
+  auth_type: 'none' | 'bearer' | 'header'
+  auth_secret_name: string | null
+  auth_header_name: string | null
+  transport_type: 'streamable_http' | 'sse'
+  status: 'active' | 'error' | 'disabled'
+  last_discovered_at: string | null
+  tool_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ExternalMCPSourceCreateInput {
+  name: string
+  url: string
+  auth_type?: 'none' | 'bearer' | 'header'
+  auth_secret_name?: string
+  auth_header_name?: string
+  transport_type?: 'streamable_http' | 'sse'
+}
+
+export interface DiscoveredTool {
+  name: string
+  description: string | null
+  input_schema: Record<string, unknown>
+}
+
+export interface DiscoverToolsResponse {
+  source_id: string
+  source_name: string
+  tools: DiscoveredTool[]
+  total: number
+}
+
+export interface ToolResponse {
+  id: string
+  server_id: string
+  name: string
+  description: string | null
+  enabled: boolean
+  tool_type: string
+  approval_status: string
+}
+
+// Query keys
+export const externalSourceKeys = {
+  all: ['externalSources'] as const,
+  lists: () => [...externalSourceKeys.all, 'list'] as const,
+  list: (serverId: string) => [...externalSourceKeys.lists(), serverId] as const,
+  detail: (sourceId: string) => [...externalSourceKeys.all, 'detail', sourceId] as const,
+  discover: (sourceId: string) => [...externalSourceKeys.all, 'discover', sourceId] as const,
+}
+
+// API functions
+export async function fetchSources(serverId: string): Promise<ExternalMCPSource[]> {
+  return api.get<ExternalMCPSource[]>(`/api/external-sources/servers/${serverId}/sources`)
+}
+
+export async function createSource(
+  serverId: string,
+  data: ExternalMCPSourceCreateInput
+): Promise<ExternalMCPSource> {
+  return api.post<ExternalMCPSource>(`/api/external-sources/servers/${serverId}/sources`, data)
+}
+
+export async function updateSource(
+  sourceId: string,
+  data: Partial<ExternalMCPSourceCreateInput & { status: string }>
+): Promise<ExternalMCPSource> {
+  return api.put<ExternalMCPSource>(`/api/external-sources/sources/${sourceId}`, data)
+}
+
+export async function deleteSource(sourceId: string): Promise<void> {
+  await api.delete(`/api/external-sources/sources/${sourceId}`)
+}
+
+export async function discoverTools(sourceId: string): Promise<DiscoverToolsResponse> {
+  return api.post<DiscoverToolsResponse>(
+    `/api/external-sources/sources/${sourceId}/discover`,
+    {}
+  )
+}
+
+export async function importTools(
+  sourceId: string,
+  toolNames: string[]
+): Promise<ToolResponse[]> {
+  return api.post<ToolResponse[]>(
+    `/api/external-sources/sources/${sourceId}/import`,
+    { tool_names: toolNames }
+  )
+}
+
+// React Query hooks
+export function useExternalSources(serverId: string | undefined) {
+  return useQuery({
+    queryKey: externalSourceKeys.list(serverId || ''),
+    queryFn: () => fetchSources(serverId!),
+    enabled: !!serverId,
+  })
+}
+
+export function useCreateExternalSource(serverId: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (data: ExternalMCPSourceCreateInput) => createSource(serverId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: externalSourceKeys.list(serverId),
+      })
+    },
+  })
+}
+
+export function useDeleteExternalSource(serverId: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: deleteSource,
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: externalSourceKeys.list(serverId),
+      })
+    },
+  })
+}
+
+export function useDiscoverTools() {
+  return useMutation({
+    mutationFn: discoverTools,
+  })
+}
+
+export function useImportTools(serverId: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ sourceId, toolNames }: { sourceId: string; toolNames: string[] }) =>
+      importTools(sourceId, toolNames),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: externalSourceKeys.list(serverId),
+      })
+      // Also invalidate tools list since we created new tools
+      queryClient.invalidateQueries({ queryKey: ['tools'] })
+    },
+  })
+}

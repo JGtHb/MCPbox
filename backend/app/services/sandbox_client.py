@@ -186,6 +186,7 @@ class SandboxClient:
         helper_code: str | None = None,
         allowed_modules: list[str] | None = None,
         secrets: dict[str, str] | None = None,
+        external_sources: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Register a server with its tools in the sandbox.
 
@@ -197,6 +198,7 @@ class SandboxClient:
             helper_code: Optional shared Python code for all tools
             allowed_modules: Custom list of allowed Python modules (None = use defaults)
             secrets: Dict of secret key→value pairs for injection into tool namespace
+            external_sources: List of external MCP source configs for passthrough tools
 
         Returns:
             Registration result with success status and tool count
@@ -216,6 +218,7 @@ class SandboxClient:
                         "helper_code": helper_code,
                         "allowed_modules": allowed_modules,
                         "secrets": secrets or {},
+                        "external_sources": external_sources or [],
                     },
                 )
 
@@ -559,6 +562,61 @@ class SandboxClient:
                 "success": False,
                 "error": str(e),
             }
+
+    async def discover_external_tools(
+        self,
+        url: str,
+        transport_type: str = "streamable_http",
+        auth_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Discover tools from an external MCP server via the sandbox.
+
+        Args:
+            url: External MCP server URL
+            transport_type: Transport type ("streamable_http" or "sse")
+            auth_headers: Optional auth headers for the external server
+
+        Returns:
+            Dict with success status and list of discovered tools
+        """
+        try:
+
+            async def do_discover() -> dict[str, Any]:
+                client = await self._get_client()
+                response = await client.post(
+                    f"{self.sandbox_url}/mcp-discover",
+                    headers=self._get_headers(),
+                    json={
+                        "url": url,
+                        "transport_type": transport_type,
+                        "auth_headers": auth_headers or {},
+                    },
+                    timeout=30.0,
+                )
+                if response.status_code >= 500:
+                    return {
+                        "success": False,
+                        "error": f"Sandbox server error: {response.status_code}",
+                    }
+                try:
+                    result: dict[str, Any] = response.json()
+                    return result
+                except ValueError as e:
+                    logger.error(f"Invalid JSON from MCP discover: {e}")
+                    return {"success": False, "error": "Invalid JSON response"}
+
+            result: dict[str, Any] = await retry_async(
+                do_discover,
+                config=SANDBOX_RETRY_CONFIG,
+                circuit_breaker=self._circuit_breaker,
+            )
+            return result
+
+        except CircuitBreakerOpen as e:
+            return {"success": False, "error": f"Sandbox unavailable: {e}"}
+        except Exception as e:
+            logger.exception(f"Error discovering external tools: {e}")
+            return {"success": False, "error": str(e)}
 
     async def close(self) -> None:
         """Close the HTTP client."""

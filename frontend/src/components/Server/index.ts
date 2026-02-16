@@ -6,5 +6,5 @@ export { ServerTabs, type TabId } from './ServerTabs'
 export { OverviewTab } from './OverviewTab'
 export { ToolsTab } from './ToolsTab'
 export { ExecutionLogsTab } from './ExecutionLogsTab'
+export { ExternalSourcesTab } from './ExternalSourcesTab'
 export { SettingsTab } from './SettingsTab'
-// NOTE: ModuleConfig removed - module configuration is now global in Settings

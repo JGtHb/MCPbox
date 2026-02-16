@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.core.database import async_session_maker
-from app.models import Server, Tool
+from app.models import Server
 from app.services.sandbox_client import SandboxClient
 
 logger = logging.getLogger(__name__)
@@ -51,9 +51,7 @@ async def recover_running_servers() -> None:
         async with async_session_maker() as db:
             # Find all servers marked as "running"
             result = await db.execute(
-                select(Server)
-                .options(selectinload(Server.tools))
-                .where(Server.status == "running")
+                select(Server).options(selectinload(Server.tools)).where(Server.status == "running")
             )
             running_servers = result.scalars().all()
 
@@ -70,9 +68,7 @@ async def recover_running_servers() -> None:
         logger.error(f"Error during server recovery: {e}")
 
 
-async def _register_server(
-    db, server: Server, sandbox_client: SandboxClient
-) -> None:
+async def _register_server(db, server: Server, sandbox_client: SandboxClient) -> None:
     """Re-register a single server with the sandbox."""
     # Build tool definitions (only enabled + approved)
     tool_defs = []
@@ -81,13 +77,20 @@ async def _register_server(
             continue
         if tool.approval_status != "approved":
             continue
-        tool_defs.append({
+        tool_def = {
             "name": tool.name,
             "description": tool.description or "",
             "parameters": tool.input_schema or {},
             "timeout_ms": tool.timeout_ms or 30000,
             "python_code": tool.python_code,
-        })
+            "tool_type": getattr(tool, "tool_type", "python_code"),
+        }
+        if tool_def["tool_type"] == "mcp_passthrough":
+            tool_def["external_source_id"] = (
+                str(tool.external_source_id) if tool.external_source_id else None
+            )
+            tool_def["external_tool_name"] = tool.external_tool_name
+        tool_defs.append(tool_def)
 
     if not tool_defs:
         logger.info(f"Server '{server.name}' has no approved tools, skipping")
@@ -105,6 +108,25 @@ async def _register_server(
     config_service = GlobalConfigService(db)
     allowed_modules = await config_service.get_allowed_modules()
 
+    # Build external MCP source configs
+    from app.services.external_mcp_source import ExternalMCPSourceService
+
+    source_service = ExternalMCPSourceService(db)
+    sources = await source_service.list_by_server(server.id)
+    external_sources_data = []
+    for source in sources:
+        if source.status == "disabled":
+            continue
+        auth_headers = source_service._build_auth_headers(source, secrets)
+        external_sources_data.append(
+            {
+                "source_id": str(source.id),
+                "url": source.url,
+                "auth_headers": auth_headers,
+                "transport_type": source.transport_type,
+            }
+        )
+
     result = await sandbox_client.register_server(
         server_id=str(server.id),
         server_name=server.name,
@@ -113,14 +135,12 @@ async def _register_server(
         helper_code=server.helper_code,
         allowed_modules=allowed_modules,
         secrets=secrets,
+        external_sources=external_sources_data,
     )
 
     if result.get("success"):
         logger.info(
-            f"Recovered server '{server.name}' with "
-            f"{result.get('tools_registered', 0)} tools"
+            f"Recovered server '{server.name}' with {result.get('tools_registered', 0)} tools"
         )
     else:
-        logger.error(
-            f"Failed to recover server '{server.name}': {result.get('error')}"
-        )
+        logger.error(f"Failed to recover server '{server.name}': {result.get('error')}")

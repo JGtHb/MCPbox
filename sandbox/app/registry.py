@@ -12,8 +12,18 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class ExternalSourceConfig:
+    """Connection config for an external MCP server."""
+
+    source_id: str
+    url: str
+    auth_headers: dict[str, str] = field(default_factory=dict)
+    transport_type: str = "streamable_http"
+
+
+@dataclass
 class Tool:
-    """A registered tool using Python code execution."""
+    """A registered tool - either Python code or MCP passthrough."""
 
     name: str
     description: str
@@ -22,11 +32,20 @@ class Tool:
     parameters: dict[str, Any]
     python_code: Optional[str] = None
     timeout_ms: int = 30000
+    # MCP passthrough fields
+    tool_type: str = "python_code"
+    external_source_id: Optional[str] = None
+    external_tool_name: Optional[str] = None
 
     @property
     def full_name(self) -> str:
         """Full tool name with server prefix."""
         return f"{self.server_name}__{self.name}"
+
+    @property
+    def is_passthrough(self) -> bool:
+        """Whether this tool proxies to an external MCP server."""
+        return self.tool_type == "mcp_passthrough"
 
 
 @dataclass
@@ -39,6 +58,8 @@ class RegisteredServer:
     allowed_modules: Optional[list[str]] = None  # Custom modules or None for defaults
     tools: dict[str, Tool] = field(default_factory=dict)
     secrets: dict[str, str] = field(default_factory=dict)  # Decrypted key-value secrets
+    # External MCP source configs (source_id → config)
+    external_sources: dict[str, ExternalSourceConfig] = field(default_factory=dict)
 
 
 class ToolRegistry:
@@ -47,6 +68,7 @@ class ToolRegistry:
     Handles:
     - Tool registration/unregistration
     - Tool execution via Python code
+    - Tool execution via MCP passthrough to external servers
     """
 
     def __init__(self):
@@ -66,6 +88,7 @@ class ToolRegistry:
         helper_code: Optional[str] = None,
         allowed_modules: Optional[list[str]] = None,
         secrets: dict[str, str] | None = None,
+        external_sources: list[dict[str, Any]] | None = None,
     ) -> int:
         """Register a server with its tools.
 
@@ -77,6 +100,7 @@ class ToolRegistry:
             helper_code: Optional shared Python code for all tools
             allowed_modules: Custom list of allowed Python modules (None = defaults)
             secrets: Dict of secret key→value pairs for injection into tool namespace
+            external_sources: List of external MCP source configs for passthrough tools
 
         Returns:
             The number of tools registered.
@@ -93,6 +117,16 @@ class ToolRegistry:
             secrets=secrets or {},
         )
 
+        # Register external MCP sources
+        for source_data in external_sources or []:
+            source = ExternalSourceConfig(
+                source_id=source_data["source_id"],
+                url=source_data["url"],
+                auth_headers=source_data.get("auth_headers", {}),
+                transport_type=source_data.get("transport_type", "streamable_http"),
+            )
+            server.external_sources[source.source_id] = source
+
         for tool_def in tools:
             tool = Tool(
                 name=tool_def["name"],
@@ -102,12 +136,16 @@ class ToolRegistry:
                 parameters=tool_def.get("parameters", {}),
                 python_code=tool_def.get("python_code"),
                 timeout_ms=tool_def.get("timeout_ms", 30000),
+                tool_type=tool_def.get("tool_type", "python_code"),
+                external_source_id=tool_def.get("external_source_id"),
+                external_tool_name=tool_def.get("external_tool_name"),
             )
             server.tools[tool.name] = tool
 
         self.servers[server_id] = server
         logger.info(
             f"Registered server {server_name} ({server_id}) with {len(server.tools)} tools"
+            f" ({len(server.external_sources)} external sources)"
         )
         return len(server.tools)
 
@@ -170,7 +208,10 @@ class ToolRegistry:
         arguments: dict[str, Any],
         debug_mode: bool = False,
     ) -> dict[str, Any]:
-        """Execute a tool with the given arguments."""
+        """Execute a tool with the given arguments.
+
+        Routes to Python execution or MCP passthrough based on tool_type.
+        """
         tool = self.get_tool(full_name)
         if not tool:
             return {
@@ -178,7 +219,10 @@ class ToolRegistry:
                 "success": False,
             }
 
-        return await self._execute_python_tool(tool, arguments, debug_mode)
+        if tool.is_passthrough:
+            return await self._execute_passthrough_tool(tool, arguments)
+        else:
+            return await self._execute_python_tool(tool, arguments, debug_mode)
 
     async def _execute_python_tool(
         self,
@@ -225,6 +269,50 @@ class ToolRegistry:
         finally:
             # Always close the per-request client
             await http_client.aclose()
+
+    async def _execute_passthrough_tool(
+        self,
+        tool: Tool,
+        arguments: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Execute a passthrough tool by proxying to an external MCP server."""
+        from app.mcp_client import call_external_tool
+
+        server = self.get_server_for_tool(tool.full_name)
+        if not server:
+            return {
+                "success": False,
+                "error": "Server not found for passthrough tool",
+            }
+
+        # Look up the external source config
+        if not tool.external_source_id:
+            return {
+                "success": False,
+                "error": "Passthrough tool has no external source configured",
+            }
+
+        source = server.external_sources.get(tool.external_source_id)
+        if not source:
+            return {
+                "success": False,
+                "error": f"External source {tool.external_source_id} not found",
+            }
+
+        external_name = tool.external_tool_name or tool.name
+
+        logger.info(
+            f"Proxying tool call: {tool.full_name} → {external_name}@{source.url}"
+        )
+
+        result = await call_external_tool(
+            url=source.url,
+            tool_name=external_name,
+            arguments=arguments,
+            auth_headers=source.auth_headers,
+        )
+
+        return result
 
     async def clear_all(self):
         """Clear all registrations."""

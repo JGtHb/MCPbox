@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import get_db
+from app.services.external_mcp_source import ExternalMCPSourceService
 from app.services.global_config import GlobalConfigService
 from app.services.sandbox_client import SandboxClient, get_sandbox_client
 from app.services.server import ServerService
@@ -101,6 +102,9 @@ async def start_server(
     # Get global allowed modules
     allowed_modules = await global_config_service.get_allowed_modules()
 
+    # Build external MCP source configs for passthrough tools
+    external_sources_data = await _build_external_source_configs(db, server_id, secrets)
+
     try:
         # Register with sandbox (include helper_code and global allowed_modules)
         result = await sandbox_client.register_server(
@@ -111,6 +115,7 @@ async def start_server(
             helper_code=server.helper_code,
             allowed_modules=allowed_modules,
             secrets=secrets,
+            external_sources=external_sources_data,
         )
 
         if not result.get("success"):
@@ -241,6 +246,9 @@ async def restart_server(
     # Get global allowed modules
     allowed_modules = await global_config_service.get_allowed_modules()
 
+    # Build external MCP source configs for passthrough tools
+    external_sources_data = await _build_external_source_configs(db, server_id, secrets)
+
     try:
         # Re-register (include helper_code and global allowed_modules)
         result = await sandbox_client.register_server(
@@ -251,6 +259,7 @@ async def restart_server(
             helper_code=server.helper_code,
             allowed_modules=allowed_modules,
             secrets=secrets,
+            external_sources=external_sources_data,
         )
 
         if not result.get("success"):
@@ -338,7 +347,7 @@ async def get_server_logs(
 def _build_tool_definitions(tools: list) -> list[dict]:
     """Build tool definitions for sandbox registration.
 
-    Tools use Python code with async main() function for execution.
+    Handles both Python code tools and MCP passthrough tools.
     """
     tool_defs = []
 
@@ -349,7 +358,48 @@ def _build_tool_definitions(tools: list) -> list[dict]:
             "parameters": tool.input_schema or {},
             "python_code": tool.python_code,
             "timeout_ms": tool.timeout_ms or 30000,
+            "tool_type": getattr(tool, "tool_type", "python_code"),
         }
+
+        # Add passthrough-specific fields
+        if tool_def["tool_type"] == "mcp_passthrough":
+            tool_def["external_source_id"] = (
+                str(tool.external_source_id) if tool.external_source_id else None
+            )
+            tool_def["external_tool_name"] = tool.external_tool_name
+
         tool_defs.append(tool_def)
 
     return tool_defs
+
+
+async def _build_external_source_configs(
+    db: AsyncSession,
+    server_id: UUID,
+    secrets: dict[str, str],
+) -> list[dict]:
+    """Build external MCP source configs for sandbox registration.
+
+    Resolves auth credentials from server secrets and builds the config
+    dicts that the sandbox needs to connect to external MCP servers.
+    """
+    source_service = ExternalMCPSourceService(db)
+    sources = await source_service.list_by_server(server_id)
+
+    configs = []
+    for source in sources:
+        if source.status == "disabled":
+            continue
+
+        auth_headers = source_service._build_auth_headers(source, secrets)
+
+        configs.append(
+            {
+                "source_id": str(source.id),
+                "url": source.url,
+                "auth_headers": auth_headers,
+                "transport_type": source.transport_type,
+            }
+        )
+
+    return configs
