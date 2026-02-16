@@ -19,24 +19,14 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Create enum types
-    tool_type_enum = sa.Enum("python_code", "mcp_passthrough", name="tool_type")
-    tool_type_enum.create(op.get_bind(), checkfirst=True)
+    # Create enum types using raw SQL with IF NOT EXISTS to avoid conflicts
+    op.execute("CREATE TYPE tool_type AS ENUM ('python_code', 'mcp_passthrough')")
+    op.execute("CREATE TYPE external_mcp_auth_type AS ENUM ('none', 'bearer', 'header')")
+    op.execute("CREATE TYPE external_mcp_transport_type AS ENUM ('streamable_http', 'sse')")
+    op.execute("CREATE TYPE external_mcp_source_status AS ENUM ('active', 'error', 'disabled')")
 
-    external_mcp_auth_type_enum = sa.Enum("none", "bearer", "header", name="external_mcp_auth_type")
-    external_mcp_auth_type_enum.create(op.get_bind(), checkfirst=True)
-
-    external_mcp_transport_type_enum = sa.Enum(
-        "streamable_http", "sse", name="external_mcp_transport_type"
-    )
-    external_mcp_transport_type_enum.create(op.get_bind(), checkfirst=True)
-
-    external_mcp_source_status_enum = sa.Enum(
-        "active", "error", "disabled", name="external_mcp_source_status"
-    )
-    external_mcp_source_status_enum.create(op.get_bind(), checkfirst=True)
-
-    # Create external_mcp_sources table
+    # Create external_mcp_sources table using raw SQL column types to avoid
+    # SQLAlchemy's automatic enum creation in before_create events
     op.create_table(
         "external_mcp_sources",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
@@ -45,7 +35,7 @@ def upgrade() -> None:
         sa.Column("url", sa.Text(), nullable=False),
         sa.Column(
             "auth_type",
-            external_mcp_auth_type_enum,
+            postgresql.ENUM("none", "bearer", "header", name="external_mcp_auth_type", create_type=False),
             nullable=False,
             server_default="none",
         ),
@@ -53,13 +43,13 @@ def upgrade() -> None:
         sa.Column("auth_header_name", sa.String(255), nullable=True),
         sa.Column(
             "transport_type",
-            external_mcp_transport_type_enum,
+            postgresql.ENUM("streamable_http", "sse", name="external_mcp_transport_type", create_type=False),
             nullable=False,
             server_default="streamable_http",
         ),
         sa.Column(
             "status",
-            external_mcp_source_status_enum,
+            postgresql.ENUM("active", "error", "disabled", name="external_mcp_source_status", create_type=False),
             nullable=False,
             server_default="active",
         ),
@@ -90,7 +80,7 @@ def upgrade() -> None:
         "tools",
         sa.Column(
             "tool_type",
-            tool_type_enum,
+            postgresql.ENUM("python_code", "mcp_passthrough", name="tool_type", create_type=False),
             nullable=False,
             server_default="python_code",
         ),
@@ -125,7 +115,7 @@ def downgrade() -> None:
     op.drop_table("external_mcp_sources")
 
     # Drop enum types
-    sa.Enum(name="external_mcp_source_status").drop(op.get_bind(), checkfirst=True)
-    sa.Enum(name="external_mcp_transport_type").drop(op.get_bind(), checkfirst=True)
-    sa.Enum(name="external_mcp_auth_type").drop(op.get_bind(), checkfirst=True)
-    sa.Enum(name="tool_type").drop(op.get_bind(), checkfirst=True)
+    op.execute("DROP TYPE IF EXISTS external_mcp_source_status")
+    op.execute("DROP TYPE IF EXISTS external_mcp_transport_type")
+    op.execute("DROP TYPE IF EXISTS external_mcp_auth_type")
+    op.execute("DROP TYPE IF EXISTS tool_type")

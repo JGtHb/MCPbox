@@ -136,7 +136,7 @@ export function ConfirmModal({
     >
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"
+        className="fixed inset-0 bg-gray-500 dark:bg-gray-900 bg-opacity-75 dark:bg-opacity-80 transition-opacity"
         aria-hidden="true"
         onClick={handleBackdropClick}
       />
@@ -149,12 +149,12 @@ export function ConfirmModal({
         {/* Modal panel */}
         <div
           ref={modalRef}
-          className="relative bg-white rounded-lg shadow-xl max-w-md w-full p-6 transform transition-all"
+          className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6 transform transition-all"
         >
           {/* Icon */}
           <div className="flex items-center justify-center mb-4">
             {destructive ? (
-              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+              <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
                 <svg
                   className="w-6 h-6 text-red-600"
                   fill="none"
@@ -171,7 +171,7 @@ export function ConfirmModal({
                 </svg>
               </div>
             ) : (
-              <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">
+              <div className="w-12 h-12 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
                 <svg
                   className="w-6 h-6 text-blue-600"
                   fill="none"
@@ -193,13 +193,13 @@ export function ConfirmModal({
           {/* Title */}
           <h3
             id="modal-title"
-            className="text-lg font-medium text-gray-900 text-center mb-2"
+            className="text-lg font-medium text-gray-900 dark:text-white text-center mb-2"
           >
             {title}
           </h3>
 
           {/* Message */}
-          <p className="text-sm text-gray-500 text-center mb-6">{message}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 text-center mb-6">{message}</p>
 
           {/* Buttons */}
           <div className="flex space-x-3">
@@ -208,7 +208,7 @@ export function ConfirmModal({
               type="button"
               onClick={onCancel}
               disabled={isLoading}
-              className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+              className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-offset-gray-800 disabled:opacity-50"
             >
               {cancelLabel}
             </button>

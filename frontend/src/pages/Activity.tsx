@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Header } from '../components/Layout'
 import {
   useActivityStats,
@@ -12,10 +13,21 @@ type Period = '1h' | '6h' | '24h' | '7d'
 type LogType = 'all' | 'mcp_request' | 'mcp_response' | 'error' | 'alert' | 'audit'
 type Level = 'all' | 'debug' | 'info' | 'warning' | 'error'
 
+const VALID_TYPES: LogType[] = ['all', 'mcp_request', 'mcp_response', 'error', 'alert', 'audit']
+const VALID_LEVELS: Level[] = ['all', 'debug', 'info', 'warning', 'error']
+
 export function Activity() {
+  const [searchParams] = useSearchParams()
+
   const [period, setPeriod] = useState<Period>('1h')
-  const [selectedType, setSelectedType] = useState<LogType>('all')
-  const [selectedLevel, setSelectedLevel] = useState<Level>('all')
+  const [selectedType, setSelectedType] = useState<LogType>(() => {
+    const param = searchParams.get('type')
+    return VALID_TYPES.includes(param as LogType) ? (param as LogType) : 'all'
+  })
+  const [selectedLevel, setSelectedLevel] = useState<Level>(() => {
+    const param = searchParams.get('level')
+    return VALID_LEVELS.includes(param as Level) ? (param as Level) : 'all'
+  })
   const [paused, setPaused] = useState(false)
 
   const { data: stats, isLoading: statsLoading } = useActivityStats(period)

@@ -14,6 +14,7 @@ import {
 import { LoadingCard } from '../components/ui'
 import { useServer, useServerStatus } from '../api/servers'
 import { useTools } from '../api/tools'
+import { useCopyToClipboard } from '../hooks/useCopyToClipboard'
 import { STATUS_COLORS, STATUS_LABELS, type ServerStatus } from '../lib/constants'
 
 // Read initial tab from URL hash
@@ -26,6 +27,7 @@ function getTabFromHash(): TabId {
 export function ServerDetail() {
   const { id } = useParams<{ id: string }>()
   const [activeTab, setActiveTab] = useState<TabId>(getTabFromHash)
+  const { copied, copy } = useCopyToClipboard()
 
   const { data: server, isLoading } = useServer(id || '')
   const { data: serverStatus } = useServerStatus(id || '', server?.status === 'running')
@@ -64,12 +66,22 @@ export function ServerDetail() {
       <Header
         title={server.name}
         action={
-          <span
-            className={`px-3 py-1 text-sm font-medium rounded-full ${STATUS_COLORS[statusKey] || 'bg-gray-100 text-gray-800'}`}
-            role="status"
-          >
-            {STATUS_LABELS[statusKey] || server.status}
-          </span>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => copy(server.id)}
+              className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 font-mono flex items-center gap-1 transition-colors"
+              title="Copy server ID"
+            >
+              {server.id.slice(0, 8)}...
+              <span className="text-xs">{copied ? 'Copied' : 'Copy ID'}</span>
+            </button>
+            <span
+              className={`px-3 py-1 text-sm font-medium rounded-full ${STATUS_COLORS[statusKey] || 'bg-gray-100 text-gray-800'}`}
+              role="status"
+            >
+              {STATUS_LABELS[statusKey] || server.status}
+            </span>
+          </div>
         }
       />
 
