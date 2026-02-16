@@ -5,6 +5,7 @@ No MCP SDK dependency - matches MCPbox's native protocol implementation pattern.
 """
 
 import logging
+import re
 import uuid
 from typing import Any
 
@@ -18,11 +19,58 @@ MCP_PROTOCOL_VERSION = "2025-03-26"
 # Fallback protocol versions if the server doesn't support our preferred version
 MCP_FALLBACK_VERSIONS = ["2024-11-05"]
 
+# Browser-like User-Agent to avoid basic bot detection on external MCP servers.
+# Many MCP servers sit behind Cloudflare or similar CDNs that block the default
+# python-httpx/X.Y.Z user-agent string.
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/131.0.0.0 Safari/537.36"
+)
+
+# Patterns that indicate a Cloudflare bot-detection challenge page
+_CF_CHALLENGE_PATTERNS = [
+    re.compile(r"<title>\s*Just a moment\.{3}\s*</title>", re.IGNORECASE),
+    re.compile(r"challenges\.cloudflare\.com", re.IGNORECASE),
+    re.compile(r"cf-browser-verification", re.IGNORECASE),
+    re.compile(r"cf_chl_opt", re.IGNORECASE),
+]
+
 
 class MCPClientError(Exception):
     """Error communicating with an external MCP server."""
 
     pass
+
+
+class CloudflareChallengeError(MCPClientError):
+    """Raised when the external server returns a Cloudflare bot-detection challenge.
+
+    This means the target MCP server is behind Cloudflare with JavaScript
+    challenge protection enabled, which automated HTTP clients cannot solve.
+    """
+
+    pass
+
+
+def _is_cloudflare_challenge(response: httpx.Response) -> bool:
+    """Detect whether a response is a Cloudflare JavaScript challenge page."""
+    content_type = response.headers.get("content-type", "")
+    if "text/html" not in content_type:
+        return False
+
+    # Only check responses that look like error/challenge pages
+    if response.status_code not in (403, 503):
+        return False
+
+    # Check for Cloudflare server header
+    server = response.headers.get("server", "").lower()
+    has_cf_header = "cloudflare" in server
+
+    body = response.text[:4000]  # Only scan start of page
+    has_cf_pattern = any(p.search(body) for p in _CF_CHALLENGE_PATTERNS)
+
+    return has_cf_header or has_cf_pattern
 
 
 class MCPClient:
@@ -51,6 +99,10 @@ class MCPClient:
             # An attacker-controlled MCP server could redirect to internal
             # services (e.g., cloud metadata at 169.254.169.254).
             follow_redirects=False,
+            headers={
+                "User-Agent": DEFAULT_USER_AGENT,
+                "Accept-Language": "en-US,en;q=0.9",
+            },
         )
         return self
 
@@ -104,6 +156,17 @@ class MCPClient:
             self._session_id = session_id
 
         if response.status_code >= 400:
+            if _is_cloudflare_challenge(response):
+                raise CloudflareChallengeError(
+                    f"HTTP {response.status_code}: The external MCP server is behind "
+                    f"Cloudflare bot protection (JavaScript challenge). "
+                    f"Automated clients cannot bypass this. "
+                    f"Options: (1) contact the MCP server operator to whitelist "
+                    f"server-to-server traffic on their MCP endpoint, "
+                    f"(2) use an API key / auth token if the server provides one, "
+                    f"(3) check if the server offers an alternate endpoint without "
+                    f"bot protection."
+                )
             raise MCPClientError(f"HTTP {response.status_code}: {response.text[:500]}")
 
         content_type = response.headers.get("content-type", "")

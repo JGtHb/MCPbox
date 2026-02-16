@@ -6,7 +6,15 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
-from app.mcp_client import MCPClient, MCPClientError, discover_tools, call_external_tool
+from app.mcp_client import (
+    MCPClient,
+    MCPClientError,
+    CloudflareChallengeError,
+    DEFAULT_USER_AGENT,
+    _is_cloudflare_challenge,
+    discover_tools,
+    call_external_tool,
+)
 
 
 class TestMCPClient:
@@ -54,13 +62,20 @@ class TestMCPClient:
             {
                 "name": "search",
                 "description": "Search the web",
-                "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}}},
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                },
             }
         ]
 
         init_response = httpx.Response(
             200,
-            json={"jsonrpc": "2.0", "id": "1", "result": {"protocolVersion": "2025-03-26"}},
+            json={
+                "jsonrpc": "2.0",
+                "id": "1",
+                "result": {"protocolVersion": "2025-03-26"},
+            },
             headers={"mcp-session-id": "session-1"},
         )
         tools_response = httpx.Response(
@@ -99,7 +114,15 @@ class TestMCPClient:
         with patch("app.mcp_client.httpx.AsyncClient") as MockClient:
             mock_client = AsyncMock()
             mock_client.post.side_effect = [
-                httpx.Response(200, json={"jsonrpc": "2.0", "id": "1", "result": {"protocolVersion": "2025-03-26"}}, headers={"mcp-session-id": "s1"}),
+                httpx.Response(
+                    200,
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": "1",
+                        "result": {"protocolVersion": "2025-03-26"},
+                    },
+                    headers={"mcp-session-id": "s1"},
+                ),
                 AsyncMock(),  # initialized notification
                 call_response,
             ]
@@ -129,7 +152,15 @@ class TestMCPClient:
         with patch("app.mcp_client.httpx.AsyncClient") as MockClient:
             mock_client = AsyncMock()
             mock_client.post.side_effect = [
-                httpx.Response(200, json={"jsonrpc": "2.0", "id": "1", "result": {"protocolVersion": "2025-03-26"}}, headers={"mcp-session-id": "s1"}),
+                httpx.Response(
+                    200,
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": "1",
+                        "result": {"protocolVersion": "2025-03-26"},
+                    },
+                    headers={"mcp-session-id": "s1"},
+                ),
                 AsyncMock(),
                 error_response,
             ]
@@ -186,7 +217,15 @@ class TestMCPClient:
         with patch("app.mcp_client.httpx.AsyncClient") as MockClient:
             mock_client = AsyncMock()
             mock_client.post.side_effect = [
-                httpx.Response(200, json={"jsonrpc": "2.0", "id": "1", "result": {"protocolVersion": "2025-03-26"}}, headers={"mcp-session-id": "s1"}),
+                httpx.Response(
+                    200,
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": "1",
+                        "result": {"protocolVersion": "2025-03-26"},
+                    },
+                    headers={"mcp-session-id": "s1"},
+                ),
                 AsyncMock(),
                 sse_response,
             ]
@@ -208,7 +247,11 @@ class TestMCPClient:
             mock_client = AsyncMock()
             mock_client.post.return_value = httpx.Response(
                 200,
-                json={"jsonrpc": "2.0", "id": "1", "result": {"protocolVersion": "2025-03-26"}},
+                json={
+                    "jsonrpc": "2.0",
+                    "id": "1",
+                    "result": {"protocolVersion": "2025-03-26"},
+                },
                 headers={"mcp-session-id": "s1"},
             )
             mock_client.aclose = AsyncMock()
@@ -238,7 +281,9 @@ class TestDiscoverToolsHelper:
             mock_instance.__aexit__ = AsyncMock(return_value=False)
             mock_instance.initialize = AsyncMock(return_value={})
             mock_instance.list_tools = AsyncMock(
-                return_value=[{"name": "tool1", "description": "A tool", "inputSchema": {}}]
+                return_value=[
+                    {"name": "tool1", "description": "A tool", "inputSchema": {}}
+                ]
             )
             MockMCPClient.return_value = mock_instance
 
@@ -287,3 +332,151 @@ class TestCallExternalToolHelper:
 
             assert result["success"] is True
             assert result["result"] == "tool output"
+
+
+class TestCloudflareDetection:
+    """Tests for Cloudflare challenge page detection."""
+
+    def test_detects_cf_challenge_with_title(self):
+        """Detects CF challenge by 'Just a moment...' title."""
+        body = "<html><head><title>Just a moment...</title></head><body></body></html>"
+        response = httpx.Response(
+            403,
+            text=body,
+            headers={"content-type": "text/html", "server": "cloudflare"},
+        )
+        assert _is_cloudflare_challenge(response) is True
+
+    def test_detects_cf_challenge_by_server_header(self):
+        """Detects CF challenge by cloudflare server header alone."""
+        body = (
+            "<html><head><title>Access denied</title></head><body>blocked</body></html>"
+        )
+        response = httpx.Response(
+            403,
+            text=body,
+            headers={"content-type": "text/html", "server": "cloudflare"},
+        )
+        assert _is_cloudflare_challenge(response) is True
+
+    def test_detects_cf_challenge_by_script_pattern(self):
+        """Detects CF challenge by challenges.cloudflare.com script reference."""
+        body = (
+            "<html><head><title>Verify</title></head>"
+            '<body><script src="https://challenges.cloudflare.com/turnstile/v0/api.js"></script></body></html>'
+        )
+        response = httpx.Response(
+            403,
+            text=body,
+            headers={"content-type": "text/html"},
+        )
+        assert _is_cloudflare_challenge(response) is True
+
+    def test_does_not_flag_normal_403(self):
+        """Normal 403 JSON responses are not flagged as CF challenges."""
+        response = httpx.Response(
+            403,
+            text='{"error": "Forbidden"}',
+            headers={"content-type": "application/json"},
+        )
+        assert _is_cloudflare_challenge(response) is False
+
+    def test_does_not_flag_200_html(self):
+        """A 200 HTML page is not flagged even with cloudflare server header."""
+        body = "<html><body>Welcome</body></html>"
+        response = httpx.Response(
+            200,
+            text=body,
+            headers={"content-type": "text/html", "server": "cloudflare"},
+        )
+        assert _is_cloudflare_challenge(response) is False
+
+    def test_detects_503_challenge(self):
+        """CF challenges can also come as 503 status codes."""
+        body = "<html><head><title>Just a moment...</title></head></html>"
+        response = httpx.Response(
+            503,
+            text=body,
+            headers={"content-type": "text/html", "server": "cloudflare"},
+        )
+        assert _is_cloudflare_challenge(response) is True
+
+    @pytest.mark.asyncio
+    async def test_send_request_raises_cloudflare_error(self):
+        """_send_request raises CloudflareChallengeError for CF challenge pages."""
+        cf_body = (
+            "<html><head><title>Just a moment...</title></head><body></body></html>"
+        )
+        cf_response = httpx.Response(
+            403,
+            text=cf_body,
+            headers={"content-type": "text/html", "server": "cloudflare"},
+        )
+
+        with patch("app.mcp_client.httpx.AsyncClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = cf_response
+            mock_client.aclose = AsyncMock()
+            MockClient.return_value = mock_client
+
+            async with MCPClient("https://example.com/mcp") as client:
+                with pytest.raises(CloudflareChallengeError, match="bot protection"):
+                    await client.initialize()
+
+
+class TestBrowserHeaders:
+    """Tests for browser-like headers on the HTTP client."""
+
+    @pytest.mark.asyncio
+    async def test_user_agent_is_set(self):
+        """Client sends browser-like User-Agent instead of python-httpx default."""
+        with patch("app.mcp_client.httpx.AsyncClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = httpx.Response(
+                200,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": "1",
+                    "result": {"protocolVersion": "2025-03-26"},
+                },
+                headers={"mcp-session-id": "s1"},
+            )
+            mock_client.aclose = AsyncMock()
+            MockClient.return_value = mock_client
+
+            async with MCPClient("https://example.com/mcp") as client:
+                await client.initialize()
+
+            # Verify AsyncClient was created with browser headers
+            init_kwargs = MockClient.call_args.kwargs
+            assert init_kwargs["headers"]["User-Agent"] == DEFAULT_USER_AGENT
+            assert "Accept-Language" in init_kwargs["headers"]
+
+    @pytest.mark.asyncio
+    async def test_auth_headers_override_correctly(self):
+        """Auth headers merge with (not replace) browser headers."""
+        with patch("app.mcp_client.httpx.AsyncClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = httpx.Response(
+                200,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": "1",
+                    "result": {"protocolVersion": "2025-03-26"},
+                },
+                headers={"mcp-session-id": "s1"},
+            )
+            mock_client.aclose = AsyncMock()
+            MockClient.return_value = mock_client
+
+            async with MCPClient(
+                "https://example.com/mcp",
+                auth_headers={"Authorization": "Bearer token123"},
+            ) as client:
+                await client.initialize()
+
+            # Check request-level headers contain both auth + MCP headers
+            call_args = mock_client.post.call_args_list[0]
+            headers = call_args.kwargs.get("headers") or call_args[1].get("headers")
+            assert headers["Authorization"] == "Bearer token123"
+            assert headers["Content-Type"] == "application/json"
