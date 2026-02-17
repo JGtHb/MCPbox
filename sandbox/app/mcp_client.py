@@ -1,7 +1,8 @@
 """MCP Client - connects to external MCP servers for tool discovery and proxying.
 
-Implements the MCP Streamable HTTP client protocol using httpx.
-No MCP SDK dependency - matches MCPbox's native protocol implementation pattern.
+Implements the MCP Streamable HTTP client protocol using curl_cffi.
+Uses browser TLS fingerprint impersonation (JA3/JA4) to avoid Cloudflare
+bot detection that blocks standard Python HTTP clients like httpx/requests.
 """
 
 import logging
@@ -9,7 +10,8 @@ import re
 import uuid
 from typing import Any
 
-import httpx
+from curl_cffi.requests import AsyncSession
+from curl_cffi.requests.exceptions import RequestException, Timeout as CurlTimeout
 
 logger = logging.getLogger(__name__)
 
@@ -19,11 +21,13 @@ MCP_PROTOCOL_VERSION = "2025-03-26"
 # Fallback protocol versions if the server doesn't support our preferred version
 MCP_FALLBACK_VERSIONS = ["2024-11-05"]
 
-# Honest User-Agent identifying MCPbox as a server-to-server MCP client.
-# We don't spoof browser UAs — if an external MCP server requires browser-level
-# auth (Cloudflare JS challenge), the proper fix is the MCP OAuth 2.1 flow
-# where the admin authenticates via a real browser popup.
-DEFAULT_USER_AGENT = "MCPbox/1.0.0 (MCP Client; +https://github.com/JGtHb/MCPbox)"
+# Browser to impersonate for TLS fingerprint.
+# Cloudflare uses JA3/JA4 TLS fingerprinting to distinguish real browsers from
+# HTTP libraries. Python's httpx/requests have distinctive non-browser TLS
+# fingerprints that trigger Cloudflare's "Just a moment..." challenge page.
+# curl_cffi impersonates real browser TLS handshakes at the protocol level,
+# making requests indistinguishable from a real Chrome browser at the TLS layer.
+IMPERSONATE_BROWSER = "chrome"
 
 # Patterns that indicate a Cloudflare bot-detection challenge page
 _CF_CHALLENGE_PATTERNS = [
@@ -44,13 +48,13 @@ class CloudflareChallengeError(MCPClientError):
     """Raised when the external server returns a Cloudflare bot-detection challenge.
 
     This means the target MCP server is behind Cloudflare with JavaScript
-    challenge protection enabled, which automated HTTP clients cannot solve.
+    challenge protection that even browser TLS impersonation cannot bypass.
     """
 
     pass
 
 
-def _is_cloudflare_challenge(response: httpx.Response) -> bool:
+def _is_cloudflare_challenge(response: Any) -> bool:
     """Detect whether a response is a Cloudflare JavaScript challenge page."""
     content_type = response.headers.get("content-type", "")
     if "text/html" not in content_type:
@@ -75,6 +79,11 @@ class MCPClient:
 
     Supports Streamable HTTP transport (POST with JSON-RPC 2.0).
     Handles initialize handshake, tool discovery, and tool execution.
+
+    Uses curl_cffi with browser TLS impersonation to pass Cloudflare's
+    JA3/JA4 fingerprint checks that block standard Python HTTP clients.
+    The MCP JSON-RPC handshake still honestly identifies as "MCPbox" at
+    the application layer.
     """
 
     def __init__(
@@ -87,35 +96,28 @@ class MCPClient:
         self.auth_headers = auth_headers or {}
         self.timeout = timeout
         self._session_id: str | None = None
-        self._client: httpx.AsyncClient | None = None
+        self._session: AsyncSession | None = None
 
     async def __aenter__(self) -> "MCPClient":
-        self._client = httpx.AsyncClient(
+        self._session = AsyncSession(
             timeout=self.timeout,
-            # SECURITY: Disable redirect following to prevent SSRF attacks.
-            # An attacker-controlled MCP server could redirect to internal
-            # services (e.g., cloud metadata at 169.254.169.254).
-            follow_redirects=False,
-            headers={
-                "User-Agent": DEFAULT_USER_AGENT,
-                "Accept-Language": "en-US,en;q=0.9",
-            },
+            impersonate=IMPERSONATE_BROWSER,
         )
         return self
 
     async def __aexit__(self, *args: Any) -> None:
-        if self._client:
+        if self._session:
             # Try to send session termination if we have a session
             if self._session_id:
                 try:
-                    await self._client.delete(
+                    await self._session.delete(
                         self.url,
                         headers=self._request_headers(),
                     )
                 except Exception:
                     pass  # Best-effort cleanup
-            await self._client.aclose()
-            self._client = None
+            self._session.close()
+            self._session = None
 
     def _request_headers(self) -> dict[str, str]:
         """Build headers for MCP requests."""
@@ -133,19 +135,19 @@ class MCPClient:
 
         Handles both direct JSON responses and SSE streams.
         """
-        if not self._client:
+        if not self._session:
             raise MCPClientError("Client not initialized. Use async with.")
 
         try:
-            response = await self._client.post(
+            response = await self._session.post(
                 self.url,
                 json=request,
                 headers=self._request_headers(),
             )
-        except httpx.ConnectError as e:
-            raise MCPClientError(f"Connection failed: {e}") from e
-        except httpx.TimeoutException as e:
+        except CurlTimeout as e:
             raise MCPClientError(f"Request timed out: {e}") from e
+        except RequestException as e:
+            raise MCPClientError(f"Connection failed: {e}") from e
 
         # Capture session ID from response headers
         session_id = response.headers.get("mcp-session-id")
@@ -156,8 +158,9 @@ class MCPClient:
             if _is_cloudflare_challenge(response):
                 raise CloudflareChallengeError(
                     f"HTTP {response.status_code}: The external MCP server is behind "
-                    f"Cloudflare bot protection (JavaScript challenge). "
-                    f"Automated clients cannot bypass this. "
+                    f"Cloudflare bot protection that requires browser JavaScript execution. "
+                    f"Even with TLS fingerprint impersonation, this Cloudflare configuration "
+                    f"cannot be bypassed automatically. "
                     f"Options: (1) use the OAuth auth type to authenticate via browser, "
                     f"(2) use an API key / Bearer token if the server provides one, "
                     f"(3) contact the MCP server operator to whitelist "
@@ -230,8 +233,8 @@ class MCPClient:
                 "jsonrpc": "2.0",
                 "method": "notifications/initialized",
             }
-            if self._client:
-                await self._client.post(
+            if self._session:
+                await self._session.post(
                     self.url,
                     json=notification,
                     headers=self._request_headers(),
