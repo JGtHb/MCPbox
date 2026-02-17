@@ -310,14 +310,27 @@ class SSRFProtectedAsyncHttpClient:
     Uses IP pinning to prevent DNS rebinding attacks.
     Uses __slots__ to prevent sandbox code from accessing the underlying
     client via attribute access (e.g., http._client).
+
+    Optionally enforces a per-server network allowlist: if allowed_hosts is
+    provided, only those hostnames can be contacted (in addition to the
+    standard SSRF blocklist checks).
     """
 
-    __slots__ = ("__wrapped_client",)
+    __slots__ = ("__wrapped_client", "__allowed_hosts")
 
-    def __init__(self, client: httpx.AsyncClient):
+    def __init__(
+        self,
+        client: httpx.AsyncClient,
+        allowed_hosts: set[str] | None = None,
+    ):
         # Use object.__setattr__ to bypass our __setattr__ guard
         object.__setattr__(
             self, "_SSRFProtectedAsyncHttpClient__wrapped_client", client
+        )
+        # None means no allowlist enforcement (server in "isolated" or no config).
+        # Empty set means explicitly no hosts allowed.
+        object.__setattr__(
+            self, "_SSRFProtectedAsyncHttpClient__allowed_hosts", allowed_hosts
         )
 
     def __getattr__(self, name: str):
@@ -330,11 +343,26 @@ class SSRFProtectedAsyncHttpClient:
         raise AttributeError("Cannot set attributes on the HTTP client")
 
     def _prepare_request(self, url: str, kwargs: dict) -> tuple[str, dict]:
-        """Validate URL and prepare request with IP pinning."""
+        """Validate URL and prepare request with IP pinning.
+
+        Also enforces the per-server network allowlist if configured.
+        """
         # Force-disable redirects to prevent redirect-based SSRF bypass.
         # The underlying client may have been configured with follow_redirects=True;
         # per-request kwargs override the client-level setting in httpx.
         kwargs["follow_redirects"] = False
+
+        # Enforce network allowlist before SSRF validation.
+        # If allowed_hosts is set (even if empty), only those hosts are permitted.
+        if self.__allowed_hosts is not None:
+            parsed = urlparse(str(url))
+            hostname = (parsed.hostname or "").lower()
+            if hostname not in self.__allowed_hosts:
+                raise SSRFError(
+                    f"Network access to '{hostname}' is not approved for this server. "
+                    f"Use mcpbox_request_network_access to request access."
+                )
+
         return _prepare_pinned_request(url, kwargs)
 
     async def get(self, url, **kwargs):

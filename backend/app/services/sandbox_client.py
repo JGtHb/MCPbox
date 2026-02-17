@@ -187,6 +187,7 @@ class SandboxClient:
         allowed_modules: list[str] | None = None,
         secrets: dict[str, str] | None = None,
         external_sources: list[dict[str, Any]] | None = None,
+        allowed_hosts: list[str] | None = None,
     ) -> dict[str, Any]:
         """Register a server with its tools in the sandbox.
 
@@ -199,6 +200,7 @@ class SandboxClient:
             allowed_modules: Custom list of allowed Python modules (None = use defaults)
             secrets: Dict of secret key→value pairs for injection into tool namespace
             external_sources: List of external MCP source configs for passthrough tools
+            allowed_hosts: Approved network hostnames (None = no restriction)
 
         Returns:
             Registration result with success status and tool count
@@ -219,6 +221,7 @@ class SandboxClient:
                         "allowed_modules": allowed_modules,
                         "secrets": secrets or {},
                         "external_sources": external_sources or [],
+                        "allowed_hosts": allowed_hosts,
                     },
                 )
 

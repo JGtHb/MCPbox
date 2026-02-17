@@ -39,12 +39,24 @@ MCP_PROTOCOL_VERSION = "2025-11-25"
 # Management tool prefix - all tools starting with this are handled locally
 MANAGEMENT_TOOL_PREFIX = "mcpbox_"
 
-# Destructive management tools that are restricted to local access only.
-# These tools perform irreversible operations and must not be callable
-# through the remote tunnel (source="worker").
+# Management tools restricted to local access only.
+# These tools perform mutations (create, update, delete, rollback) and must not
+# be callable through the remote tunnel (source="worker"). This limits the blast
+# radius of prompt injection attacks: if an LLM is manipulated via a tool result
+# (e.g., malicious email content), it cannot create/modify tools or servers remotely.
 LOCAL_ONLY_TOOLS = {
+    # Destructive operations
     "mcpbox_delete_server",
     "mcpbox_delete_tool",
+    # Creation operations - prevent injection-driven tool/server creation
+    "mcpbox_create_server",
+    "mcpbox_create_tool",
+    # Modification operations - prevent injection-driven changes
+    "mcpbox_update_tool",
+    "mcpbox_rollback_tool",
+    # External sources - prevent adding malicious MCP sources
+    "mcpbox_add_external_source",
+    "mcpbox_import_external_tools",
 }
 
 # Maximum concurrent SSE connections to prevent resource exhaustion
