@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, API_URL } from './client'
+import { tokens } from './auth'
 
 // Types
 export interface ActivityLog {
@@ -79,6 +80,12 @@ export function useActivityStream(options: UseActivityStreamOptions = {}) {
     // Build WebSocket URL from centralized API_URL
     const wsUrl = API_URL.replace(/^http/, 'ws')
     const params = new URLSearchParams()
+
+    // SECURITY: Pass JWT token as query parameter for WebSocket auth
+    // (WebSocket API doesn't support custom headers)
+    const accessToken = tokens.getAccessToken()
+    if (accessToken) params.set('token', accessToken)
+
     if (server_id) params.set('server_id', server_id)
     if (log_types?.length) params.set('log_types', log_types.join(','))
     if (levels?.length) params.set('levels', levels.join(','))
