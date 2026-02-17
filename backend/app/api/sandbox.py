@@ -353,32 +353,10 @@ async def get_server_logs(
 
 
 def _build_tool_definitions(tools: list) -> list[dict]:
-    """Build tool definitions for sandbox registration.
+    """Build tool definitions for sandbox registration (all tools, no filtering)."""
+    from app.services.tool_utils import build_tool_definitions
 
-    Handles both Python code tools and MCP passthrough tools.
-    """
-    tool_defs = []
-
-    for tool in tools:
-        tool_def = {
-            "name": tool.name,
-            "description": tool.description or "",
-            "parameters": tool.input_schema or {},
-            "python_code": tool.python_code,
-            "timeout_ms": tool.timeout_ms or 30000,
-            "tool_type": getattr(tool, "tool_type", "python_code"),
-        }
-
-        # Add passthrough-specific fields
-        if tool_def["tool_type"] == "mcp_passthrough":
-            tool_def["external_source_id"] = (
-                str(tool.external_source_id) if tool.external_source_id else None
-            )
-            tool_def["external_tool_name"] = tool.external_tool_name
-
-        tool_defs.append(tool_def)
-
-    return tool_defs
+    return build_tool_definitions(tools)
 
 
 async def _build_external_source_configs(

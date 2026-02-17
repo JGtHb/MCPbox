@@ -325,6 +325,7 @@ export const handlers = [
     return HttpResponse.json({
       app_name: 'MCPbox',
       app_version: '0.1.0',
+      auth_required: true,
     })
   }),
 ]

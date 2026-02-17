@@ -10,34 +10,35 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BaseModel
+from app.schemas.external_mcp_source import (
+    ExternalMCPAuthType as AuthTypeEnum,
+)
+from app.schemas.external_mcp_source import (
+    ExternalMCPSourceStatus as SourceStatusEnum,
+)
+from app.schemas.external_mcp_source import (
+    ExternalMCPTransportType as TransportTypeEnum,
+)
 
 if TYPE_CHECKING:
     from app.models.server import Server
     from app.models.tool import Tool
 
-# Auth type for connecting to external MCP servers
+# SQLAlchemy Enum types derived from the StrEnum definitions in schemas
 ExternalMCPAuthType = Enum(
-    "none",
-    "bearer",
-    "header",
-    "oauth",
+    *(v.value for v in AuthTypeEnum),
     name="external_mcp_auth_type",
     create_constraint=True,
 )
 
-# Transport type for external MCP connections
 ExternalMCPTransportType = Enum(
-    "streamable_http",
-    "sse",
+    *(v.value for v in TransportTypeEnum),
     name="external_mcp_transport_type",
     create_constraint=True,
 )
 
-# Status of the external MCP source connection
 ExternalMCPSourceStatus = Enum(
-    "active",
-    "error",
-    "disabled",
+    *(v.value for v in SourceStatusEnum),
     name="external_mcp_source_status",
     create_constraint=True,
 )

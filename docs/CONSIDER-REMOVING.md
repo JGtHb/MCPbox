@@ -52,22 +52,14 @@ Items are organized by category and prioritized by impact. Each item includes th
 
 ## 4. Overlapping / Duplicate Code
 
-### 4a. Duplicate Config Endpoints
-- **Files**: `backend/app/api/config.py` (→ `/api/config`), `backend/app/api/health.py:172` (→ `/config`)
-- **Issue**: Two endpoints return similar app configuration:
-  - `/api/config` returns `{app_name, app_version}` (used by frontend)
-  - `/config` returns `{auth_required, version, app_name}` (no known consumer)
-- **Action**: Consolidate into one endpoint. Add `auth_required` to the `/api/config` response and delete the `/config` endpoint from `health.py`. Update the admin auth middleware exclusion list (`/config` → `/api/config`). Update frontend mock handlers if needed
+### ~~4a. Duplicate Config Endpoints~~ — **FIXED**
+- **Resolution**: Added `auth_required` to `/api/config`, removed duplicate `/config` from health.py, updated middleware exclusion path to `/api/config`
 
-### 4b. Duplicated `_build_tool_definitions()` Logic
-- **Files**: `backend/app/services/mcp_management.py:1890`, `backend/app/api/sandbox.py:355`
-- **Issue**: Both files contain a `_build_tool_definitions()` function that converts Tool models to sandbox tool definition dicts. The implementations differ (mcp_management.py filters by `enabled` and `approval_status`; sandbox.py does not)
-- **Action**: Extract a shared utility function in `backend/app/services/tool.py` with an optional filter parameter. Import from both locations
+### ~~4b. Duplicated `_build_tool_definitions()` Logic~~ — **FIXED**
+- **Resolution**: Extracted shared `build_tool_definitions()` into `backend/app/services/tool_utils.py` with optional `filter_enabled_approved` parameter. Both sandbox.py and mcp_management.py now delegate to it
 
-### 4c. Enum Redefinition (Models vs Schemas)
-- **Files**: `backend/app/models/external_mcp_source.py`, `backend/app/schemas/external_mcp_source.py`
-- **Issue**: `ExternalMCPAuthType`, `ExternalMCPTransportType`, `ExternalMCPSourceStatus` are defined as StrEnum in both models and schemas. The model versions are SQLAlchemy-compatible and the schema versions are for Pydantic, but they duplicate the same values
-- **Action**: Define enums once (in models or a shared `enums.py`) and import in both places
+### ~~4c. Enum Redefinition (Models vs Schemas)~~ — **FIXED**
+- **Resolution**: StrEnum definitions in `schemas/external_mcp_source.py` are now the single source of truth. Model file derives SQLAlchemy Enums from the StrEnum values
 
 ---
 
@@ -171,9 +163,9 @@ When reviewing this document, for each item decide:
 | ~~2b~~ | ~~NetworkMode.monitored/learning~~ | ~~DB migration~~ | ~~Low~~ | **REMOVED** |
 | ~~3a~~ | ~~Sandbox credentials param~~ | ~~API change~~ | ~~Low~~ | **REMOVED** |
 | ~~3b~~ | ~~Crypto aad=None fallback~~ | ~~Code change~~ | ~~Low~~ | **REMOVED** |
-| 4a | Duplicate config endpoints | API change | Low | Low |
-| 4b | Duplicate _build_tool_defs | Refactor | Medium | Low |
-| 4c | Duplicate enum definitions | Refactor | Medium | Low |
+| ~~4a~~ | ~~Duplicate config endpoints~~ | ~~API change~~ | ~~Low~~ | **FIXED** |
+| ~~4b~~ | ~~Duplicate _build_tool_defs~~ | ~~Refactor~~ | ~~Medium~~ | **FIXED** |
+| ~~4c~~ | ~~Duplicate enum definitions~~ | ~~Refactor~~ | ~~Medium~~ | **FIXED** |
 | 5a | Singleton bypass | Bug fix | Trivial | Low |
 | 5b | __table__.columns pattern | Refactor | Low | Low |
 | 5c | Dashboard N+1 query | Performance | Medium | Low |

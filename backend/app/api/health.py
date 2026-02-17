@@ -159,28 +159,3 @@ async def reset_circuit(service_name: str) -> dict[str, Any]:
         "message": f"Circuit breaker for {service_name} reset",
         "state": circuit.get_state(),
     }
-
-
-class ConfigResponse(BaseModel):
-    """Configuration response for frontend."""
-
-    auth_required: bool
-    version: str
-    app_name: str
-
-
-@router.get("/config", response_model=ConfigResponse)
-async def get_config() -> ConfigResponse:
-    """Get public configuration for the frontend.
-
-    This endpoint is NOT protected by admin auth since the frontend needs
-    to call it to determine if authentication is required.
-
-    Returns:
-        Configuration including whether admin auth is required.
-    """
-    return ConfigResponse(
-        auth_required=True,  # Admin API key is always required
-        version=settings.app_version,
-        app_name=settings.app_name,
-    )
