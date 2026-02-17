@@ -1,5 +1,6 @@
 """Admin REST API for managing server secrets."""
 
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -12,8 +13,11 @@ from app.schemas.server_secret import (
     SecretResponse,
     SecretSetValue,
 )
+from app.services.sandbox_client import get_sandbox_client
 from app.services.server import ServerService
 from app.services.server_secret import ServerSecretService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/servers/{server_id}/secrets",
@@ -27,6 +31,30 @@ def get_secret_service(db: AsyncSession = Depends(get_db)) -> ServerSecretServic
 
 def get_server_service(db: AsyncSession = Depends(get_db)) -> ServerService:
     return ServerService(db)
+
+
+async def _sync_secrets_to_sandbox(
+    server_id: UUID,
+    service: ServerSecretService,
+    server_service: ServerService,
+) -> None:
+    """Sync all decrypted secrets to the sandbox if the server is running.
+
+    Called after a secret is set, updated, or deleted so the sandbox
+    always has the latest values without requiring a server restart.
+    """
+    server = await server_service.get(server_id)
+    if not server or server.status != "running":
+        return
+
+    secrets = await service.get_decrypted_for_injection(server_id)
+    sandbox = get_sandbox_client()
+    result = await sandbox.update_server_secrets(str(server_id), secrets)
+    if not result.get("success"):
+        logger.warning(
+            f"Failed to sync secrets to sandbox for server {server_id}: "
+            f"{result.get('error', 'unknown error')}"
+        )
 
 
 @router.get("", response_model=SecretListResponse)
@@ -100,6 +128,7 @@ async def set_secret_value(
     key_name: str,
     data: SecretSetValue,
     service: ServerSecretService = Depends(get_secret_service),
+    server_service: ServerService = Depends(get_server_service),
 ) -> SecretResponse:
     """Set or update a secret value (admin only)."""
     secret = await service.set_value(
@@ -112,6 +141,10 @@ async def set_secret_value(
             status_code=404,
             detail=f"Secret '{key_name}' not found for server {server_id}",
         )
+
+    # Sync updated secrets to the sandbox so running tools see the new value
+    await _sync_secrets_to_sandbox(server_id, service, server_service)
+
     return SecretResponse(
         id=secret.id,
         server_id=secret.server_id,
@@ -128,6 +161,7 @@ async def delete_secret(
     server_id: UUID,
     key_name: str,
     service: ServerSecretService = Depends(get_secret_service),
+    server_service: ServerService = Depends(get_server_service),
 ) -> None:
     """Delete a secret."""
     deleted = await service.delete(server_id=server_id, key_name=key_name)
@@ -136,4 +170,8 @@ async def delete_secret(
             status_code=404,
             detail=f"Secret '{key_name}' not found for server {server_id}",
         )
+
+    # Sync remaining secrets to the sandbox so the deleted key is removed
+    await _sync_secrets_to_sandbox(server_id, service, server_service)
+
     return None

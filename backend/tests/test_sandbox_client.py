@@ -274,6 +274,79 @@ class TestSandboxClientRegisterServer:
         )
 
 
+class TestSandboxClientUpdateSecrets:
+    """Tests for server secret updates."""
+
+    def setup_method(self):
+        """Reset singleton before each test."""
+        SandboxClient._instance = None
+        CircuitBreaker._instances = {}
+
+    @pytest.mark.asyncio
+    async def test_update_server_secrets_success(self):
+        """Test successful secret update."""
+        client = SandboxClient()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"success": True}
+
+        with patch.object(client, "_request_with_retry", new_callable=AsyncMock) as mock_req:
+            mock_req.return_value = mock_response
+
+            result = await client.update_server_secrets(
+                server_id="test-server-id",
+                secrets={"API_KEY": "test-key"},
+            )
+
+            assert result["success"] is True
+            mock_req.assert_called_once()
+            call_args = mock_req.call_args
+            assert call_args.args[0] == "PUT"
+            assert "test-server-id" in call_args.args[1]
+            assert call_args.kwargs["json"]["secrets"] == {"API_KEY": "test-key"}
+
+    @pytest.mark.asyncio
+    async def test_update_server_secrets_server_not_registered(self):
+        """Test secret update when server is not registered in sandbox."""
+        client = SandboxClient()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+
+        with patch.object(client, "_request_with_retry", new_callable=AsyncMock) as mock_req:
+            mock_req.return_value = mock_response
+
+            result = await client.update_server_secrets(
+                server_id="nonexistent",
+                secrets={"KEY": "val"},
+            )
+
+            # Should succeed gracefully (server just isn't running)
+            assert result["success"] is True
+            assert "not registered" in result.get("note", "").lower()
+
+    @pytest.mark.asyncio
+    async def test_update_server_secrets_failure(self):
+        """Test handling sandbox failure during secret update."""
+        client = SandboxClient()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.text = "Internal server error"
+
+        with patch.object(client, "_request_with_retry", new_callable=AsyncMock) as mock_req:
+            mock_req.return_value = mock_response
+
+            result = await client.update_server_secrets(
+                server_id="test-server",
+                secrets={"KEY": "val"},
+            )
+
+            assert result["success"] is False
+            assert "error" in result
+
+
 class TestSandboxClientCallTool:
     """Tests for tool execution."""
 

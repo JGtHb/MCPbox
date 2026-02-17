@@ -231,7 +231,10 @@ result = dict(sorted(data.items()))
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is False
-        assert "does not support item assignment" in data["error"] or "TypeError" in data["error"]
+        assert (
+            "does not support item assignment" in data["error"]
+            or "TypeError" in data["error"]
+        )
 
     def test_execute_no_result_returns_none(self, client):
         """Test that if no result is set, None is returned."""
@@ -387,3 +390,93 @@ class TestErrorSanitization:
         # Must NOT leak the connection string
         assert "postgres://" not in data["error"]
         assert "RuntimeError" not in data["error"]
+
+
+class TestUpdateServerSecrets:
+    """Tests for PUT /servers/{server_id}/secrets endpoint."""
+
+    def test_update_secrets_on_registered_server(self, client):
+        """Updating secrets on a registered server succeeds."""
+        # First register a server
+        client.post(
+            "/servers/register",
+            json={
+                "server_id": "srv-1",
+                "server_name": "TestServer",
+                "tools": [
+                    {
+                        "name": "my_tool",
+                        "description": "test",
+                        "parameters": {},
+                        "python_code": "async def main(): return secrets.get('API_KEY')",
+                    }
+                ],
+                "secrets": {},
+            },
+        )
+
+        # Update secrets
+        response = client.put(
+            "/servers/srv-1/secrets",
+            json={"secrets": {"API_KEY": "new-key-value"}},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["server_id"] == "srv-1"
+
+    def test_update_secrets_not_found(self, client):
+        """Updating secrets on a non-existent server returns 404."""
+        response = client.put(
+            "/servers/nonexistent/secrets",
+            json={"secrets": {"KEY": "val"}},
+        )
+
+        assert response.status_code == 404
+
+    def test_updated_secrets_available_to_tool(self, client):
+        """After updating secrets, tool execution sees the new values."""
+        # Register server with no secrets
+        client.post(
+            "/servers/register",
+            json={
+                "server_id": "srv-2",
+                "server_name": "SecretServer",
+                "tools": [
+                    {
+                        "name": "check_secret",
+                        "description": "Returns secret value",
+                        "parameters": {},
+                        "python_code": "async def main(): return secrets.get('MY_SECRET', 'NOT_SET')",
+                    }
+                ],
+                "secrets": {},
+            },
+        )
+
+        # Tool should not have the secret yet
+        response = client.post(
+            "/tools/SecretServer__check_secret/call",
+            json={"arguments": {}},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["result"] == "NOT_SET"
+
+        # Now update secrets
+        client.put(
+            "/servers/srv-2/secrets",
+            json={"secrets": {"MY_SECRET": "secret-value-123"}},
+        )
+
+        # Tool should now see the secret
+        response = client.post(
+            "/tools/SecretServer__check_secret/call",
+            json={"arguments": {}},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["result"] == "secret-value-123"

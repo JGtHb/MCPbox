@@ -266,6 +266,61 @@ class SandboxClient:
                 "error": str(e),
             }
 
+    async def update_server_secrets(
+        self,
+        server_id: str,
+        secrets: dict[str, str],
+    ) -> dict[str, Any]:
+        """Update secrets for a running server in the sandbox.
+
+        Called when an admin sets, updates, or deletes a secret so the
+        sandbox always has current decrypted values.
+
+        Args:
+            server_id: Server whose secrets to update
+            secrets: Complete dict of secret key→decrypted value pairs
+
+        Returns:
+            Result with success status
+        """
+        try:
+
+            async def do_update() -> dict[str, Any]:
+                response = await self._request_with_retry(
+                    "PUT",
+                    f"{self.sandbox_url}/servers/{server_id}/secrets",
+                    headers=self._get_headers(),
+                    json={"secrets": secrets},
+                )
+
+                if response.status_code == 200:
+                    logger.info(f"Updated secrets for server {server_id} in sandbox")
+                    return {"success": True}
+                elif response.status_code == 404:
+                    # Server not registered in sandbox (not running)
+                    return {"success": True, "note": "Server not registered in sandbox"}
+                else:
+                    logger.error(f"Failed to update server secrets: {response.text}")
+                    return {"success": False, "error": response.text}
+
+            result: dict[str, Any] = await retry_async(
+                do_update,
+                config=SANDBOX_RETRY_CONFIG,
+                circuit_breaker=self._circuit_breaker,
+            )
+            return result
+
+        except CircuitBreakerOpen as e:
+            logger.error(f"Cannot update secrets - circuit breaker open: {e}")
+            return {
+                "success": False,
+                "error": f"Sandbox temporarily unavailable: {e}",
+                "circuit_breaker_open": True,
+            }
+        except Exception as e:
+            logger.exception(f"Error updating server secrets: {e}")
+            return {"success": False, "error": str(e)}
+
     async def unregister_server(self, server_id: str) -> dict[str, Any]:
         """Unregister a server from the sandbox.
 

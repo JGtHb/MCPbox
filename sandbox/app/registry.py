@@ -149,6 +149,29 @@ class ToolRegistry:
         )
         return len(server.tools)
 
+    def update_secrets(self, server_id: str, secrets: dict[str, str]) -> bool:
+        """Update secrets for a running server.
+
+        Replaces the server's entire secrets dict with the new one.
+        This is called when an admin sets, updates, or deletes a secret
+        so the sandbox always has the latest decrypted values.
+
+        Args:
+            server_id: Server to update
+            secrets: New complete dict of secret key→value pairs
+
+        Returns:
+            True if server was found and updated, False if not found.
+        """
+        if server_id not in self.servers:
+            return False
+        self.servers[server_id].secrets = secrets
+        logger.info(
+            f"Updated secrets for server {self.servers[server_id].server_name}"
+            f" ({server_id}): {len(secrets)} secret(s)"
+        )
+        return True
+
     def unregister_server(self, server_id: str) -> bool:
         """Unregister a server and all its tools."""
         if server_id in self.servers:
