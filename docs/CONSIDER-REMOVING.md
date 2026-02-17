@@ -8,19 +8,19 @@ Items are organized by category and prioritized by impact. Each item includes th
 
 ## 1. Dead / Duplicate Files
 
-### 1a. Duplicate Architecture Doc
+### ~~1a. Duplicate Architecture Doc~~ — **REMOVED**
 - **Files**: `docs/architecture.md` (190 lines) vs `docs/ARCHITECTURE.md` (644 lines)
 - **Issue**: `architecture.md` is an older, shorter outline superseded by the comprehensive `ARCHITECTURE.md`
 - **Action**: Delete `docs/architecture.md`
 
-### 1b. Root-Level Planning Artifacts
+### ~~1b. Root-Level Planning Artifacts~~ — **REMOVED**
 - **Files**: `PLAN.md` (137 lines), `plan.md` (317 lines), `SECURITY-REVIEW.md` (329 lines)
 - **Issue**: Development planning documents that served their purpose during initial development. Not part of the product documentation structure defined in `CLAUDE.md`
 - **Action**: Delete all three files. Relevant content has been captured in `docs/SECURITY.md`, `docs/DECISIONS.md`, and `docs/FEATURES.md`
 
-### 1c. Missing LICENSE File
+### ~~1c. Missing LICENSE File~~ — **FIXED**
 - **Issue**: README references "AGPL-3.0 / Commercial dual license" but no `LICENSE` file exists at the repo root
-- **Action**: Create `LICENSE` file with the appropriate license text before release
+- **Resolution**: Created `LICENSE` with PolyForm Noncommercial 1.0.0. Updated README to reference the new license. Personal/non-commercial use is free; commercial use requires a paid license
 
 ---
 
@@ -170,9 +170,9 @@ When reviewing this document, for each item decide:
 
 | # | Item | Category | Effort | Risk |
 |---|------|----------|--------|------|
-| 1a | Duplicate architecture doc | File cleanup | Trivial | None |
-| 1b | Root planning artifacts | File cleanup | Trivial | None |
-| 1c | Missing LICENSE | File creation | Trivial | Release blocker |
+| ~~1a~~ | ~~Duplicate architecture doc~~ | ~~File cleanup~~ | ~~Trivial~~ | **REMOVED** |
+| ~~1b~~ | ~~Root planning artifacts~~ | ~~File cleanup~~ | ~~Trivial~~ | **REMOVED** |
+| ~~1c~~ | ~~Missing LICENSE~~ | ~~File creation~~ | ~~Trivial~~ | **FIXED** |
 | 2a | ServerStatus.building | DB migration | Low | Low |
 | 2b | NetworkMode.monitored/learning | DB migration | Low | Low |
 | 3a | Sandbox credentials param | API change | Low | Low |

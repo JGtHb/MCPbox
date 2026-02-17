@@ -193,10 +193,10 @@ ruff format --check backend/app sandbox/app
 
 ## License
 
-MCPbox uses a dual license model:
+MCPbox is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE).
 
-- **Personal/Non-Commercial Use**: AGPL-3.0 (free)
-- **Commercial Use**: Commercial license (contact for pricing)
+- **Personal/Non-Commercial Use**: Free
+- **Commercial Use**: Requires a commercial license (contact for pricing)
 
 ## Contributing
 
