@@ -4,17 +4,21 @@ import {
   useExternalSources,
   useCreateExternalSource,
   useDeleteExternalSource,
+  useRenameSource,
   useDiscoverTools,
   useImportTools,
+  useCachedTools,
   useStartOAuth,
   externalSourceKeys,
   type ExternalMCPSource,
   type ExternalMCPSourceCreateInput,
   type DiscoveredTool,
 } from '../../api/externalMcpSources'
+import { ConfirmModal } from '../ui'
 
 interface ExternalSourcesTabProps {
   serverId: string
+  onImportSuccess?: (count: number) => void
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -23,20 +27,39 @@ const STATUS_COLORS: Record<string, string> = {
   disabled: 'bg-gray-100 text-gray-800',
 }
 
-export function ExternalSourcesTab({ serverId }: ExternalSourcesTabProps) {
+function formatRelativeTime(dateStr: string): string {
+  const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000)
+  if (seconds < 60) return 'just now'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
+}
+
+export function ExternalSourcesTab({ serverId, onImportSuccess }: ExternalSourcesTabProps) {
   const { data: sources, isLoading } = useExternalSources(serverId)
   const [showAddForm, setShowAddForm] = useState(false)
-  const [discoveringSourceId, setDiscoveringSourceId] = useState<string | null>(null)
-  const [discoveredTools, setDiscoveredTools] = useState<DiscoveredTool[]>([])
+  const [expandedSourceId, setExpandedSourceId] = useState<string | null>(null)
   const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set())
   const [oauthError, setOauthError] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<ExternalMCPSource | null>(null)
+
+  const [renamingSourceId, setRenamingSourceId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
 
   const queryClient = useQueryClient()
   const createSource = useCreateExternalSource(serverId)
   const deleteSource = useDeleteExternalSource(serverId)
-  const discoverTools = useDiscoverTools()
+  const renameSource = useRenameSource(serverId)
+  const discoverTools = useDiscoverTools(serverId)
   const importToolsMutation = useImportTools(serverId)
   const startOAuth = useStartOAuth(serverId)
+
+  // Fetch cached tools for the expanded source
+  const { data: cachedToolsData, isLoading: isLoadingCached } = useCachedTools(expandedSourceId)
+  const discoveredTools: DiscoveredTool[] = cachedToolsData?.tools || []
 
   const handleAddSource = async (data: ExternalMCPSourceCreateInput) => {
     await createSource.mutateAsync(data)
@@ -44,29 +67,47 @@ export function ExternalSourcesTab({ serverId }: ExternalSourcesTabProps) {
   }
 
   const handleDiscover = async (sourceId: string) => {
-    setDiscoveringSourceId(sourceId)
-    setDiscoveredTools([])
+    setExpandedSourceId(sourceId)
     setSelectedTools(new Set())
     try {
       const result = await discoverTools.mutateAsync(sourceId)
-      setDiscoveredTools(result.tools)
-      // Pre-select all tools
-      setSelectedTools(new Set(result.tools.map(t => t.name)))
+      // Pre-select tools that haven't been imported yet
+      setSelectedTools(new Set(result.tools.filter(t => !t.already_imported).map(t => t.name)))
     } catch {
       // Error handled by mutation
     }
   }
 
+  const handleExpand = (sourceId: string) => {
+    if (expandedSourceId === sourceId) {
+      setExpandedSourceId(null)
+      setSelectedTools(new Set())
+    } else {
+      setExpandedSourceId(sourceId)
+      // Pre-select non-imported tools from cache
+      const cached = queryClient.getQueryData<{ tools: DiscoveredTool[] }>(
+        externalSourceKeys.discover(sourceId)
+      )
+      if (cached?.tools) {
+        setSelectedTools(new Set(cached.tools.filter(t => !t.already_imported).map(t => t.name)))
+      } else {
+        setSelectedTools(new Set())
+      }
+    }
+  }
+
   const handleImport = async () => {
-    if (!discoveringSourceId || selectedTools.size === 0) return
+    if (!expandedSourceId || selectedTools.size === 0) return
     try {
-      await importToolsMutation.mutateAsync({
-        sourceId: discoveringSourceId,
+      const result = await importToolsMutation.mutateAsync({
+        sourceId: expandedSourceId,
         toolNames: Array.from(selectedTools),
       })
-      setDiscoveringSourceId(null)
-      setDiscoveredTools([])
       setSelectedTools(new Set())
+      // Notify parent to switch to tools tab on success
+      if (result.total_created > 0 && onImportSuccess) {
+        onImportSuccess(result.total_created)
+      }
     } catch {
       // Error handled by mutation
     }
@@ -109,6 +150,18 @@ export function ExternalSourcesTab({ serverId }: ExternalSourcesTabProps) {
     }
   }, [startOAuth, queryClient, serverId])
 
+  const handleDelete = async () => {
+    if (!deleteTarget) return
+    try {
+      await deleteSource.mutateAsync(deleteTarget.id)
+      if (expandedSourceId === deleteTarget.id) {
+        setExpandedSourceId(null)
+      }
+    } finally {
+      setDeleteTarget(null)
+    }
+  }
+
   const toggleToolSelection = (name: string) => {
     setSelectedTools(prev => {
       const next = new Set(prev)
@@ -128,6 +181,10 @@ export function ExternalSourcesTab({ serverId }: ExternalSourcesTabProps) {
       </div>
     )
   }
+
+  const isExpanded = (sourceId: string) => expandedSourceId === sourceId
+  const isDiscovering = (sourceId: string) =>
+    discoverTools.isPending && discoverTools.variables === sourceId
 
   return (
     <div className="space-y-6">
@@ -170,9 +227,64 @@ export function ExternalSourcesTab({ serverId }: ExternalSourcesTabProps) {
           {sources.map(source => (
             <div key={source.id} className="border border-gray-200 rounded-lg p-4">
               <div className="flex items-start justify-between">
-                <div className="flex-1">
+                <div
+                  className="flex-1 cursor-pointer"
+                  onClick={() => source.tool_count > 0 ? handleExpand(source.id) : undefined}
+                >
                   <div className="flex items-center gap-3">
-                    <h4 className="text-sm font-medium text-gray-900">{source.name}</h4>
+                    {/* Expand/collapse arrow for sources with cached tools */}
+                    {source.tool_count > 0 && (
+                      <svg
+                        className={`h-4 w-4 text-gray-400 transition-transform ${isExpanded(source.id) ? 'rotate-90' : ''}`}
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    )}
+                    {renamingSourceId === source.id ? (
+                      <form
+                        className="flex items-center gap-1"
+                        onSubmit={async (e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          if (renameValue.trim() && renameValue.trim() !== source.name) {
+                            await renameSource.mutateAsync({ sourceId: source.id, name: renameValue.trim() })
+                          }
+                          setRenamingSourceId(null)
+                        }}
+                        onClick={e => e.stopPropagation()}
+                      >
+                        <input
+                          type="text"
+                          value={renameValue}
+                          onChange={e => setRenameValue(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Escape') setRenamingSourceId(null) }}
+                          className="px-2 py-0.5 text-sm font-medium border border-indigo-300 rounded focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 w-48"
+                          autoFocus
+                        />
+                        <button type="submit" className="text-xs text-indigo-600 hover:text-indigo-800 font-medium">Save</button>
+                        <button type="button" onClick={() => setRenamingSourceId(null)} className="text-xs text-gray-500 hover:text-gray-700">Cancel</button>
+                      </form>
+                    ) : (
+                      <div className="flex items-center gap-1.5 group/name">
+                        <h4 className="text-sm font-medium text-gray-900">{source.name}</h4>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setRenamingSourceId(source.id)
+                            setRenameValue(source.name)
+                          }}
+                          className="p-0.5 text-gray-300 hover:text-gray-500 opacity-0 group-hover/name:opacity-100 transition-opacity"
+                          title="Rename source"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                          </svg>
+                        </button>
+                      </div>
+                    )}
                     <span className={`px-2 py-0.5 text-xs rounded-full ${STATUS_COLORS[source.status] || STATUS_COLORS.disabled}`}>
                       {source.status}
                     </span>
@@ -200,9 +312,15 @@ export function ExternalSourcesTab({ serverId }: ExternalSourcesTabProps) {
                     {source.auth_secret_name && (
                       <span>Secret: {source.auth_secret_name}</span>
                     )}
-                    <span>{source.tool_count} tools discovered</span>
+                    {source.tool_count > 0 ? (
+                      <span>{source.tool_count} tools available</span>
+                    ) : (
+                      <span className="text-gray-400">Not yet discovered</span>
+                    )}
                     {source.last_discovered_at && (
-                      <span>Last scan: {new Date(source.last_discovered_at).toLocaleDateString()}</span>
+                      <span title={new Date(source.last_discovered_at).toLocaleString()}>
+                        Discovered {formatRelativeTime(source.last_discovered_at)}
+                      </span>
                     )}
                   </div>
                 </div>
@@ -228,99 +346,158 @@ export function ExternalSourcesTab({ serverId }: ExternalSourcesTabProps) {
                       Re-auth
                     </button>
                   )}
+                  {/* Discover / Refresh button */}
+                  {source.last_discovered_at ? (
+                    <button
+                      onClick={() => handleDiscover(source.id)}
+                      disabled={isDiscovering(source.id)}
+                      className="px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 rounded-md hover:bg-indigo-100 disabled:opacity-50 flex items-center gap-1.5"
+                      title="Re-scan the external server for tool changes"
+                    >
+                      <svg className={`h-3.5 w-3.5 ${isDiscovering(source.id) ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      {isDiscovering(source.id) ? 'Refreshing...' : 'Refresh'}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleDiscover(source.id)}
+                      disabled={isDiscovering(source.id)}
+                      className="px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 rounded-md hover:bg-indigo-100 disabled:opacity-50"
+                    >
+                      {isDiscovering(source.id) ? 'Discovering...' : 'Discover Tools'}
+                    </button>
+                  )}
                   <button
-                    onClick={() => handleDiscover(source.id)}
-                    disabled={discoverTools.isPending && discoveringSourceId === source.id}
-                    className="px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 rounded-md hover:bg-indigo-100 disabled:opacity-50"
-                  >
-                    {discoverTools.isPending && discoveringSourceId === source.id
-                      ? 'Discovering...'
-                      : 'Discover Tools'}
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (confirm('Delete this external source? Associated tools will keep working but cannot be re-synced.')) {
-                        deleteSource.mutate(source.id)
-                      }
-                    }}
-                    className="px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 rounded-md hover:bg-red-100"
+                    onClick={() => setDeleteTarget(source)}
+                    disabled={deleteSource.isPending}
+                    className="px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 rounded-md hover:bg-red-100 disabled:opacity-50"
                   >
                     Delete
                   </button>
                 </div>
               </div>
 
-              {/* Discovery Results */}
-              {discoveringSourceId === source.id && discoveredTools.length > 0 && (
+              {/* Expanded Tool List (from cache or fresh discovery) */}
+              {isExpanded(source.id) && (
                 <div className="mt-4 border-t border-gray-200 pt-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <h5 className="text-sm font-medium text-gray-700">
-                      Discovered Tools ({discoveredTools.length})
-                    </h5>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => setSelectedTools(new Set(discoveredTools.map(t => t.name)))}
-                        className="text-xs text-indigo-600 hover:text-indigo-800"
-                      >
-                        Select All
-                      </button>
-                      <button
-                        onClick={() => setSelectedTools(new Set())}
-                        className="text-xs text-gray-500 hover:text-gray-700"
-                      >
-                        Deselect All
-                      </button>
-                    </div>
-                  </div>
-                  <div className="space-y-2 max-h-64 overflow-y-auto">
-                    {discoveredTools.map(tool => (
-                      <label
-                        key={tool.name}
-                        className="flex items-start gap-3 p-2 rounded hover:bg-gray-50 cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedTools.has(tool.name)}
-                          onChange={() => toggleToolSelection(tool.name)}
-                          className="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <span className="text-sm font-medium text-gray-900">{tool.name}</span>
-                          {tool.description && (
-                            <p className="text-xs text-gray-500 truncate">{tool.description}</p>
-                          )}
+                  {isLoadingCached ? (
+                    <div className="py-4 text-center text-sm text-gray-500">Loading tools...</div>
+                  ) : discoveredTools.length > 0 ? (
+                    <>
+                      {/* Conflict summary banner */}
+                      {discoveredTools.some(t => t.already_imported) && (
+                        <div className="mb-3 p-2 bg-yellow-50 border border-yellow-200 rounded-md">
+                          <p className="text-xs text-yellow-800">
+                            {discoveredTools.filter(t => t.already_imported).length} tool(s) have name conflicts
+                            with existing tools in this server and were deselected.
+                            You can still select them to re-import under the same name.
+                          </p>
                         </div>
-                      </label>
-                    ))}
-                  </div>
-                  <div className="mt-3 flex items-center gap-3">
-                    <button
-                      onClick={handleImport}
-                      disabled={selectedTools.size === 0 || importToolsMutation.isPending}
-                      className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:opacity-50"
-                    >
-                      {importToolsMutation.isPending
-                        ? 'Importing...'
-                        : `Import ${selectedTools.size} Tool${selectedTools.size !== 1 ? 's' : ''}`}
-                    </button>
-                    <button
-                      onClick={() => {
-                        setDiscoveringSourceId(null)
-                        setDiscoveredTools([])
-                      }}
-                      className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900"
-                    >
-                      Cancel
-                    </button>
-                    {importToolsMutation.isSuccess && (
-                      <span className="text-sm text-green-600">Tools imported as drafts. Approve them in the Tools tab.</span>
-                    )}
-                  </div>
+                      )}
+                      <div className="flex items-center justify-between mb-3">
+                        <h5 className="text-sm font-medium text-gray-700">
+                          Available Tools ({discoveredTools.length})
+                        </h5>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setSelectedTools(new Set(discoveredTools.map(t => t.name)))}
+                            className="text-xs text-indigo-600 hover:text-indigo-800"
+                          >
+                            Select All
+                          </button>
+                          <button
+                            onClick={() => setSelectedTools(new Set())}
+                            className="text-xs text-gray-500 hover:text-gray-700"
+                          >
+                            Deselect All
+                          </button>
+                        </div>
+                      </div>
+                      <div className="space-y-2 max-h-64 overflow-y-auto">
+                        {discoveredTools.map(tool => (
+                          <label
+                            key={tool.name}
+                            className="flex items-start gap-3 p-2 rounded hover:bg-gray-50 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedTools.has(tool.name)}
+                              onChange={() => toggleToolSelection(tool.name)}
+                              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-gray-900">{tool.name}</span>
+                                {tool.already_imported && (
+                                  <span className="px-1.5 py-0.5 text-xs bg-yellow-100 text-yellow-800 rounded">
+                                    Name conflict
+                                  </span>
+                                )}
+                              </div>
+                              {tool.description && (
+                                <p className="text-xs text-gray-500 truncate">{tool.description}</p>
+                              )}
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                      <div className="mt-3 flex items-center gap-3">
+                        <button
+                          onClick={handleImport}
+                          disabled={selectedTools.size === 0 || importToolsMutation.isPending}
+                          className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                        >
+                          {importToolsMutation.isPending
+                            ? 'Importing...'
+                            : `Import ${selectedTools.size} Tool${selectedTools.size !== 1 ? 's' : ''}`}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setExpandedSourceId(null)
+                            setSelectedTools(new Set())
+                          }}
+                          className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900"
+                        >
+                          Collapse
+                        </button>
+                        {importToolsMutation.isSuccess && importToolsMutation.data && (
+                          <span className="text-sm">
+                            {importToolsMutation.data.total_created > 0 && (
+                              <span className="text-green-600">
+                                {importToolsMutation.data.total_created} imported successfully.
+                              </span>
+                            )}
+                            {importToolsMutation.data.total_skipped > 0 && (
+                              <span className="text-yellow-600 ml-1">
+                                {importToolsMutation.data.total_skipped} skipped (already exist).
+                              </span>
+                            )}
+                            {importToolsMutation.data.total_created === 0 && importToolsMutation.data.total_skipped === 0 && (
+                              <span className="text-gray-500">No tools to import.</span>
+                            )}
+                          </span>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="py-4 text-center text-sm text-gray-500">
+                      No cached tools. Click Refresh to scan the external server.
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* Discovery Error */}
-              {discoveringSourceId === source.id && discoverTools.isError && (
+              {isDiscovering(source.id) && discoverTools.isError && (
+                <div className="mt-4 p-3 bg-red-50 rounded-md">
+                  <p className="text-sm text-red-700">
+                    Discovery failed: {discoverTools.error?.message || 'Unknown error'}
+                  </p>
+                </div>
+              )}
+              {/* Show error also when not currently discovering but last attempt failed */}
+              {!isDiscovering(source.id) && expandedSourceId === source.id && discoverTools.isError && discoverTools.variables === source.id && (
                 <div className="mt-4 p-3 bg-red-50 rounded-md">
                   <p className="text-sm text-red-700">
                     Discovery failed: {discoverTools.error?.message || 'Unknown error'}
@@ -347,6 +524,18 @@ export function ExternalSourcesTab({ serverId }: ExternalSourcesTabProps) {
           </button>
         </div>
       )}
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmModal
+        isOpen={!!deleteTarget}
+        title="Delete External Source"
+        message={`Delete "${deleteTarget?.name}"? Associated tools will keep working but cannot be re-synced.`}
+        confirmLabel="Delete"
+        destructive
+        isLoading={deleteSource.isPending}
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   )
 }

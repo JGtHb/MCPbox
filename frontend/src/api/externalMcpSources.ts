@@ -34,6 +34,7 @@ export interface DiscoveredTool {
   name: string
   description: string | null
   input_schema: Record<string, unknown>
+  already_imported: boolean
 }
 
 export interface DiscoverToolsResponse {
@@ -51,6 +52,21 @@ export interface ToolResponse {
   enabled: boolean
   tool_type: string
   approval_status: string
+}
+
+export interface ImportToolResult {
+  name: string
+  status: 'created' | 'skipped_conflict' | 'skipped_not_found'
+  tool_id: string | null
+  reason: string | null
+}
+
+export interface ImportToolsResponse {
+  created: ImportToolResult[]
+  skipped: ImportToolResult[]
+  total_requested: number
+  total_created: number
+  total_skipped: number
 }
 
 export interface OAuthStartResponse {
@@ -97,11 +113,17 @@ export async function discoverTools(sourceId: string): Promise<DiscoverToolsResp
   )
 }
 
+export async function fetchCachedTools(sourceId: string): Promise<DiscoverToolsResponse> {
+  return api.get<DiscoverToolsResponse>(
+    `/api/external-sources/sources/${sourceId}/cached-tools`
+  )
+}
+
 export async function importTools(
   sourceId: string,
   toolNames: string[]
-): Promise<ToolResponse[]> {
-  return api.post<ToolResponse[]>(
+): Promise<ImportToolsResponse> {
+  return api.post<ImportToolsResponse>(
     `/api/external-sources/sources/${sourceId}/import`,
     { tool_names: toolNames }
   )
@@ -136,6 +158,14 @@ export function useExternalSources(serverId: string | undefined) {
   })
 }
 
+export function useCachedTools(sourceId: string | null) {
+  return useQuery({
+    queryKey: externalSourceKeys.discover(sourceId || ''),
+    queryFn: () => fetchCachedTools(sourceId!),
+    enabled: !!sourceId,
+  })
+}
+
 export function useCreateExternalSource(serverId: string) {
   const queryClient = useQueryClient()
 
@@ -162,9 +192,35 @@ export function useDeleteExternalSource(serverId: string) {
   })
 }
 
-export function useDiscoverTools() {
+export function useRenameSource(serverId: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ sourceId, name }: { sourceId: string; name: string }) =>
+      updateSource(sourceId, { name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: externalSourceKeys.list(serverId),
+      })
+    },
+  })
+}
+
+export function useDiscoverTools(serverId: string) {
+  const queryClient = useQueryClient()
+
   return useMutation({
     mutationFn: discoverTools,
+    onSuccess: (_data, sourceId) => {
+      // Invalidate cached tools for this source (triggers refetch)
+      queryClient.invalidateQueries({
+        queryKey: externalSourceKeys.discover(sourceId),
+      })
+      // Invalidate source list to update tool_count and last_discovered_at
+      queryClient.invalidateQueries({
+        queryKey: externalSourceKeys.list(serverId),
+      })
+    },
   })
 }
 
@@ -174,9 +230,13 @@ export function useImportTools(serverId: string) {
   return useMutation({
     mutationFn: ({ sourceId, toolNames }: { sourceId: string; toolNames: string[] }) =>
       importTools(sourceId, toolNames),
-    onSuccess: () => {
+    onSuccess: (_data, { sourceId }) => {
       queryClient.invalidateQueries({
         queryKey: externalSourceKeys.list(serverId),
+      })
+      // Invalidate cached tools so already_imported flags refresh
+      queryClient.invalidateQueries({
+        queryKey: externalSourceKeys.discover(sourceId),
       })
       // Also invalidate tools list since we created new tools
       queryClient.invalidateQueries({ queryKey: ['tools'] })

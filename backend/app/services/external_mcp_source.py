@@ -1,6 +1,7 @@
 """External MCP Source service - CRUD, discovery, and tool import."""
 
 import logging
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -18,6 +19,14 @@ from app.services.mcp_oauth_client import get_oauth_auth_headers
 from app.services.sandbox_client import SandboxClient
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ImportResult:
+    """Result of an import_tools operation with skip details."""
+
+    created: list[Tool] = field(default_factory=list)
+    skipped: list[dict] = field(default_factory=list)
 
 
 class ExternalMCPSourceService:
@@ -68,8 +77,8 @@ class ExternalMCPSourceService:
             return None
 
         update_data = data.model_dump(exclude_unset=True)
-        for field, value in update_data.items():
-            setattr(source, field, value)
+        for attr, value in update_data.items():
+            setattr(source, attr, value)
 
         await self.db.flush()
         await self.db.refresh(source)
@@ -135,20 +144,70 @@ class ExternalMCPSourceService:
             for t in tools_data
         ]
 
-        # Update source metadata
+        # Update source metadata and cache discovered tools
         source.last_discovered_at = datetime.now(UTC)
         source.tool_count = len(discovered)
         source.status = "active"
+        source.discovered_tools_cache = [
+            {
+                "name": t.name,
+                "description": t.description,
+                "input_schema": t.input_schema,
+            }
+            for t in discovered
+        ]
         await self.db.flush()
 
+        # Mark tools that already exist in this server (check prefixed name)
+        existing_result = await self.db.execute(
+            select(Tool.name).where(Tool.server_id == source.server_id)
+        )
+        existing_names = {row[0] for row in existing_result.all()}
+        for tool in discovered:
+            if self._prefixed_tool_name(source.name, tool.name) in existing_names:
+                tool.already_imported = True
+
         return discovered
+
+    async def get_cached_tools(self, source_id: UUID) -> list[DiscoveredTool] | None:
+        """Get cached discovered tools with dynamic already_imported marking.
+
+        Returns None if no cached tools exist (source never discovered).
+        Returns list of DiscoveredTool with already_imported computed against
+        current server tools.
+        """
+        source = await self.get(source_id)
+        if not source or not source.discovered_tools_cache:
+            return None
+
+        # Reconstruct DiscoveredTool objects from cache
+        cached = [
+            DiscoveredTool(
+                name=t["name"],
+                description=t.get("description"),
+                input_schema=t.get("input_schema", {}),
+            )
+            for t in source.discovered_tools_cache
+        ]
+
+        # Mark tools that already exist in this server (check prefixed name)
+        existing_result = await self.db.execute(
+            select(Tool.name).where(Tool.server_id == source.server_id)
+        )
+        existing_names = {row[0] for row in existing_result.all()}
+        for tool in cached:
+            if self._prefixed_tool_name(source.name, tool.name) in existing_names:
+                tool.already_imported = True
+
+        return cached
 
     async def import_tools(
         self,
         source_id: UUID,
         tool_names: list[str],
         discovered_tools: list[DiscoveredTool],
-    ) -> list[Tool]:
+        auto_approve: bool = False,
+    ) -> ImportResult:
         """Import selected tools from an external MCP source.
 
         Creates Tool records with tool_type="mcp_passthrough".
@@ -157,9 +216,10 @@ class ExternalMCPSourceService:
             source_id: The external MCP source.
             tool_names: Names of tools to import.
             discovered_tools: Full list of discovered tools (for metadata).
+            auto_approve: If True, set approval_status to "approved" (for admin UI imports).
 
         Returns:
-            List of created Tool records.
+            ImportResult with created tools and skip details.
         """
         source = await self.get(source_id)
         if not source:
@@ -169,26 +229,44 @@ class ExternalMCPSourceService:
         tool_map = {t.name: t for t in discovered_tools}
 
         created_tools = []
+        skipped_tools = []
         for name in tool_names:
             discovered = tool_map.get(name)
             if not discovered:
                 logger.warning(f"Tool '{name}' not found in discovered tools, skipping")
+                skipped_tools.append(
+                    {
+                        "name": name,
+                        "status": "skipped_not_found",
+                        "reason": f"Tool '{name}' not found in discovered tools",
+                    }
+                )
                 continue
+
+            # Build prefixed name: {source_name}_{tool_name}
+            prefixed = self._prefixed_tool_name(source.name, name)
 
             # Check if tool already exists for this server with same name
             existing = await self.db.execute(
                 select(Tool).where(
                     Tool.server_id == source.server_id,
-                    Tool.name == self._sanitize_tool_name(name),
+                    Tool.name == prefixed,
                 )
             )
             if existing.scalar_one_or_none():
-                logger.info(f"Tool '{name}' already exists in server, skipping")
+                logger.info(f"Tool '{prefixed}' already exists in server, skipping")
+                skipped_tools.append(
+                    {
+                        "name": name,
+                        "status": "skipped_conflict",
+                        "reason": f"Tool '{prefixed}' already exists in this server",
+                    }
+                )
                 continue
 
             tool = Tool(
                 server_id=source.server_id,
-                name=self._sanitize_tool_name(name),
+                name=prefixed,
                 description=discovered.description,
                 input_schema=discovered.input_schema,
                 tool_type="mcp_passthrough",
@@ -196,7 +274,7 @@ class ExternalMCPSourceService:
                 external_tool_name=name,
                 python_code=None,
                 enabled=True,
-                approval_status="draft",
+                approval_status="approved" if auto_approve else "draft",
                 current_version=1,
             )
             self.db.add(tool)
@@ -206,7 +284,7 @@ class ExternalMCPSourceService:
         for tool in created_tools:
             await self.db.refresh(tool)
 
-        return created_tools
+        return ImportResult(created=created_tools, skipped=skipped_tools)
 
     async def _build_auth_headers(
         self, source: ExternalMCPSource, secrets: dict[str, str]
@@ -276,3 +354,13 @@ class ExternalMCPSourceService:
         # Strip trailing underscores
         sanitized = sanitized.strip("_")
         return sanitized or "unnamed_tool"
+
+    @classmethod
+    def _prefixed_tool_name(cls, source_name: str, tool_name: str) -> str:
+        """Build a prefixed tool name: {source_name}_{tool_name}.
+
+        Both parts are sanitized individually, then joined with underscore.
+        """
+        prefix = cls._sanitize_tool_name(source_name)
+        name = cls._sanitize_tool_name(tool_name)
+        return f"{prefix}_{name}"

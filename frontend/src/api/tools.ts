@@ -21,6 +21,8 @@ export interface ToolListItem {
   name: string
   description: string | null
   enabled: boolean
+  tool_type: string
+  external_tool_name: string | null
   approval_status: string
   created_by: string | null
 }
@@ -105,6 +107,18 @@ export async function updateToolEnabled(toolId: string, enabled: boolean): Promi
   return api.patch<Tool>(`/api/tools/${toolId}`, { enabled })
 }
 
+export async function renameTool(toolId: string, name: string): Promise<Tool> {
+  return api.patch<Tool>(`/api/tools/${toolId}`, { name })
+}
+
+export async function updateToolDescription(toolId: string, description: string | null): Promise<Tool> {
+  return api.patch<Tool>(`/api/tools/${toolId}`, { description })
+}
+
+export async function deleteTool(toolId: string): Promise<void> {
+  await api.delete(`/api/tools/${toolId}`)
+}
+
 // React Query hooks
 export function useTools(serverId: string) {
   return useQuery({
@@ -128,6 +142,41 @@ export function useUpdateToolEnabled() {
   return useMutation({
     mutationFn: ({ toolId, enabled }: { toolId: string; enabled: boolean }) =>
       updateToolEnabled(toolId, enabled),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: toolKeys.all })
+    },
+  })
+}
+
+export function useRenameTool() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ toolId, name }: { toolId: string; name: string }) =>
+      renameTool(toolId, name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: toolKeys.all })
+    },
+  })
+}
+
+export function useUpdateToolDescription() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ toolId, description }: { toolId: string; description: string | null }) =>
+      updateToolDescription(toolId, description),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: toolKeys.all })
+    },
+  })
+}
+
+export function useDeleteTool() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (toolId: string) => deleteTool(toolId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: toolKeys.all })
     },
