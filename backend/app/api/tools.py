@@ -340,6 +340,10 @@ async def list_tools(
             name=t.name,
             description=t.description,
             enabled=t.enabled,
+            tool_type=t.tool_type,
+            external_tool_name=t.external_tool_name,
+            approval_status=t.approval_status,
+            created_by=t.created_by,
         )
         for t in tools
     ]
@@ -372,30 +376,132 @@ async def get_tool(
 async def update_tool(
     tool_id: UUID,
     data: ToolUpdate,
+    db: AsyncSession = Depends(get_db),
     tool_service: ToolService = Depends(get_tool_service),
+    server_service: ServerService = Depends(get_server_service),
 ) -> ToolResponse:
-    """Update a tool."""
+    """Update a tool.
+
+    If fields that affect the MCP tool definition change (name, description,
+    enabled, python_code), re-registers the server with the sandbox and
+    notifies MCP clients.
+    """
     tool = await tool_service.update(tool_id, data)
     if not tool:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Tool {tool_id} not found",
         )
+
+    # Check if any MCP-visible fields changed and server is running
+    mcp_fields = {"name", "description", "enabled", "python_code"}
+    update_data = data.model_dump(exclude_unset=True)
+    if mcp_fields & update_data.keys():
+        try:
+            server = await server_service.get(tool.server_id)
+            if server and server.status == "running":
+                from app.api.sandbox import (
+                    _build_external_source_configs,
+                    _build_tool_definitions,
+                )
+                from app.services.global_config import GlobalConfigService
+                from app.services.server_secret import ServerSecretService
+
+                # Re-register with sandbox
+                all_tools, _ = await tool_service.list_by_server(server.id)
+                active_tools = [
+                    t for t in all_tools if t.enabled and t.approval_status == "approved"
+                ]
+                tool_defs = _build_tool_definitions(active_tools)
+
+                secret_service = ServerSecretService(db)
+                secrets = await secret_service.get_decrypted_for_injection(server.id)
+                config_service = GlobalConfigService(db)
+                allowed_modules = await config_service.get_allowed_modules()
+                external_sources = await _build_external_source_configs(db, server.id, secrets)
+
+                sandbox_client = SandboxClient.get_instance()
+                await sandbox_client.register_server(
+                    server_id=str(server.id),
+                    server_name=server.name,
+                    tools=tool_defs,
+                    credentials=[],
+                    allowed_modules=allowed_modules,
+                    secrets=secrets,
+                    external_sources=external_sources,
+                )
+
+                # Notify MCP clients
+                from app.services.tool_change_notifier import fire_and_forget_notify
+
+                fire_and_forget_notify()
+        except Exception:
+            pass  # Don't fail the update if notification fails
+
     return _to_response(tool)
 
 
 @router.delete("/tools/{tool_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_tool(
     tool_id: UUID,
+    db: AsyncSession = Depends(get_db),
     tool_service: ToolService = Depends(get_tool_service),
+    server_service: ServerService = Depends(get_server_service),
 ) -> None:
-    """Delete a tool."""
-    deleted = await tool_service.delete(tool_id)
-    if not deleted:
+    """Delete a tool.
+
+    If the tool's server is running, notifies MCP clients so they
+    refresh their tool list.
+    """
+    # Fetch tool first to get server_id for notification
+    tool = await tool_service.get(tool_id)
+    if not tool:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Tool {tool_id} not found",
         )
+
+    server_id = tool.server_id
+    await tool_service.delete(tool_id)
+
+    # Re-register with sandbox and notify MCP clients if server is running
+    try:
+        server = await server_service.get(server_id)
+        if server and server.status == "running":
+            from app.api.sandbox import (
+                _build_external_source_configs,
+                _build_tool_definitions,
+            )
+            from app.services.global_config import GlobalConfigService
+            from app.services.server_secret import ServerSecretService
+
+            all_tools, _ = await tool_service.list_by_server(server.id)
+            active_tools = [t for t in all_tools if t.enabled and t.approval_status == "approved"]
+            tool_defs = _build_tool_definitions(active_tools)
+
+            secret_service = ServerSecretService(db)
+            secrets = await secret_service.get_decrypted_for_injection(server.id)
+            config_service = GlobalConfigService(db)
+            allowed_modules = await config_service.get_allowed_modules()
+            external_sources = await _build_external_source_configs(db, server.id, secrets)
+
+            sandbox_client = SandboxClient.get_instance()
+            await sandbox_client.register_server(
+                server_id=str(server.id),
+                server_name=server.name,
+                tools=tool_defs,
+                credentials=[],
+                allowed_modules=allowed_modules,
+                secrets=secrets,
+                external_sources=external_sources,
+            )
+
+            from app.services.tool_change_notifier import fire_and_forget_notify
+
+            fire_and_forget_notify()
+    except Exception:
+        pass  # Don't block delete if notification fails
+
     return None
 
 
@@ -412,6 +518,16 @@ def _to_response(tool: Any) -> ToolResponse:
         code_dependencies=tool.code_dependencies,
         input_schema=tool.input_schema,
         current_version=tool.current_version,
+        tool_type=tool.tool_type,
+        external_source_id=tool.external_source_id,
+        external_tool_name=tool.external_tool_name,
+        approval_status=tool.approval_status,
+        approval_requested_at=tool.approval_requested_at,
+        approved_at=tool.approved_at,
+        approved_by=tool.approved_by,
+        rejection_reason=tool.rejection_reason,
+        created_by=tool.created_by,
+        publish_notes=tool.publish_notes,
         created_at=tool.created_at,
         updated_at=tool.updated_at,
     )

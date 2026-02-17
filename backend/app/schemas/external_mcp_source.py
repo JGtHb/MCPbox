@@ -79,6 +79,7 @@ class DiscoveredTool(BaseModel):
     name: str
     description: str | None = None
     input_schema: dict[str, Any] = Field(default_factory=dict)
+    already_imported: bool = False
 
 
 class DiscoverToolsResponse(BaseModel):
@@ -94,6 +95,25 @@ class ImportToolsRequest(BaseModel):
     """Request to import specific tools from an external MCP source."""
 
     tool_names: list[str] = Field(..., min_length=1)
+
+
+class ImportToolResult(BaseModel):
+    """Result for a single tool in an import operation."""
+
+    name: str
+    status: str  # "created", "skipped_conflict", "skipped_not_found"
+    tool_id: UUID | None = None
+    reason: str | None = None
+
+
+class ImportToolsResponse(BaseModel):
+    """Response from importing tools with detailed skip information."""
+
+    created: list[ImportToolResult]
+    skipped: list[ImportToolResult]
+    total_requested: int
+    total_created: int
+    total_skipped: int
 
 
 class OAuthStartRequest(BaseModel):

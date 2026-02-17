@@ -594,6 +594,8 @@ class MCPManagementService:
             # External MCP sources (no sandbox needed)
             "mcpbox_add_external_source": self._add_external_source,
             "mcpbox_list_external_sources": self._list_external_sources,
+            # Import uses cached tools, no sandbox needed
+            "mcpbox_import_external_tools": self._import_external_tools,
         }
 
         # Special handlers that need sandbox client
@@ -601,9 +603,8 @@ class MCPManagementService:
             "mcpbox_test_code": self._test_code,
             "mcpbox_start_server": self._start_server,
             "mcpbox_stop_server": self._stop_server,
-            # External MCP sources (need sandbox for discovery)
+            # Discovery needs sandbox for live MCP connection
             "mcpbox_discover_external_tools": self._discover_external_tools,
-            "mcpbox_import_external_tools": self._import_external_tools,
         }
 
         if tool_name in handlers:
@@ -907,11 +908,49 @@ class MCPManagementService:
             if updated_tool is None:
                 return {"error": f"Tool {tool_id} not found"}
 
-            # If enabled/disabled changed and server is running, notify clients
-            if "enabled" in update_fields:
+            # If MCP-visible fields changed and server is running,
+            # re-register with sandbox and notify MCP clients
+            mcp_fields = {"name", "description", "enabled", "python_code"}
+            if mcp_fields & update_fields.keys():
                 try:
                     server = await self._server_service.get(updated_tool.server_id)
                     if server and server.status == "running":
+                        # Re-register with sandbox so changes take effect
+                        from app.api.sandbox import (
+                            _build_external_source_configs,
+                            _build_tool_definitions,
+                        )
+                        from app.services.global_config import GlobalConfigService
+                        from app.services.server_secret import (
+                            ServerSecretService,
+                        )
+
+                        all_tools, _ = await self._tool_service.list_by_server(server.id)
+                        active_tools = [
+                            t for t in all_tools if t.enabled and t.approval_status == "approved"
+                        ]
+                        tool_defs = _build_tool_definitions(active_tools)
+
+                        secret_service = ServerSecretService(self.db)
+                        secrets = await secret_service.get_decrypted_for_injection(server.id)
+                        config_service = GlobalConfigService(self.db)
+                        allowed_modules = await config_service.get_allowed_modules()
+                        external_sources = await _build_external_source_configs(
+                            self.db, server.id, secrets
+                        )
+
+                        sandbox_client = SandboxClient.get_instance()
+                        await sandbox_client.register_server(
+                            server_id=str(server.id),
+                            server_name=server.name,
+                            tools=tool_defs,
+                            credentials=[],
+                            allowed_modules=allowed_modules,
+                            secrets=secrets,
+                            external_sources=external_sources,
+                        )
+
+                        # Notify MCP clients (same-process, gateway)
                         from app.services.tool_change_notifier import (
                             notify_tools_changed_local,
                         )
@@ -939,9 +978,59 @@ class MCPManagementService:
         except (ValueError, KeyError):
             return {"error": "Invalid tool_id"}
 
+        # Fetch tool first to get server_id for notification
+        tool = await self._tool_service.get(tool_id)
+        if not tool:
+            return {"error": f"Tool {tool_id} not found"}
+
+        server_id = tool.server_id
         deleted = await self._tool_service.delete(tool_id)
         if not deleted:
             return {"error": f"Tool {tool_id} not found"}
+
+        # Re-register with sandbox and notify MCP clients if server is running
+        try:
+            server = await self._server_service.get(server_id)
+            if server and server.status == "running":
+                from app.api.sandbox import (
+                    _build_external_source_configs,
+                    _build_tool_definitions,
+                )
+                from app.services.global_config import GlobalConfigService
+                from app.services.server_secret import (
+                    ServerSecretService,
+                )
+
+                all_tools, _ = await self._tool_service.list_by_server(server.id)
+                active_tools = [
+                    t for t in all_tools if t.enabled and t.approval_status == "approved"
+                ]
+                tool_defs = _build_tool_definitions(active_tools)
+
+                secret_service = ServerSecretService(self.db)
+                secrets = await secret_service.get_decrypted_for_injection(server.id)
+                config_service = GlobalConfigService(self.db)
+                allowed_modules = await config_service.get_allowed_modules()
+                external_sources = await _build_external_source_configs(self.db, server.id, secrets)
+
+                sandbox_client = SandboxClient.get_instance()
+                await sandbox_client.register_server(
+                    server_id=str(server.id),
+                    server_name=server.name,
+                    tools=tool_defs,
+                    credentials=[],
+                    allowed_modules=allowed_modules,
+                    secrets=secrets,
+                    external_sources=external_sources,
+                )
+
+                from app.services.tool_change_notifier import (
+                    notify_tools_changed_local,
+                )
+
+                await notify_tools_changed_local()
+        except Exception as e:
+            logger.warning(f"Failed to notify tool change after delete: {e}")
 
         return {
             "success": True,
@@ -982,6 +1071,11 @@ class MCPManagementService:
         config_service = GlobalConfigService(self.db)
         allowed_modules = await config_service.get_allowed_modules()
 
+        # Build external source configs for passthrough tools
+        from app.api.sandbox import _build_external_source_configs
+
+        external_sources_data = await _build_external_source_configs(self.db, server_id, secrets)
+
         try:
             # Register with sandbox
             result = await sandbox_client.register_server(
@@ -992,6 +1086,7 @@ class MCPManagementService:
                 helper_code=server.helper_code,
                 allowed_modules=allowed_modules,
                 secrets=secrets,
+                external_sources=external_sources_data,
             )
 
             if not result.get("success"):
@@ -1725,7 +1820,7 @@ class MCPManagementService:
             logger.exception(f"Failed to discover external tools: {e}")
             return {"error": f"Discovery failed: {e}"}
 
-    async def _import_external_tools(self, args: dict, sandbox_client: SandboxClient) -> dict:
+    async def _import_external_tools(self, args: dict) -> dict:
         """Import selected tools from an external MCP source."""
         try:
             source_id = UUID(args["source_id"])
@@ -1737,35 +1832,29 @@ class MCPManagementService:
             return {"error": "tool_names is required (list of tool names to import)"}
 
         from app.services.external_mcp_source import ExternalMCPSourceService
-        from app.services.server_secret import ServerSecretService
 
         source_service = ExternalMCPSourceService(self.db)
         source = await source_service.get(source_id)
         if not source:
             return {"error": f"External source {source_id} not found"}
 
-        # Discover tools first to get full metadata
-        secret_service = ServerSecretService(self.db)
-        secrets = await secret_service.get_decrypted_for_injection(source.server_id)
+        # Use cached tools instead of re-discovering
+        cached = await source_service.get_cached_tools(source_id)
+        if cached is None:
+            return {
+                "error": "No cached tools available. "
+                "Use mcpbox_discover_external_tools first to discover tools."
+            }
 
+        # Import selected tools from cache
         try:
-            discovered = await source_service.discover_tools(
-                source_id=source_id,
-                sandbox_client=sandbox_client,
-                secrets=secrets,
-            )
-        except RuntimeError as e:
-            return {"error": str(e)}
-
-        # Import selected tools
-        try:
-            tools = await source_service.import_tools(
+            result = await source_service.import_tools(
                 source_id=source_id,
                 tool_names=tool_names,
-                discovered_tools=discovered,
+                discovered_tools=cached,
             )
 
-            return {
+            response = {
                 "success": True,
                 "imported_tools": [
                     {
@@ -1775,12 +1864,21 @@ class MCPManagementService:
                         "tool_type": t.tool_type,
                         "approval_status": t.approval_status,
                     }
-                    for t in tools
+                    for t in result.created
                 ],
-                "count": len(tools),
-                "message": f"Imported {len(tools)} tool(s) as drafts. "
+                "count": len(result.created),
+                "message": f"Imported {len(result.created)} tool(s) as drafts. "
                 "Use mcpbox_request_publish for each tool to submit for admin approval.",
             }
+            if result.skipped:
+                response["skipped_tools"] = result.skipped
+                response["skipped_count"] = len(result.skipped)
+                response["message"] = (
+                    f"Imported {len(result.created)} tool(s) as drafts, "
+                    f"skipped {len(result.skipped)}. "
+                    "Use mcpbox_request_publish for each tool to submit for admin approval."
+                )
+            return response
         except Exception as e:
             logger.exception(f"Failed to import external tools: {e}")
             return {"error": f"Import failed: {e}"}
@@ -1790,7 +1888,10 @@ class MCPManagementService:
     # =========================================================================
 
     def _build_tool_definitions(self, tools: list) -> list[dict]:
-        """Build tool definitions for sandbox registration."""
+        """Build tool definitions for sandbox registration.
+
+        Handles both python_code and mcp_passthrough tools.
+        """
         tool_defs = []
 
         for tool in tools:
@@ -1806,7 +1907,15 @@ class MCPManagementService:
                 "parameters": tool.input_schema or {},
                 "timeout_ms": tool.timeout_ms or 30000,
                 "python_code": tool.python_code,
+                "tool_type": getattr(tool, "tool_type", "python_code"),
             }
+
+            # Add passthrough-specific fields
+            if tool_def["tool_type"] == "mcp_passthrough":
+                tool_def["external_source_id"] = (
+                    str(tool.external_source_id) if tool.external_source_id else None
+                )
+                tool_def["external_tool_name"] = tool.external_tool_name
 
             tool_defs.append(tool_def)
 

@@ -55,7 +55,7 @@ async def _refresh_server_registration(tool: Any, db: AsyncSession) -> bool:
     """Re-register a server with sandbox after tool approval.
 
     This ensures newly approved tools are immediately available without
-    requiring a server restart.
+    requiring a server restart. Handles both python_code and mcp_passthrough tools.
 
     Returns True if successful, False if server not running or registration failed.
     """
@@ -66,38 +66,31 @@ async def _refresh_server_registration(tool: Any, db: AsyncSession) -> bool:
         return False
 
     try:
-        # Get all approved, enabled tools for this server
-        stmt = select(Tool).where(
-            Tool.server_id == server.id,
-            Tool.enabled.is_(True),
-            Tool.approval_status == "approved",
-        )
-        result = await db.execute(stmt)
-        tools = result.scalars().all()
+        from app.api.sandbox import _build_external_source_configs, _build_tool_definitions
+        from app.services.global_config import GlobalConfigService
+        from app.services.server_secret import ServerSecretService
+        from app.services.tool import ToolService
 
-        # Build tool definitions
-        tool_defs = []
-        for t in tools:
-            tool_def = {
-                "name": t.name,
-                "description": t.description or "",
-                "parameters": t.input_schema or {},
-                "python_code": t.python_code,
-                "timeout_ms": t.timeout_ms or 30000,
-            }
-            tool_defs.append(tool_def)
+        # Get all tools for this server
+        tool_service = ToolService(db)
+        all_tools, _ = await tool_service.list_by_server(server.id)
+
+        # Filter to approved + enabled only
+        active_tools = [t for t in all_tools if t.enabled and t.approval_status == "approved"]
+
+        # Build tool definitions (handles both python_code and mcp_passthrough)
+        tool_defs = _build_tool_definitions(active_tools)
 
         # Get decrypted secrets for injection
-        from app.services.server_secret import ServerSecretService
-
         secret_service = ServerSecretService(db)
         secrets = await secret_service.get_decrypted_for_injection(server.id)
 
         # Get global allowed modules
-        from app.services.global_config import GlobalConfigService
-
         config_service = GlobalConfigService(db)
         allowed_modules = await config_service.get_allowed_modules()
+
+        # Build external source configs for passthrough tools
+        external_sources_data = await _build_external_source_configs(db, server.id, secrets)
 
         # Re-register with sandbox
         sandbox_client = SandboxClient.get_instance()
@@ -108,6 +101,7 @@ async def _refresh_server_registration(tool: Any, db: AsyncSession) -> bool:
             credentials=[],
             allowed_modules=allowed_modules,
             secrets=secrets,
+            external_sources=external_sources_data,
         )
 
         success = (

@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -104,6 +105,9 @@ class ExternalMCPSource(BaseModel):
         nullable=True,
     )
     tool_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Cached list of discovered tools (persisted so admin doesn't need to re-discover)
+    # Shape: [{"name": str, "description": str|null, "input_schema": dict}, ...]
+    discovered_tools_cache: Mapped[list | None] = mapped_column(JSONB, nullable=True, default=None)
 
     # Relationships
     server: Mapped["Server"] = relationship("Server", back_populates="external_mcp_sources")

@@ -170,6 +170,7 @@ class ToolListResponse(BaseModel):
     description: str | None
     enabled: bool
     tool_type: str = "python_code"
+    external_tool_name: str | None = None
     approval_status: str = "draft"
     created_by: str | None = None
 
