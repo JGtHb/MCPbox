@@ -391,7 +391,7 @@ async def _build_external_source_configs(
         if source.status == "disabled":
             continue
 
-        auth_headers = source_service._build_auth_headers(source, secrets)
+        auth_headers = await source_service._build_auth_headers(source, secrets)
 
         configs.append(
             {

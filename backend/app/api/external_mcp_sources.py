@@ -12,10 +12,22 @@ from app.schemas.external_mcp_source import (
     ExternalMCPSourceCreate,
     ExternalMCPSourceResponse,
     ExternalMCPSourceUpdate,
+    HealthCheckResponse,
     ImportToolsRequest,
+    OAuthExchangeRequest,
+    OAuthStartRequest,
+    OAuthStartResponse,
 )
 from app.schemas.tool import ToolResponse
 from app.services.external_mcp_source import ExternalMCPSourceService
+from app.services.mcp_oauth_client import (
+    OAuthDiscoveryError,
+    OAuthError,
+    OAuthTokenError,
+    encrypt_tokens,
+    exchange_code,
+    start_oauth_flow,
+)
 from app.services.sandbox_client import SandboxClient, get_sandbox_client
 from app.services.server import ServerService
 from app.services.server_secret import ServerSecretService
@@ -31,6 +43,14 @@ def get_server_service(db: AsyncSession = Depends(get_db)) -> ServerService:
 
 def get_source_service(db: AsyncSession = Depends(get_db)) -> ExternalMCPSourceService:
     return ExternalMCPSourceService(db)
+
+
+def _source_to_response(source) -> dict:
+    """Convert a source model to a response dict with computed fields."""
+    return {
+        **{c.name: getattr(source, c.name) for c in source.__table__.columns},
+        "oauth_authenticated": source.oauth_tokens_encrypted is not None,
+    }
 
 
 # --- Source CRUD ---
@@ -59,7 +79,7 @@ async def create_source(
     source = await source_service.create(server_id, data)
     await db.commit()
     await db.refresh(source)
-    return source
+    return _source_to_response(source)
 
 
 @router.get(
@@ -79,7 +99,8 @@ async def list_sources(
             detail=f"Server {server_id} not found",
         )
 
-    return await source_service.list_by_server(server_id)
+    sources = await source_service.list_by_server(server_id)
+    return [_source_to_response(s) for s in sources]
 
 
 @router.get(
@@ -97,7 +118,7 @@ async def get_source(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"External MCP source {source_id} not found",
         )
-    return source
+    return _source_to_response(source)
 
 
 @router.put(
@@ -118,7 +139,7 @@ async def update_source(
             detail=f"External MCP source {source_id} not found",
         )
     await db.commit()
-    return source
+    return _source_to_response(source)
 
 
 @router.delete(
@@ -245,3 +266,147 @@ async def import_tools(
         await db.refresh(tool)
 
     return tools
+
+
+# --- Health Check ---
+
+
+@router.post(
+    "/sources/{source_id}/health",
+    response_model=HealthCheckResponse,
+)
+async def health_check_source(
+    source_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    source_service: ExternalMCPSourceService = Depends(get_source_service),
+    sandbox_client: SandboxClient = Depends(get_sandbox_client),
+):
+    """Check connectivity to an external MCP server.
+
+    Performs an MCP initialize handshake to verify the server is reachable
+    and responding to MCP protocol requests. Updates the source status
+    based on the result.
+    """
+    source = await source_service.get(source_id)
+    if not source:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"External MCP source {source_id} not found",
+        )
+
+    # Get decrypted secrets for auth credential lookup
+    secret_service = ServerSecretService(db)
+    secrets = await secret_service.get_decrypted_for_injection(source.server_id)
+    auth_headers = await source_service._build_auth_headers(source, secrets)
+
+    result = await sandbox_client.health_check_external(
+        url=source.url,
+        auth_headers=auth_headers,
+    )
+
+    # Update source status based on health check result
+    if result.get("healthy"):
+        source.status = "active"
+    else:
+        source.status = "error"
+    await db.commit()
+
+    return HealthCheckResponse(
+        source_id=source.id,
+        source_name=source.name,
+        healthy=result.get("healthy", False),
+        latency_ms=result.get("latency_ms", 0),
+        error=result.get("error"),
+    )
+
+
+# --- OAuth ---
+
+
+@router.post(
+    "/sources/{source_id}/oauth/start",
+    response_model=OAuthStartResponse,
+)
+async def oauth_start(
+    source_id: UUID,
+    data: OAuthStartRequest,
+    source_service: ExternalMCPSourceService = Depends(get_source_service),
+):
+    """Start the OAuth 2.1 authorization flow for an external MCP source.
+
+    Discovers OAuth metadata from the external server, registers a client
+    if needed, and returns the authorization URL for the browser popup.
+    """
+    source = await source_service.get(source_id)
+    if not source:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"External MCP source {source_id} not found",
+        )
+
+    if source.auth_type != "oauth":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Source auth_type must be 'oauth' to use OAuth flow.",
+        )
+
+    try:
+        result = await start_oauth_flow(
+            source_id=source.id,
+            mcp_url=source.url,
+            callback_url=data.callback_url,
+            existing_client_id=source.oauth_client_id,
+        )
+        return OAuthStartResponse(
+            auth_url=result["auth_url"],
+            issuer=result["issuer"],
+        )
+    except OAuthDiscoveryError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"OAuth discovery failed: {e}",
+        ) from e
+    except OAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+
+@router.post(
+    "/oauth/exchange",
+)
+async def oauth_exchange(
+    data: OAuthExchangeRequest,
+    db: AsyncSession = Depends(get_db),
+    source_service: ExternalMCPSourceService = Depends(get_source_service),
+):
+    """Exchange an OAuth authorization code for tokens.
+
+    Called by the frontend after the admin completes authentication in
+    the browser popup. Stores encrypted tokens on the source.
+    """
+    try:
+        source_id, tokens = await exchange_code(data.state, data.code)
+    except OAuthTokenError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+    source = await source_service.get(source_id)
+    if not source:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Associated external source not found.",
+        )
+
+    # Store encrypted tokens
+    source.oauth_tokens_encrypted = encrypt_tokens(tokens, source.oauth_client_id)
+    if not source.oauth_issuer:
+        source.oauth_issuer = tokens.token_endpoint.rsplit("/", 1)[0]
+
+    await db.flush()
+    await db.commit()
+
+    return {"success": True, "source_id": str(source_id)}

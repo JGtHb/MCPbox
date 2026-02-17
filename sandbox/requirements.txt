@@ -2,6 +2,7 @@
 # Dynamically loads and executes MCP tools
 
 httpx==0.28.1
+curl_cffi==0.14.0
 fastapi==0.128.8
 uvicorn==0.40.0
 pydantic==2.12.5

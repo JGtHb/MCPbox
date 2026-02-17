@@ -19,6 +19,7 @@ ExternalMCPAuthType = Enum(
     "none",
     "bearer",
     "header",
+    "oauth",
     name="external_mcp_auth_type",
     create_constraint=True,
 )
@@ -88,6 +89,14 @@ class ExternalMCPSource(BaseModel):
         nullable=False,
         default="active",
     )
+
+    # OAuth 2.1 credentials (MCP spec auth flow)
+    # Encrypted JSON blob: {access_token, refresh_token, token_endpoint, expires_at, scope}
+    oauth_tokens_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Authorization server URL (for display and re-auth)
+    oauth_issuer: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    # OAuth client ID (from DCR or manual config)
+    oauth_client_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Discovery metadata
     last_discovered_at: Mapped[datetime | None] = mapped_column(

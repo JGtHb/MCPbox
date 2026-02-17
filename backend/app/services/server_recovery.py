@@ -117,7 +117,7 @@ async def _register_server(db, server: Server, sandbox_client: SandboxClient) ->
     for source in sources:
         if source.status == "disabled":
             continue
-        auth_headers = source_service._build_auth_headers(source, secrets)
+        auth_headers = await source_service._build_auth_headers(source, secrets)
         external_sources_data.append(
             {
                 "source_id": str(source.id),

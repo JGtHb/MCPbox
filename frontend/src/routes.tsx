@@ -11,8 +11,14 @@ import {
   Tunnel,
   Settings,
 } from './pages'
+import { OAuthCallback } from './pages/OAuthCallback'
 
 export const router = createBrowserRouter([
+  // OAuth callback - outside Layout (runs in popup window)
+  {
+    path: '/oauth/callback',
+    element: <OAuthCallback />,
+  },
   {
     path: '/',
     element: <Layout />,

@@ -1,10 +1,14 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   useExternalSources,
   useCreateExternalSource,
   useDeleteExternalSource,
   useDiscoverTools,
   useImportTools,
+  useStartOAuth,
+  externalSourceKeys,
+  type ExternalMCPSource,
   type ExternalMCPSourceCreateInput,
   type DiscoveredTool,
 } from '../../api/externalMcpSources'
@@ -25,11 +29,14 @@ export function ExternalSourcesTab({ serverId }: ExternalSourcesTabProps) {
   const [discoveringSourceId, setDiscoveringSourceId] = useState<string | null>(null)
   const [discoveredTools, setDiscoveredTools] = useState<DiscoveredTool[]>([])
   const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set())
+  const [oauthError, setOauthError] = useState<string | null>(null)
 
+  const queryClient = useQueryClient()
   const createSource = useCreateExternalSource(serverId)
   const deleteSource = useDeleteExternalSource(serverId)
   const discoverTools = useDiscoverTools()
   const importToolsMutation = useImportTools(serverId)
+  const startOAuth = useStartOAuth(serverId)
 
   const handleAddSource = async (data: ExternalMCPSourceCreateInput) => {
     await createSource.mutateAsync(data)
@@ -64,6 +71,43 @@ export function ExternalSourcesTab({ serverId }: ExternalSourcesTabProps) {
       // Error handled by mutation
     }
   }
+
+  const handleOAuthAuthenticate = useCallback(async (source: ExternalMCPSource) => {
+    setOauthError(null)
+    const callbackUrl = `${window.location.origin}/oauth/callback`
+
+    try {
+      const result = await startOAuth.mutateAsync({
+        sourceId: source.id,
+        callbackUrl,
+      })
+
+      // Open popup for OAuth
+      const popup = window.open(
+        result.auth_url,
+        'mcpbox-oauth',
+        'width=600,height=700,menubar=no,toolbar=no,location=yes,status=yes'
+      )
+
+      if (!popup) {
+        setOauthError('Popup blocked. Please allow popups for this site.')
+        return
+      }
+
+      // Poll for popup close
+      const pollInterval = setInterval(() => {
+        if (popup.closed) {
+          clearInterval(pollInterval)
+          // Refresh sources to check if auth succeeded
+          queryClient.invalidateQueries({
+            queryKey: externalSourceKeys.list(serverId),
+          })
+        }
+      }, 500)
+    } catch (err) {
+      setOauthError(err instanceof Error ? err.message : 'OAuth flow failed')
+    }
+  }, [startOAuth, queryClient, serverId])
 
   const toggleToolSelection = (name: string) => {
     setSelectedTools(prev => {
@@ -103,6 +147,13 @@ export function ExternalSourcesTab({ serverId }: ExternalSourcesTabProps) {
         </button>
       </div>
 
+      {/* Global OAuth Error */}
+      {oauthError && (
+        <div className="p-3 bg-red-50 rounded-md">
+          <p className="text-sm text-red-700">{oauthError}</p>
+        </div>
+      )}
+
       {/* Add Source Form */}
       {showAddForm && (
         <AddSourceForm
@@ -128,10 +179,24 @@ export function ExternalSourcesTab({ serverId }: ExternalSourcesTabProps) {
                     <span className="text-xs text-gray-500">
                       {source.transport_type === 'streamable_http' ? 'HTTP' : 'SSE'}
                     </span>
+                    {source.auth_type === 'oauth' && (
+                      <span className={`px-2 py-0.5 text-xs rounded-full ${
+                        source.oauth_authenticated
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {source.oauth_authenticated ? 'Authenticated' : 'Needs Auth'}
+                      </span>
+                    )}
                   </div>
                   <p className="mt-1 text-sm text-gray-500 font-mono truncate">{source.url}</p>
                   <div className="mt-2 flex items-center gap-4 text-xs text-gray-500">
                     <span>Auth: {source.auth_type}</span>
+                    {source.auth_type === 'oauth' && source.oauth_issuer && (
+                      <span className="truncate max-w-xs" title={source.oauth_issuer}>
+                        Issuer: {source.oauth_issuer}
+                      </span>
+                    )}
                     {source.auth_secret_name && (
                       <span>Secret: {source.auth_secret_name}</span>
                     )}
@@ -142,6 +207,27 @@ export function ExternalSourcesTab({ serverId }: ExternalSourcesTabProps) {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 ml-4">
+                  {/* OAuth Authenticate button */}
+                  {source.auth_type === 'oauth' && !source.oauth_authenticated && (
+                    <button
+                      onClick={() => handleOAuthAuthenticate(source)}
+                      disabled={startOAuth.isPending}
+                      className="px-3 py-1.5 text-sm font-medium text-amber-700 bg-amber-50 rounded-md hover:bg-amber-100 disabled:opacity-50"
+                    >
+                      {startOAuth.isPending ? 'Starting...' : 'Authenticate'}
+                    </button>
+                  )}
+                  {/* Re-authenticate button for already-authenticated OAuth sources */}
+                  {source.auth_type === 'oauth' && source.oauth_authenticated && (
+                    <button
+                      onClick={() => handleOAuthAuthenticate(source)}
+                      disabled={startOAuth.isPending}
+                      className="px-3 py-1.5 text-sm font-medium text-gray-600 bg-gray-50 rounded-md hover:bg-gray-100 disabled:opacity-50"
+                      title="Re-authenticate if the token has expired"
+                    >
+                      Re-auth
+                    </button>
+                  )}
                   <button
                     onClick={() => handleDiscover(source.id)}
                     disabled={discoverTools.isPending && discoveringSourceId === source.id}
@@ -277,7 +363,7 @@ interface AddSourceFormProps {
 function AddSourceForm({ onSubmit, onCancel, isLoading, error }: AddSourceFormProps) {
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
-  const [authType, setAuthType] = useState<'none' | 'bearer' | 'header'>('none')
+  const [authType, setAuthType] = useState<'none' | 'bearer' | 'header' | 'oauth'>('none')
   const [authSecretName, setAuthSecretName] = useState('')
   const [authHeaderName, setAuthHeaderName] = useState('')
   const [transportType, setTransportType] = useState<'streamable_http' | 'sse'>('streamable_http')
@@ -335,15 +421,24 @@ function AddSourceForm({ onSubmit, onCancel, isLoading, error }: AddSourceFormPr
           <label className="block text-sm font-medium text-gray-700 mb-1">Auth Type</label>
           <select
             value={authType}
-            onChange={e => setAuthType(e.target.value as 'none' | 'bearer' | 'header')}
+            onChange={e => setAuthType(e.target.value as 'none' | 'bearer' | 'header' | 'oauth')}
             className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-indigo-500 focus:border-indigo-500"
           >
             <option value="none">None</option>
             <option value="bearer">Bearer Token</option>
             <option value="header">Custom Header</option>
+            <option value="oauth">OAuth 2.1 (Browser Login)</option>
           </select>
         </div>
-        {authType !== 'none' && (
+        {authType === 'oauth' && (
+          <div className="col-span-2">
+            <p className="text-xs text-gray-500">
+              After adding, click &quot;Authenticate&quot; to sign in via the external server&apos;s OAuth flow.
+              MCPbox will discover the OAuth endpoints automatically (RFC 9728 + RFC 8414).
+            </p>
+          </div>
+        )}
+        {(authType === 'bearer' || authType === 'header') && (
           <>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">

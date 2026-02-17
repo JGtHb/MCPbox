@@ -12,6 +12,7 @@ class ExternalMCPAuthType(StrEnum):
     NONE = "none"
     BEARER = "bearer"
     HEADER = "header"
+    OAUTH = "oauth"
 
 
 class ExternalMCPTransportType(StrEnum):
@@ -66,6 +67,10 @@ class ExternalMCPSourceResponse(BaseModel):
     tool_count: int
     created_at: datetime
     updated_at: datetime
+    # OAuth fields (tokens never exposed, only metadata)
+    oauth_issuer: str | None = None
+    oauth_client_id: str | None = None
+    oauth_authenticated: bool = False
 
 
 class DiscoveredTool(BaseModel):
@@ -89,3 +94,33 @@ class ImportToolsRequest(BaseModel):
     """Request to import specific tools from an external MCP source."""
 
     tool_names: list[str] = Field(..., min_length=1)
+
+
+class OAuthStartRequest(BaseModel):
+    """Request to start OAuth flow for an external MCP source."""
+
+    callback_url: str = Field(..., min_length=1, max_length=2000)
+
+
+class OAuthStartResponse(BaseModel):
+    """Response with authorization URL for browser popup."""
+
+    auth_url: str
+    issuer: str
+
+
+class OAuthExchangeRequest(BaseModel):
+    """Request to exchange OAuth authorization code for tokens."""
+
+    state: str = Field(..., min_length=1)
+    code: str = Field(..., min_length=1)
+
+
+class HealthCheckResponse(BaseModel):
+    """Response from external MCP server health check."""
+
+    source_id: UUID
+    source_name: str
+    healthy: bool
+    latency_ms: int = 0
+    error: str | None = None
