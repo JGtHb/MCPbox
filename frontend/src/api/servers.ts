@@ -6,8 +6,8 @@ export interface Server {
   id: string
   name: string
   description: string | null
-  status: 'imported' | 'building' | 'ready' | 'running' | 'stopped' | 'error'
-  network_mode: 'isolated' | 'allowlist' | 'monitored' | 'learning'
+  status: 'imported' | 'ready' | 'running' | 'stopped' | 'error'
+  network_mode: 'isolated' | 'allowlist'
   tool_count: number
   created_at: string
   updated_at: string

@@ -13,12 +13,8 @@ if TYPE_CHECKING:
     from app.models.server_secret import ServerSecret
     from app.models.tool import Tool
 
-# Server status
-# Note: "building" is vestigial from per-server container architecture,
-# kept for database enum compatibility
 ServerStatus = Enum(
     "imported",
-    "building",
     "ready",
     "running",
     "stopped",
@@ -27,13 +23,9 @@ ServerStatus = Enum(
     create_constraint=True,
 )
 
-# Network mode
-# Note: "monitored" and "learning" are unused, kept for database enum compatibility
 NetworkMode = Enum(
     "isolated",
     "allowlist",
-    "monitored",
-    "learning",
     name="network_mode",
     create_constraint=True,
 )

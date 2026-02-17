@@ -26,17 +26,15 @@ Items are organized by category and prioritized by impact. Each item includes th
 
 ## 2. Vestigial Database Enum Values
 
-### 2a. ServerStatus.building
+### ~~2a. ServerStatus.building~~ — **REMOVED**
 - **File**: `backend/app/models/server.py:21`
 - **Issue**: Defined in enum but never set anywhere in the codebase. Comment says "vestigial from per-server container architecture"
-- **Kept for**: PostgreSQL enum compatibility (removing requires migration to drop and recreate enum)
-- **Action**: Create Alembic migration to remove. Pre-release, there are no existing databases to migrate — just remove the value
+- **Resolution**: Removed from model, created Alembic migration 0034, updated frontend types/constants/tests
 
-### 2b. NetworkMode.monitored and NetworkMode.learning
+### ~~2b. NetworkMode.monitored and NetworkMode.learning~~ — **REMOVED**
 - **File**: `backend/app/models/server.py:35-36`
 - **Issue**: Defined in enum but never referenced in any code path. Comment says "unused, kept for database enum compatibility"
-- **Kept for**: PostgreSQL enum compatibility
-- **Action**: Create Alembic migration to remove. Same rationale as 2a
+- **Resolution**: Removed from model, included in Alembic migration 0034, updated frontend types/tests
 
 ---
 
@@ -173,8 +171,8 @@ When reviewing this document, for each item decide:
 | ~~1a~~ | ~~Duplicate architecture doc~~ | ~~File cleanup~~ | ~~Trivial~~ | **REMOVED** |
 | ~~1b~~ | ~~Root planning artifacts~~ | ~~File cleanup~~ | ~~Trivial~~ | **REMOVED** |
 | ~~1c~~ | ~~Missing LICENSE~~ | ~~File creation~~ | ~~Trivial~~ | **FIXED** |
-| 2a | ServerStatus.building | DB migration | Low | Low |
-| 2b | NetworkMode.monitored/learning | DB migration | Low | Low |
+| ~~2a~~ | ~~ServerStatus.building~~ | ~~DB migration~~ | ~~Low~~ | **REMOVED** |
+| ~~2b~~ | ~~NetworkMode.monitored/learning~~ | ~~DB migration~~ | ~~Low~~ | **REMOVED** |
 | 3a | Sandbox credentials param | API change | Low | Low |
 | 3b | Crypto aad=None fallback | Code change | Low | Medium (data) |
 | 4a | Duplicate config endpoints | API change | Low | Low |
