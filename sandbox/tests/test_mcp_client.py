@@ -457,6 +457,65 @@ class TestCloudflareDetection:
                     await client.initialize()
 
 
+class TestRedirectPrevention:
+    """Tests for SSRF redirect prevention (SEC-007)."""
+
+    @pytest.mark.asyncio
+    async def test_send_request_disables_redirects(self):
+        """All POST requests must use allow_redirects=False to prevent SSRF."""
+        mock_response = _mock_response(
+            200,
+            json_data={
+                "jsonrpc": "2.0",
+                "id": "1",
+                "result": {"protocolVersion": "2025-03-26"},
+            },
+            headers={"mcp-session-id": "s1"},
+        )
+
+        with patch("app.mcp_client.AsyncSession") as MockSession:
+            mock_session = AsyncMock()
+            mock_session.post.return_value = mock_response
+            mock_session.close = Mock()
+            MockSession.return_value = mock_session
+
+            async with MCPClient("https://example.com/mcp") as client:
+                await client.initialize()
+
+            # Every POST call must have allow_redirects=False
+            for call in mock_session.post.call_args_list:
+                assert call.kwargs.get("allow_redirects") is False, (
+                    f"POST call missing allow_redirects=False: {call}"
+                )
+
+    @pytest.mark.asyncio
+    async def test_delete_disables_redirects(self):
+        """DELETE request (session cleanup) must use allow_redirects=False."""
+        with patch("app.mcp_client.AsyncSession") as MockSession:
+            mock_session = AsyncMock()
+            mock_session.post.return_value = _mock_response(
+                200,
+                json_data={
+                    "jsonrpc": "2.0",
+                    "id": "1",
+                    "result": {"protocolVersion": "2025-03-26"},
+                },
+                headers={"mcp-session-id": "s1"},
+            )
+            mock_session.close = Mock()
+            mock_session.delete = AsyncMock(return_value=_mock_response(200))
+            MockSession.return_value = mock_session
+
+            async with MCPClient("https://example.com/mcp") as client:
+                await client.initialize()
+                # __aexit__ will send DELETE
+
+            # Verify DELETE had allow_redirects=False
+            if mock_session.delete.called:
+                delete_call = mock_session.delete.call_args
+                assert delete_call.kwargs.get("allow_redirects") is False
+
+
 class TestBrowserImpersonation:
     """Tests for browser TLS fingerprint impersonation."""
 

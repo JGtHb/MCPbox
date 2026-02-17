@@ -90,6 +90,45 @@ class TestKeyValidation:
             get_encryption_key()
 
 
+class TestAADContextBinding:
+    """Test AAD (Associated Authenticated Data) context binding (SEC-005)."""
+
+    @pytest.fixture(autouse=True)
+    def setup_env(self, monkeypatch):
+        """Set up a valid encryption key for tests."""
+        valid_key = "a" * 64
+        monkeypatch.setenv("MCPBOX_ENCRYPTION_KEY", valid_key)
+
+    def test_encrypt_decrypt_with_aad(self):
+        """Data encrypted with AAD can be decrypted with matching AAD."""
+        plaintext = "secret value"
+        encrypted = encrypt(plaintext, aad="server_secret:123:api_key")
+        decrypted = decrypt(encrypted, aad="server_secret:123:api_key")
+        assert decrypted == plaintext
+
+    def test_wrong_aad_fails_decryption(self):
+        """Data encrypted with one AAD cannot be decrypted with different AAD."""
+        plaintext = "secret value"
+        encrypted = encrypt(plaintext, aad="server_secret:123:api_key")
+        with pytest.raises(DecryptionError):
+            decrypt(encrypted, aad="service_token")
+
+    def test_no_aad_compat_for_legacy_data(self):
+        """Data encrypted without AAD can still be decrypted with AAD (compat fallback)."""
+        plaintext = "legacy secret"
+        encrypted = encrypt(plaintext, aad=None)
+        # Should succeed via backwards-compat path
+        decrypted = decrypt(encrypted, aad="some_context")
+        assert decrypted == plaintext
+
+    def test_base64_with_aad_roundtrip(self):
+        """Base64 encode/decode roundtrip with AAD."""
+        plaintext = "oauth_token_data"
+        encrypted = encrypt_to_base64(plaintext, aad="oauth_tokens")
+        decrypted = decrypt_from_base64(encrypted, aad="oauth_tokens")
+        assert decrypted == plaintext
+
+
 class TestEncryptionEdgeCases:
     """Test edge cases for encryption."""
 

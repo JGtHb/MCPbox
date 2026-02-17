@@ -1,8 +1,9 @@
 """Log retention service - automatically cleans up old activity logs."""
 
+from __future__ import annotations
+
 import asyncio
 import threading
-from typing import Optional
 
 from app.core import async_session_maker
 from app.core.logging import get_logger
@@ -20,7 +21,7 @@ DEFAULT_RETENTION_DAYS = 30
 class LogRetentionService:
     """Background service to automatically clean up old activity logs."""
 
-    _instance: Optional["LogRetentionService"] = None
+    _instance: LogRetentionService | None = None
     _instance_lock: threading.Lock = threading.Lock()
     _task: asyncio.Task | None = None
 
@@ -29,7 +30,7 @@ class LogRetentionService:
         self._retention_days = retention_days
 
     @classmethod
-    def get_instance(cls) -> "LogRetentionService":
+    def get_instance(cls) -> LogRetentionService:
         """Get singleton instance of log retention service (thread-safe)."""
         if cls._instance is None:
             with cls._instance_lock:

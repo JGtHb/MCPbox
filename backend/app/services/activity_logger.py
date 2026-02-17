@@ -1,5 +1,7 @@
 """Activity Logger Service - async logging for MCP activity and observability."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import threading
@@ -7,7 +9,7 @@ import uuid
 from collections import deque
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import delete, select
@@ -29,7 +31,7 @@ class ActivityLoggerService:
     - Listener callbacks for real-time streaming
     """
 
-    _instance: Optional["ActivityLoggerService"] = None
+    _instance: ActivityLoggerService | None = None
     _instance_lock: threading.Lock = threading.Lock()
 
     # Buffer settings
@@ -51,7 +53,7 @@ class ActivityLoggerService:
         self._notification_tasks: set[asyncio.Task[None]] = set()  # Track active notification tasks
 
     @classmethod
-    def get_instance(cls) -> "ActivityLoggerService":
+    def get_instance(cls) -> ActivityLoggerService:
         """Get or create singleton instance (thread-safe)."""
         if cls._instance is None:
             with cls._instance_lock:

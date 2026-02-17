@@ -342,6 +342,26 @@ class TestSecretsSecurity:
         assert data["success"] is False
 
 
+class TestAllowedModulesNotOverridable:
+    """Tests that /execute ignores client-provided allowed_modules (SEC-015)."""
+
+    def test_allowed_modules_field_ignored(self, client):
+        """SEC-015: /execute must not accept allowed_modules override."""
+        # Even if the request body includes allowed_modules, it should be ignored.
+        # The os module should NOT become available.
+        response = client.post(
+            "/execute",
+            json={
+                "code": "result = os.getcwd()",
+                "arguments": {},
+                "allowed_modules": ["os"],
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+
+
 class TestErrorSanitization:
     """Tests that error responses don't leak internal details."""
 

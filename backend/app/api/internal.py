@@ -108,12 +108,16 @@ async def get_worker_deploy_config(
     access_client_secret = ""
     if config.encrypted_access_client_id:
         try:
-            access_client_id = decrypt_from_base64(config.encrypted_access_client_id)
+            access_client_id = decrypt_from_base64(
+                config.encrypted_access_client_id, aad="access_client_id"
+            )
         except Exception:
             pass
     if config.encrypted_access_client_secret:
         try:
-            access_client_secret = decrypt_from_base64(config.encrypted_access_client_secret)
+            access_client_secret = decrypt_from_base64(
+                config.encrypted_access_client_secret, aad="access_client_secret"
+            )
         except Exception:
             pass
 
@@ -157,5 +161,5 @@ async def get_active_service_token(
     if not config or not config.encrypted_service_token:
         return {"token": None, "error": "No active service token"}
 
-    token = decrypt_from_base64(config.encrypted_service_token)
+    token = decrypt_from_base64(config.encrypted_service_token, aad="service_token")
     return {"token": token}

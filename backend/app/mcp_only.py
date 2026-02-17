@@ -145,7 +145,9 @@ def create_mcp_app() -> FastAPI:
         allow_origins=settings.mcp_cors_origins_list,
         allow_credentials=True,
         allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "Accept", "X-MCPbox-Service-Token"],
+        # SECURITY: X-MCPbox-Service-Token removed — it's a server-to-server header
+        # (Worker → Gateway), not a browser CORS header (SEC-013)
+        allow_headers=["Authorization", "Content-Type", "Accept"],
     )
 
     # Security headers

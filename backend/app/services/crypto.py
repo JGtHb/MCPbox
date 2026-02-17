@@ -70,6 +70,12 @@ def encrypt(plaintext: str, aad: str | None = None) -> bytes:
 
     Returns: IV (12 bytes) || ciphertext || tag (16 bytes)
     """
+    if aad is None:
+        logger.warning(
+            "encrypt() called without AAD — context binding disabled. "
+            "Pass aad= to prevent ciphertext swapping between database columns (SEC-005)."
+        )
+
     key = get_encryption_key()
     aesgcm = AESGCM(key)
 

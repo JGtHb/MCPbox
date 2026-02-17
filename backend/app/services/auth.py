@@ -82,11 +82,13 @@ def verify_password(password: str, password_hash: str) -> bool:
 def create_access_token(user_id: UUID, password_version: int) -> str:
     """Create a short-lived access token."""
     expire = datetime.now(UTC) + timedelta(minutes=settings.jwt_access_token_expire_minutes)
+    jti = secrets.token_hex(16)
     payload = {
         "sub": str(user_id),
         "exp": expire,
         "type": "access",
         "pv": password_version,  # Password version for invalidation
+        "jti": jti,  # Token ID for blacklist-based revocation (SEC-009)
     }
     token = jwt.encode(
         payload,

@@ -343,6 +343,77 @@ class TestToolServiceCompare:
         assert diffs == []
 
 
+class TestToolServiceApprovalSecurity:
+    """Tests for approval status security (SEC-001, SEC-002)."""
+
+    async def test_update_python_code_resets_approval(self, db_session, tool_factory):
+        """SEC-001: Updating python_code resets approval_status to pending_review."""
+        tool = await tool_factory(
+            approval_status="approved",
+            python_code='async def main() -> str:\n    return "v1"',
+        )
+        assert tool.approval_status == "approved"
+
+        service = ToolService(db_session)
+        updated = await service.update(
+            tool.id,
+            ToolUpdate(python_code='async def main() -> str:\n    return "v2"'),
+        )
+
+        assert updated.approval_status == "pending_review"
+
+    async def test_update_non_code_field_preserves_approval(self, db_session, tool_factory):
+        """Updating name/description does NOT reset approval_status."""
+        tool = await tool_factory(approval_status="approved")
+        service = ToolService(db_session)
+
+        updated = await service.update(
+            tool.id,
+            ToolUpdate(name="renamed_tool", description="new desc"),
+        )
+
+        assert updated.approval_status == "approved"
+
+    async def test_update_identical_code_preserves_approval(self, db_session, tool_factory):
+        """Re-submitting identical python_code does NOT reset approval."""
+        code = 'async def main() -> str:\n    return "same"'
+        tool = await tool_factory(approval_status="approved", python_code=code)
+        service = ToolService(db_session)
+
+        updated = await service.update(
+            tool.id,
+            ToolUpdate(python_code=code),
+        )
+
+        # No actual change — should skip versioning entirely
+        assert updated.approval_status == "approved"
+
+    async def test_rollback_resets_approval(self, db_session, tool_factory):
+        """SEC-002: Rollback always resets approval_status to pending_review."""
+        tool = await tool_factory(
+            approval_status="approved",
+            name="original",
+            python_code='async def main() -> str:\n    return "v1"',
+        )
+        service = ToolService(db_session)
+
+        # Create v2
+        await service.update(
+            tool.id,
+            ToolUpdate(python_code='async def main() -> str:\n    return "v2"'),
+        )
+
+        # Approve v2 manually (simulate admin approval)
+        tool.approval_status = "approved"
+        await db_session.flush()
+
+        # Rollback to v1
+        rolled_back = await service.rollback(tool.id, 1)
+
+        assert rolled_back.approval_status == "pending_review"
+        assert rolled_back.name == "original"
+
+
 class TestToolServiceList:
     """Tests for listing tools."""
 

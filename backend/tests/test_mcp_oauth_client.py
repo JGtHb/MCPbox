@@ -125,7 +125,7 @@ class TestTokenEncryption:
         )
 
         # Mock encrypt to return the JSON directly (base64-encoded)
-        mock_encrypt.side_effect = lambda x: x
+        mock_encrypt.side_effect = lambda x, aad=None: x
 
         encrypted = encrypt_tokens(tokens, client_id="my_client")
 

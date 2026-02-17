@@ -142,7 +142,7 @@ class CloudflareService:
         # First try to get from our encrypted storage
         if config.encrypted_api_token:
             try:
-                return decrypt_from_base64(config.encrypted_api_token)
+                return decrypt_from_base64(config.encrypted_api_token, aad="cloudflare_api_token")
             except DecryptionError as e:
                 logger.warning(f"Failed to decrypt API token: {e}")
 
@@ -154,7 +154,7 @@ class CloudflareService:
         if not config.encrypted_tunnel_token:
             return None
         try:
-            return decrypt_from_base64(config.encrypted_tunnel_token)
+            return decrypt_from_base64(config.encrypted_tunnel_token, aad="tunnel_token")
         except DecryptionError as e:
             logger.warning(f"Failed to decrypt tunnel token: {e}")
             return None
@@ -197,7 +197,7 @@ class CloudflareService:
             raise ValueError(f"Invalid API token: {e}") from e
 
         # Store the token
-        config.encrypted_api_token = encrypt_to_base64(api_token)
+        config.encrypted_api_token = encrypt_to_base64(api_token, aad="cloudflare_api_token")
         await self.db.flush()
 
         return SetApiTokenResponse(
@@ -270,7 +270,7 @@ class CloudflareService:
 
         # Create the config
         config = CloudflareConfig(
-            encrypted_api_token=encrypt_to_base64(api_token),
+            encrypted_api_token=encrypt_to_base64(api_token, aad="cloudflare_api_token"),
             account_id=account_id,
             account_name=account_name,
             team_domain=team_domain,
@@ -454,7 +454,7 @@ class CloudflareService:
             # Update config
             config.tunnel_id = tunnel_id
             config.tunnel_name = tunnel_name
-            config.encrypted_tunnel_token = encrypt_to_base64(tunnel_token)
+            config.encrypted_tunnel_token = encrypt_to_base64(tunnel_token, aad="tunnel_token")
             config.completed_step = max(config.completed_step, 2)
 
             # Deactivate any existing tunnel configurations
@@ -476,7 +476,7 @@ class CloudflareService:
             tunnel_config = TunnelConfiguration(
                 name=f"Wizard: {tunnel_name}",
                 description=f"Created by Cloudflare wizard for tunnel {tunnel_id}",
-                tunnel_token=encrypt_to_base64(tunnel_token),
+                tunnel_token=encrypt_to_base64(tunnel_token, aad="tunnel_token"),
                 public_url=None,  # Will be set when MCP Portal is created
                 is_active=True,
             )
@@ -1189,8 +1189,12 @@ export default {
             return None
 
         try:
-            client_id = decrypt_from_base64(config.encrypted_access_client_id)
-            client_secret = decrypt_from_base64(config.encrypted_access_client_secret)
+            client_id = decrypt_from_base64(
+                config.encrypted_access_client_id, aad="access_client_id"
+            )
+            client_secret = decrypt_from_base64(
+                config.encrypted_access_client_secret, aad="access_client_secret"
+            )
         except DecryptionError:
             logger.error("Failed to decrypt OIDC credentials")
             return None
@@ -1202,12 +1206,16 @@ export default {
         cookie_key = None
         if config.encrypted_cookie_encryption_key:
             try:
-                cookie_key = decrypt_from_base64(config.encrypted_cookie_encryption_key)
+                cookie_key = decrypt_from_base64(
+                    config.encrypted_cookie_encryption_key, aad="cookie_encryption_key"
+                )
             except DecryptionError:
                 logger.warning("Failed to decrypt cookie encryption key, generating new one")
         if not cookie_key:
             cookie_key = secrets.token_hex(32)
-            config.encrypted_cookie_encryption_key = encrypt_to_base64(cookie_key)
+            config.encrypted_cookie_encryption_key = encrypt_to_base64(
+                cookie_key, aad="cookie_encryption_key"
+            )
 
         # Build OIDC endpoint URLs from team_domain and client_id
         base = f"https://{config.team_domain}/cdn-cgi/access/sso/oidc/{client_id}"
@@ -1372,8 +1380,12 @@ compatibility_flags = ["nodejs_compat"]
                 oidc_client_secret = saas_cfg.get("client_secret", "")
 
                 if oidc_client_id and oidc_client_secret:
-                    config.encrypted_access_client_id = encrypt_to_base64(oidc_client_id)
-                    config.encrypted_access_client_secret = encrypt_to_base64(oidc_client_secret)
+                    config.encrypted_access_client_id = encrypt_to_base64(
+                        oidc_client_id, aad="access_client_id"
+                    )
+                    config.encrypted_access_client_secret = encrypt_to_base64(
+                        oidc_client_secret, aad="access_client_secret"
+                    )
                     logger.info("Stored OIDC client credentials (encrypted)")
                 else:
                     raise CloudflareAPIError(
@@ -1399,7 +1411,7 @@ compatibility_flags = ["nodejs_compat"]
             # Step B: Sync all Worker secrets
             svc_token = None
             if config.encrypted_service_token:
-                svc_token = decrypt_from_base64(config.encrypted_service_token)
+                svc_token = decrypt_from_base64(config.encrypted_service_token, aad="service_token")
 
             await self._sync_worker_secrets(
                 api_token,

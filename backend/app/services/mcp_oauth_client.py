@@ -506,7 +506,7 @@ def encrypt_tokens(tokens: OAuthTokens, client_id: str | None = None) -> str:
     }
     if client_id:
         data["client_id"] = client_id
-    return encrypt_to_base64(json.dumps(data))
+    return encrypt_to_base64(json.dumps(data), aad="oauth_tokens")
 
 
 def decrypt_tokens(encrypted: str) -> dict[str, Any]:
@@ -515,7 +515,7 @@ def decrypt_tokens(encrypted: str) -> dict[str, Any]:
     Returns:
         Dict with token fields.
     """
-    return json.loads(decrypt_from_base64(encrypted))
+    return json.loads(decrypt_from_base64(encrypted, aad="oauth_tokens"))
 
 
 def is_token_expired(tokens_json: dict[str, Any]) -> bool:
@@ -562,7 +562,7 @@ async def get_oauth_auth_headers(
 
             # Persist the refreshed tokens
             if db_update_callback:
-                new_encrypted = encrypt_to_base64(json.dumps(tokens_json))
+                new_encrypted = encrypt_to_base64(json.dumps(tokens_json), aad="oauth_tokens")
                 await db_update_callback(new_encrypted)
         else:
             logger.warning(

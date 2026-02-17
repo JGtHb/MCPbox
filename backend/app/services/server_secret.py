@@ -53,7 +53,8 @@ class ServerSecretService:
         if not secret:
             return None
 
-        secret.encrypted_value = encrypt(value)
+        # SECURITY: AAD context binding prevents ciphertext swapping (SEC-005)
+        secret.encrypted_value = encrypt(value, aad=f"server_secret:{server_id}:{key_name}")
         await self.db.flush()
         await self.db.refresh(secret)
         return secret
@@ -106,7 +107,10 @@ class ServerSecretService:
         for secret in secrets:
             if secret.encrypted_value is not None:
                 try:
-                    result[secret.key_name] = decrypt(secret.encrypted_value)
+                    result[secret.key_name] = decrypt(
+                        secret.encrypted_value,
+                        aad=f"server_secret:{server_id}:{secret.key_name}",
+                    )
                 except Exception:
                     logger.error(
                         f"Failed to decrypt secret {secret.key_name} for server {server_id}"
