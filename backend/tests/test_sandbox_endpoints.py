@@ -319,3 +319,111 @@ class TestBuildToolDefinitions:
         assert result[0]["timeout_ms"] == 30000  # Default timeout
 
 
+class TestSecretSyncToSandbox:
+    """Tests that secrets are synced to the sandbox when set/updated/deleted."""
+
+    @pytest.mark.asyncio
+    async def test_set_secret_syncs_to_sandbox_when_running(
+        self, async_client: AsyncClient, server_factory, db_session, admin_headers
+    ):
+        """Setting a secret on a running server syncs to sandbox."""
+        from app.models.server_secret import ServerSecret
+
+        server = await server_factory(status="running")
+
+        # Create a secret placeholder
+        secret = ServerSecret(
+            server_id=server.id,
+            key_name="API_KEY",
+            description="Test API key",
+        )
+        db_session.add(secret)
+        await db_session.flush()
+
+        mock_client = MagicMock()
+        mock_client.update_server_secrets = AsyncMock(return_value={"success": True})
+
+        with override_sandbox_client(mock_client):
+            response = await async_client.put(
+                f"/api/servers/{server.id}/secrets/API_KEY",
+                json={"value": "my-secret-value"},
+                headers=admin_headers,
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["has_value"] is True
+
+        # Verify sandbox was called with the decrypted secrets
+        mock_client.update_server_secrets.assert_called_once()
+        call_args = mock_client.update_server_secrets.call_args
+        assert call_args.args[0] == str(server.id)
+        # The secrets dict should contain the decrypted value
+        assert "API_KEY" in call_args.args[1]
+
+    @pytest.mark.asyncio
+    async def test_set_secret_skips_sync_when_stopped(
+        self, async_client: AsyncClient, server_factory, db_session, admin_headers
+    ):
+        """Setting a secret on a stopped server does NOT sync to sandbox."""
+        from app.models.server_secret import ServerSecret
+
+        server = await server_factory(status="stopped")
+
+        secret = ServerSecret(
+            server_id=server.id,
+            key_name="API_KEY",
+            description="Test API key",
+        )
+        db_session.add(secret)
+        await db_session.flush()
+
+        mock_client = MagicMock()
+        mock_client.update_server_secrets = AsyncMock(return_value={"success": True})
+
+        with override_sandbox_client(mock_client):
+            response = await async_client.put(
+                f"/api/servers/{server.id}/secrets/API_KEY",
+                json={"value": "my-secret-value"},
+                headers=admin_headers,
+            )
+
+        assert response.status_code == 200
+        # Sandbox should NOT have been called
+        mock_client.update_server_secrets.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_delete_secret_syncs_to_sandbox_when_running(
+        self, async_client: AsyncClient, server_factory, db_session, admin_headers
+    ):
+        """Deleting a secret on a running server syncs to sandbox."""
+        from app.models.server_secret import ServerSecret
+        from app.services.crypto import encrypt
+
+        server = await server_factory(status="running")
+
+        secret = ServerSecret(
+            server_id=server.id,
+            key_name="OLD_KEY",
+            description="Key to delete",
+            encrypted_value=encrypt("old-value"),
+        )
+        db_session.add(secret)
+        await db_session.flush()
+
+        mock_client = MagicMock()
+        mock_client.update_server_secrets = AsyncMock(return_value={"success": True})
+
+        with override_sandbox_client(mock_client):
+            response = await async_client.delete(
+                f"/api/servers/{server.id}/secrets/OLD_KEY",
+                headers=admin_headers,
+            )
+
+        assert response.status_code == 204
+
+        # Verify sandbox was called with empty secrets (the deleted key removed)
+        mock_client.update_server_secrets.assert_called_once()
+        call_args = mock_client.update_server_secrets.call_args
+        assert call_args.args[0] == str(server.id)
+        assert "OLD_KEY" not in call_args.args[1]

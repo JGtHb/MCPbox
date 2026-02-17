@@ -271,6 +271,38 @@ async def unregister_server(server_id: str):
     return UnregisterServerResponse(success=True, server_id=server_id)
 
 
+class UpdateSecretsRequest(BaseModel):
+    """Request to update secrets for a running server."""
+
+    secrets: dict[str, str] = {}
+
+
+class UpdateSecretsResponse(BaseModel):
+    """Response from updating server secrets."""
+
+    success: bool
+    server_id: str
+
+
+@router.put("/servers/{server_id}/secrets", response_model=UpdateSecretsResponse)
+async def update_server_secrets(server_id: str, body: UpdateSecretsRequest):
+    """Update secrets for a running server.
+
+    Replaces the server's secrets with the provided dict.
+    Called by the backend when an admin sets, updates, or deletes a secret
+    so the sandbox always has current decrypted values.
+    """
+    success = tool_registry.update_secrets(server_id, body.secrets)
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Server not found: {server_id}",
+        )
+
+    return UpdateSecretsResponse(success=True, server_id=server_id)
+
+
 @router.get("/servers", response_model=ListServersResponse)
 async def list_servers():
     """List all registered servers."""

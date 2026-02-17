@@ -155,7 +155,10 @@ class TestPassthroughToolRegistration:
         passthrough_tool_def = {
             "name": "external_search",
             "description": "Search via external MCP",
-            "parameters": {"type": "object", "properties": {"query": {"type": "string"}}},
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+            },
             "tool_type": "mcp_passthrough",
             "external_source_id": "source-1",
             "external_tool_name": "search",
@@ -238,7 +241,9 @@ class TestPassthroughToolRegistration:
         assert len(server.external_sources) == 2
         assert "src-1" in server.external_sources
         assert server.external_sources["src-1"].url == "https://a.example.com/mcp"
-        assert server.external_sources["src-1"].auth_headers == {"Authorization": "Bearer a"}
+        assert server.external_sources["src-1"].auth_headers == {
+            "Authorization": "Bearer a"
+        }
 
     def test_python_tool_not_passthrough(self, sample_tool_def, tool_registry):
         """Regular python_code tools have is_passthrough=False."""
@@ -251,6 +256,63 @@ class TestPassthroughToolRegistration:
         tool = tool_registry.get_tool("TestServer__get_weather")
         assert tool.is_passthrough is False
         assert tool.tool_type == "python_code"
+
+
+class TestUpdateSecrets:
+    """Tests for ToolRegistry.update_secrets method."""
+
+    def test_update_secrets_on_running_server(self, tool_registry, sample_tool_def):
+        """Updating secrets replaces the server's secrets dict."""
+        tool_registry.register_server(
+            server_id="server-1",
+            server_name="TestServer",
+            tools=[sample_tool_def],
+            secrets={"OLD_KEY": "old_value"},
+        )
+
+        result = tool_registry.update_secrets(
+            "server-1", {"NEW_KEY": "new_value", "ANOTHER": "val"}
+        )
+
+        assert result is True
+        assert tool_registry.servers["server-1"].secrets == {
+            "NEW_KEY": "new_value",
+            "ANOTHER": "val",
+        }
+
+    def test_update_secrets_nonexistent_server(self, tool_registry):
+        """Updating secrets for a non-existent server returns False."""
+        result = tool_registry.update_secrets("nonexistent", {"KEY": "val"})
+        assert result is False
+
+    def test_update_secrets_clears_old_secrets(self, tool_registry, sample_tool_def):
+        """Updating with an empty dict removes all secrets."""
+        tool_registry.register_server(
+            server_id="server-1",
+            server_name="TestServer",
+            tools=[sample_tool_def],
+            secrets={"KEY": "value"},
+        )
+
+        result = tool_registry.update_secrets("server-1", {})
+
+        assert result is True
+        assert tool_registry.servers["server-1"].secrets == {}
+
+    def test_update_secrets_does_not_affect_tools(self, tool_registry, sample_tool_def):
+        """Updating secrets doesn't change registered tools."""
+        tool_registry.register_server(
+            server_id="server-1",
+            server_name="TestServer",
+            tools=[sample_tool_def],
+            secrets={"KEY": "old"},
+        )
+
+        tool_registry.update_secrets("server-1", {"KEY": "new"})
+
+        # Tools should still be intact
+        assert len(tool_registry.servers["server-1"].tools) == 1
+        assert "get_weather" in tool_registry.servers["server-1"].tools
 
 
 class TestToolFullName:

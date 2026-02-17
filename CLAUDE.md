@@ -115,42 +115,33 @@ Similarly for module and network access requests:
 MCPbox uses a **hybrid architecture** - local-first with optional remote access via Cloudflare Workers VPC.
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           MCPbox (Docker Compose)                            │
-│                                                                              │
-│  LOCAL ONLY (127.0.0.1)                    PRIVATE TUNNEL                    │
-│  ┌──────────┐  ┌──────────────┐           ┌──────────────┐                  │
-│  │ Frontend │  │   Backend    │           │ MCP Gateway  │                  │
-│  │ (React)  │◄─┤  (FastAPI)   │           │ (FastAPI)    │◄── cloudflared   │
-│  │ :3000    │  │  :8000       │           │ :8002        │   (no public URL)│
-│  └──────────┘  │  /api/*      │           │ /mcp ONLY    │                  │
-│                └──────┬───────┘           └──────┬───────┘                  │
-│                       │                          │                          │
-│                       └──────────┬───────────────┘                          │
-│                                  │                                          │
-│                                  ▼                                          │
-│  ┌────────────┐     ┌──────────────────────────┐                           │
-│  │ PostgreSQL │◄────┤     Shared Sandbox       │                           │
-│  │   :5432    │     │        :8001             │                           │
-│  └────────────┘     └──────────────────────────┘                           │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    ▲
-                                    │ Workers VPC (private)
-                                    │
-┌───────────────────────────────────┴─────────────────────────────────────────┐
-│                         Cloudflare (Optional)                                │
-│                                                                              │
-│  ┌─────────────────────────────────────────────┐                            │
-│  │ Cloudflare Worker (mcpbox-proxy)            │                            │
-│  │ - OAuth 2.1 (downstream to MCP clients)     │                            │
-│  │ - OIDC upstream (Cloudflare Access for SaaS)│                            │
-│  │ - VPC binding to tunnel                     │                            │
-│  │ - Adds X-MCPbox-Service-Token               │                            │
-│  └─────────────────────────────────────────────┘                            │
-│                           ▲                                                  │
-│                           │ MCP Protocol (HTTPS)                             │
-│                  MCP Clients (Claude Web, etc.)                              │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                     MCPbox (Docker Compose)                       │
+│                                                                   │
+│  LOCAL ONLY (127.0.0.1)           PRIVATE TUNNEL                  │
+│  ┌──────────┐  ┌──────────┐     ┌──────────────┐                │
+│  │ Frontend │  │ Backend  │     │ MCP Gateway  │◄── cloudflared  │
+│  │ (React)  │◄─┤ (FastAPI)│     │ (FastAPI)    │                 │
+│  │ :3000    │  │ :8000    │     │ :8002        │                 │
+│  └──────────┘  └────┬─────┘     └──────┬───────┘                │
+│                     │                  │                          │
+│                     └──────┬───────────┘                         │
+│                            ▼                                      │
+│              ┌──────────────────────────┐  ┌────────────┐        │
+│              │   Shared Sandbox :8001   │  │ PostgreSQL │        │
+│              └──────────────────────────┘  │  :5432     │        │
+│                                            └────────────┘        │
+└──────────────────────────────────────────────────────────────────┘
+                             │ Workers VPC (private)
+                             ▼
+                  ┌──────────────────────────┐
+                  │ Cloudflare Worker         │
+                  │ (OAuth 2.1 + OIDC)       │
+                  └──────────┬───────────────┘
+                             ▼
+                    ┌───────────────┐
+                    │  Claude Web   │
+                    └───────────────┘
 ```
 
 ### Two Deployment Modes
