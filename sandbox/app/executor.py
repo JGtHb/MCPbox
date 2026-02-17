@@ -18,11 +18,11 @@ from app.ssrf import SSRFProtectedAsyncHttpClient
 
 logger = logging.getLogger(__name__)
 
-# Maximum output size (1MB)
-MAX_OUTPUT_SIZE = 1024 * 1024
+# Maximum output size (configurable, default 1MB)
+MAX_OUTPUT_SIZE = int(os.environ.get("SANDBOX_MAX_OUTPUT_SIZE", 1024 * 1024))
 
-# Maximum memory per execution (256MB) - prevents memory exhaustion attacks
-MAX_MEMORY_BYTES = 256 * 1024 * 1024
+# Maximum memory per execution (configurable, default 256MB)
+MAX_MEMORY_BYTES = int(os.environ.get("SANDBOX_MAX_MEMORY_BYTES", 256 * 1024 * 1024))
 
 # Default execution timeout (30 seconds)
 DEFAULT_TIMEOUT = 30.0
@@ -985,8 +985,8 @@ def create_safe_builtins(
 # If an admin chooses to allow potentially dangerous modules like 'os' or
 # 'subprocess', that is their decision to make for their homelab deployment.
 
-# Timeout for regex operations (in seconds) to prevent ReDoS attacks
-REGEX_TIMEOUT = 5.0
+# Timeout for regex operations (configurable, default 5s) to prevent ReDoS attacks
+REGEX_TIMEOUT = float(os.environ.get("SANDBOX_REGEX_TIMEOUT", 5.0))
 
 # =============================================================================
 # SANDBOX ESCAPE PREVENTION

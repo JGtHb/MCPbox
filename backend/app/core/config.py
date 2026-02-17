@@ -134,6 +134,11 @@ class Settings(BaseSettings):
     backend_url: str = "http://localhost:8000"
     frontend_url: str = "http://localhost:3000"
 
+    # Cloudflare Worker deployment settings
+    cf_worker_compatibility_date: str = "2025-03-01"
+    cf_worker_compatibility_flags: str = "nodejs_compat"
+    mcp_gateway_port: int = 8002
+
     # Log retention settings
     log_retention_days: int = 30
 

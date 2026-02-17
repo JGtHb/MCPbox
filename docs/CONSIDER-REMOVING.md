@@ -81,21 +81,21 @@ Items are organized by category and prioritized by impact. Each item includes th
 
 ## 6. Hardcoded Values
 
-### 6a. Sandbox Resource Limits
+### ~~6a. Sandbox Resource Limits~~ — **FIXED**
 - **File**: `sandbox/app/executor.py`
 - **Values**:
   - `MAX_OUTPUT_SIZE = 1024 * 1024` (1MB, line 22)
   - `MAX_MEMORY_BYTES = 256 * 1024 * 1024` (256MB, line 25)
   - `REGEX_TIMEOUT = 5.0` (seconds, line 989)
-- **Action**: Move to environment variables with these as defaults. Allows operators to tune for their deployment without code changes
+- **Resolution**: Extracted to environment variables (`SANDBOX_MAX_OUTPUT_SIZE`, `SANDBOX_MAX_MEMORY_BYTES`, `SANDBOX_REGEX_TIMEOUT`) with original values as defaults
 
-### 6b. Cloudflare Worker Configuration
+### ~~6b. Cloudflare Worker Configuration~~ — **FIXED**
 - **File**: `backend/app/services/cloudflare.py`
 - **Values**:
   - `compatibility_date = "2025-03-01"` (lines 683, 755, 1261)
   - `compatibility_flags = ["nodejs_compat"]` (lines 756, 1262)
   - `http_port: 8002` (line 570)
-- **Action**: Extract `compatibility_date` and `compatibility_flags` to config settings. The port should reference the same config as `MCP_GATEWAY_URL`
+- **Resolution**: Extracted to config settings (`cf_worker_compatibility_date`, `cf_worker_compatibility_flags`, `mcp_gateway_port`) in `backend/app/core/config.py`. All 5 hardcoded references in `cloudflare.py` now use `settings.*`
 
 ---
 
@@ -162,8 +162,8 @@ When reviewing this document, for each item decide:
 | ~~5b~~ | ~~__table__.columns pattern~~ | ~~Refactor~~ | ~~Low~~ | **FIXED** |
 | ~~5c~~ | ~~Dashboard N+1 query~~ | ~~Performance~~ | ~~Medium~~ | **FIXED** |
 | ~~5d~~ | ~~Incomplete barrel export~~ | ~~Consistency~~ | ~~Low~~ | **REMOVED** |
-| 6a | Sandbox hardcoded limits | Config | Low | Low |
-| 6b | Cloudflare hardcoded values | Config | Low | Low |
+| ~~6a~~ | ~~Sandbox hardcoded limits~~ | ~~Config~~ | ~~Low~~ | **FIXED** |
+| ~~6b~~ | ~~Cloudflare hardcoded values~~ | ~~Config~~ | ~~Low~~ | **FIXED** |
 | 7a | Settings model scope | Feature decision | High | Medium |
 | 7b | Helper code feature | Feature decision | Medium | Low |
 | 8a | In-memory token blacklist | Documentation | Trivial | None |

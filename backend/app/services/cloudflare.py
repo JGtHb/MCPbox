@@ -14,6 +14,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.cloudflare_config import CloudflareConfig
 from app.models.tunnel_configuration import TunnelConfiguration
 from app.schemas.cloudflare import (
@@ -567,7 +568,7 @@ class CloudflareService:
                 json={
                     "name": name,
                     "type": "http",
-                    "http_port": 8002,
+                    "http_port": settings.mcp_gateway_port,
                     "host": {
                         "hostname": "mcp-gateway",
                         "resolver_network": {
@@ -680,7 +681,7 @@ class CloudflareService:
                 kv_namespace_id = config.kv_namespace_id
                 if not kv_namespace_id:
                     # Write a minimal wrangler.toml so wrangler knows the account
-                    minimal_toml = f'name = "{name}"\nmain = "src/index.ts"\ncompatibility_date = "2025-03-01"\n'
+                    minimal_toml = f'name = "{name}"\nmain = "src/index.ts"\ncompatibility_date = "{settings.cf_worker_compatibility_date}"\n'
                     minimal_toml_path = os.path.join(tmpdir, "wrangler.toml")
                     with open(minimal_toml_path, "w") as f:
                         f.write(minimal_toml)
@@ -752,8 +753,8 @@ class CloudflareService:
                 wrangler_toml = f"""# MCPbox MCP Proxy Worker (generated)
 name = "{name}"
 main = "src/index.ts"
-compatibility_date = "2025-03-01"
-compatibility_flags = ["nodejs_compat"]
+compatibility_date = "{settings.cf_worker_compatibility_date}"
+compatibility_flags = ["{settings.cf_worker_compatibility_flags}"]
 
 [observability]
 enabled = true
@@ -1258,8 +1259,8 @@ export default {
             # Create minimal wrangler.toml for secrets
             wrangler_toml = f"""name = "{worker_name}"
 main = "src/index.ts"
-compatibility_date = "2025-03-01"
-compatibility_flags = ["nodejs_compat"]
+compatibility_date = "{settings.cf_worker_compatibility_date}"
+compatibility_flags = ["{settings.cf_worker_compatibility_flags}"]
 """
             wrangler_path = os.path.join(tmpdir, "wrangler.toml")
             with open(wrangler_path, "w") as f:
