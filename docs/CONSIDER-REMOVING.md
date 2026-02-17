@@ -65,25 +65,17 @@ Items are organized by category and prioritized by impact. Each item includes th
 
 ## 5. Code Quality Issues
 
-### 5a. Singleton Bypass in Approval Service
-- **File**: `backend/app/services/approval.py:374`
-- **Issue**: Uses `SandboxClient()` (direct constructor) instead of `SandboxClient.get_instance()`, bypassing the singleton pattern with its retry/circuit breaker configuration
-- **Action**: Change to `SandboxClient.get_instance()`
+### ~~5a. Singleton Bypass in Approval Service~~ — **FIXED**
+- **Resolution**: Changed `SandboxClient()` to `SandboxClient.get_instance()`
 
-### 5b. Fragile `__table__.columns` Pattern
-- **File**: `backend/app/api/external_mcp_sources.py:116`
-- **Issue**: `_source_to_response()` uses `{c.name: getattr(source, c.name) for c in source.__table__.columns}` to convert a model to a dict. This is fragile — adding/removing columns silently changes the response shape
-- **Action**: Use explicit field mapping or a Pydantic `model_validate()` / `.from_orm()` pattern. Note: `base.py:47` also uses this pattern but is a generic `to_dict()` utility method on the base model, which is acceptable
+### ~~5b. Fragile `__table__.columns` Pattern~~ — **FIXED**
+- **Resolution**: Replaced with Pydantic `model_validate()` pattern using `ExternalMCPSourceResponse`
 
-### 5c. Dashboard N+1 Query (Time Series)
-- **File**: `backend/app/api/dashboard.py:221-241`
-- **Issue**: Generates time-series data by executing TWO database queries per time bucket (one for total count, one for error count). For a 24-hour hourly view, this is 48 queries. For a 7-day view, it's 336 queries
-- **Action**: Replace with a single `GROUP BY date_trunc('hour', created_at)` query that returns all buckets at once, then fill gaps in Python
+### ~~5c. Dashboard N+1 Query (Time Series)~~ — **FIXED**
+- **Resolution**: Replaced per-bucket queries with single `GROUP BY date_trunc()` query using `.filter()` for error counting. Gaps filled in Python
 
-### 5d. Incomplete Frontend Barrel Export
-- **File**: `frontend/src/api/index.ts`
-- **Issue**: Only re-exports from `client.ts`, `health.ts`, `servers.ts`, and `tools.ts`. Other API modules (`auth.ts`, `approvals.ts`, `cloudflare.ts`, etc.) require direct imports
-- **Action**: Either complete the barrel export to include all API modules, or remove it entirely if direct imports are the preferred pattern. Choose one pattern consistently
+### ~~5d. Incomplete Frontend Barrel Export~~ — **REMOVED**
+- **Resolution**: Removed `frontend/src/api/index.ts`. Updated the one consumer (Dashboard.tsx) to import directly from `api/health`
 
 ---
 
@@ -166,10 +158,10 @@ When reviewing this document, for each item decide:
 | ~~4a~~ | ~~Duplicate config endpoints~~ | ~~API change~~ | ~~Low~~ | **FIXED** |
 | ~~4b~~ | ~~Duplicate _build_tool_defs~~ | ~~Refactor~~ | ~~Medium~~ | **FIXED** |
 | ~~4c~~ | ~~Duplicate enum definitions~~ | ~~Refactor~~ | ~~Medium~~ | **FIXED** |
-| 5a | Singleton bypass | Bug fix | Trivial | Low |
-| 5b | __table__.columns pattern | Refactor | Low | Low |
-| 5c | Dashboard N+1 query | Performance | Medium | Low |
-| 5d | Incomplete barrel export | Consistency | Low | None |
+| ~~5a~~ | ~~Singleton bypass~~ | ~~Bug fix~~ | ~~Trivial~~ | **FIXED** |
+| ~~5b~~ | ~~__table__.columns pattern~~ | ~~Refactor~~ | ~~Low~~ | **FIXED** |
+| ~~5c~~ | ~~Dashboard N+1 query~~ | ~~Performance~~ | ~~Medium~~ | **FIXED** |
+| ~~5d~~ | ~~Incomplete barrel export~~ | ~~Consistency~~ | ~~Low~~ | **REMOVED** |
 | 6a | Sandbox hardcoded limits | Config | Low | Low |
 | 6b | Cloudflare hardcoded values | Config | Low | Low |
 | 7a | Settings model scope | Feature decision | High | Medium |

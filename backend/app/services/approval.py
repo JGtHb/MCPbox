@@ -371,7 +371,7 @@ class ApprovalService:
         try:
             from app.services.sandbox_client import SandboxClient
 
-            sandbox_client = SandboxClient()
+            sandbox_client = SandboxClient.get_instance()
             install_result = await sandbox_client.install_package(request.module_name)
             if install_result.get("status") == "installed":
                 logger.info(

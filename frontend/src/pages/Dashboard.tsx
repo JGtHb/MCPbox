@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Header } from '../components/Layout'
-import { useHealth } from '../api'
+import { useHealth } from '../api/health'
 import { useDashboard } from '../api/dashboard'
 import { useTunnelStatus } from '../api/tunnel'
 
