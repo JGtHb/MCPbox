@@ -60,6 +60,8 @@ class RegisteredServer:
     secrets: dict[str, str] = field(default_factory=dict)  # Decrypted key-value secrets
     # External MCP source configs (source_id → config)
     external_sources: dict[str, ExternalSourceConfig] = field(default_factory=dict)
+    # Network access control: None = no restriction, set = only these hosts allowed
+    allowed_hosts: Optional[set[str]] = None
 
 
 class ToolRegistry:
@@ -89,6 +91,7 @@ class ToolRegistry:
         allowed_modules: Optional[list[str]] = None,
         secrets: dict[str, str] | None = None,
         external_sources: list[dict[str, Any]] | None = None,
+        allowed_hosts: list[str] | None = None,
     ) -> int:
         """Register a server with its tools.
 
@@ -101,6 +104,7 @@ class ToolRegistry:
             allowed_modules: Custom list of allowed Python modules (None = defaults)
             secrets: Dict of secret key→value pairs for injection into tool namespace
             external_sources: List of external MCP source configs for passthrough tools
+            allowed_hosts: List of approved network hostnames (None = no restriction)
 
         Returns:
             The number of tools registered.
@@ -115,6 +119,7 @@ class ToolRegistry:
             helper_code=helper_code,
             allowed_modules=allowed_modules,
             secrets=secrets or {},
+            allowed_hosts=set(allowed_hosts) if allowed_hosts is not None else None,
         )
 
         # Register external MCP sources
@@ -260,13 +265,14 @@ class ToolRegistry:
                 "error": "Tool has no Python code defined",
             }
 
-        # Get the server for helper code, allowed modules, and secrets
+        # Get the server for helper code, allowed modules, secrets, and network config
         server = self.get_server_for_tool(tool.full_name)
         helper_code = server.helper_code if server else None
         allowed_modules = (
             set(server.allowed_modules) if server and server.allowed_modules else None
         )
         secrets = server.secrets if server else {}
+        allowed_hosts = server.allowed_hosts if server else None
 
         # Build HTTP client (unauthenticated — tools use secrets for auth)
         http_client = httpx.AsyncClient(
@@ -285,6 +291,7 @@ class ToolRegistry:
                 debug_mode=debug_mode,
                 allowed_modules=allowed_modules,
                 secrets=secrets,
+                allowed_hosts=allowed_hosts,
             )
 
             return result.to_dict()
@@ -302,8 +309,13 @@ class ToolRegistry:
 
         Uses the MCP session pool for connection reuse and automatic retry
         on transient errors (timeouts, 502/503/504, connection resets).
+
+        SECURITY: Validates the external source URL through SSRF checks at call
+        time (not just registration time) to catch DNS changes that could route
+        traffic to internal infrastructure.
         """
         from app.mcp_session_pool import mcp_session_pool
+        from app.ssrf import SSRFError, validate_url_with_pinning
 
         server = self.get_server_for_tool(tool.full_name)
         if not server:
@@ -324,6 +336,20 @@ class ToolRegistry:
             return {
                 "success": False,
                 "error": f"External source {tool.external_source_id} not found",
+            }
+
+        # SECURITY: Validate external URL doesn't resolve to internal IPs.
+        # DNS can change between registration and call time; re-validate now.
+        try:
+            validate_url_with_pinning(source.url)
+        except SSRFError as e:
+            logger.warning(
+                f"Blocked passthrough tool {tool.full_name}: "
+                f"external source URL {source.url} failed SSRF validation: {e}"
+            )
+            return {
+                "success": False,
+                "error": f"External source URL blocked: {e}",
             }
 
         external_name = tool.external_tool_name or tool.name

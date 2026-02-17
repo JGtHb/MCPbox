@@ -95,6 +95,8 @@ class RegisterServerRequest(BaseModel):
     )
     secrets: dict[str, str] = {}  # Key-value secrets for injection into tool namespace
     external_sources: list[ExternalSourceDef] = []  # External MCP source configs
+    # Network access control: approved hostnames (None = no restriction)
+    allowed_hosts: Optional[list[str]] = None
 
     def model_post_init(self, __context: Any) -> None:
         """Validate helper_code size limit after model initialization."""
@@ -248,6 +250,7 @@ async def register_server(request: RegisterServerRequest):
         allowed_modules=request.allowed_modules,
         secrets=request.secrets,
         external_sources=external_sources_data,
+        allowed_hosts=request.allowed_hosts,
     )
 
     return RegisterServerResponse(

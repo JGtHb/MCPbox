@@ -471,7 +471,7 @@ class TestUpdateServerSecrets:
             json={"secrets": {"MY_SECRET": "secret-value-123"}},
         )
 
-        # Tool should now see the secret
+        # Tool should now see the secret (but it's redacted in output)
         response = client.post(
             "/tools/SecretServer__check_secret/call",
             json={"arguments": {}},
@@ -479,4 +479,7 @@ class TestUpdateServerSecrets:
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
-        assert data["result"] == "secret-value-123"
+        # Secret values are redacted in tool output to prevent accidental leakage.
+        # The tool can read secrets internally, but returning them exposes them
+        # in MCP responses and execution logs.
+        assert data["result"] == "[REDACTED]"

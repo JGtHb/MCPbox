@@ -105,8 +105,11 @@ async def start_server(
     # Build external MCP source configs for passthrough tools
     external_sources_data = await _build_external_source_configs(db, server_id, secrets)
 
+    # Determine allowed hosts for network access enforcement
+    allowed_hosts = server.allowed_hosts if server.network_mode == "allowlist" else None
+
     try:
-        # Register with sandbox (include helper_code and global allowed_modules)
+        # Register with sandbox (include helper_code, allowed_modules, and network config)
         result = await sandbox_client.register_server(
             server_id=str(server_id),
             server_name=server.name,
@@ -116,6 +119,7 @@ async def start_server(
             allowed_modules=allowed_modules,
             secrets=secrets,
             external_sources=external_sources_data,
+            allowed_hosts=allowed_hosts,
         )
 
         if not result.get("success"):
@@ -249,8 +253,11 @@ async def restart_server(
     # Build external MCP source configs for passthrough tools
     external_sources_data = await _build_external_source_configs(db, server_id, secrets)
 
+    # Determine allowed hosts for network access enforcement
+    allowed_hosts = server.allowed_hosts if server.network_mode == "allowlist" else None
+
     try:
-        # Re-register (include helper_code and global allowed_modules)
+        # Re-register (include helper_code, allowed_modules, and network config)
         result = await sandbox_client.register_server(
             server_id=str(server_id),
             server_name=server.name,
@@ -260,6 +267,7 @@ async def restart_server(
             allowed_modules=allowed_modules,
             secrets=secrets,
             external_sources=external_sources_data,
+            allowed_hosts=allowed_hosts,
         )
 
         if not result.get("success"):

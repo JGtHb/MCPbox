@@ -1637,6 +1637,24 @@ class DebugHttpClient:
             raise
 
 
+# Minimum secret length to attempt redaction (avoids false positives on short values)
+_MIN_SECRET_REDACTION_LENGTH = 8
+
+
+def _redact_secrets(text: str, secrets: dict[str, str] | None) -> str:
+    """Redact known secret values from text to prevent accidental leakage.
+
+    Scans the text for any secret value and replaces it with [REDACTED].
+    Only redacts values >= _MIN_SECRET_REDACTION_LENGTH to avoid false positives.
+    """
+    if not secrets or not text:
+        return text
+    for value in secrets.values():
+        if value and len(value) >= _MIN_SECRET_REDACTION_LENGTH:
+            text = text.replace(value, "[REDACTED]")
+    return text
+
+
 class PythonExecutor:
     """Executes Python code safely with injected dependencies.
 
@@ -1665,6 +1683,7 @@ class PythonExecutor:
         helper_code: Optional[str] = None,
         allowed_modules: set[str] | None = None,
         secrets: dict[str, str] | None = None,
+        allowed_hosts: set[str] | None = None,
     ) -> dict[str, Any]:
         """Create the execution namespace with injected dependencies.
 
@@ -1673,11 +1692,15 @@ class PythonExecutor:
             helper_code: Optional shared code to execute in namespace
             allowed_modules: Set of allowed module names (None = use defaults)
             secrets: Dict of secret key→value pairs (read-only)
+            allowed_hosts: Set of approved network hostnames (None = no restriction)
         """
         from types import MappingProxyType
 
-        # Wrap HTTP client with SSRF protection to prevent access to internal IPs
-        protected_client = SSRFProtectedAsyncHttpClient(http_client)
+        # Wrap HTTP client with SSRF protection to prevent access to internal IPs.
+        # If allowed_hosts is set, also enforce per-server network allowlist.
+        protected_client = SSRFProtectedAsyncHttpClient(
+            http_client, allowed_hosts=allowed_hosts
+        )
 
         namespace = {
             "__builtins__": self._create_safe_builtins(allowed_modules),
@@ -1711,6 +1734,7 @@ class PythonExecutor:
         debug_mode: bool = False,
         allowed_modules: set[str] | None = None,
         secrets: dict[str, str] | None = None,
+        allowed_hosts: set[str] | None = None,
     ) -> ExecutionResult:
         """Execute Python code with the provided arguments.
 
@@ -1722,6 +1746,7 @@ class PythonExecutor:
             timeout: Execution timeout in seconds
             debug_mode: If True, capture detailed debug info
             allowed_modules: Set of module names allowed for import (None = defaults)
+            allowed_hosts: Set of approved network hostnames (None = no restriction)
 
         Returns:
             ExecutionResult with success/error and result
@@ -1774,7 +1799,11 @@ class PythonExecutor:
             # Create execution namespace
             try:
                 namespace = self._create_execution_namespace(
-                    http_client, helper_code, allowed_modules, secrets
+                    http_client,
+                    helper_code,
+                    allowed_modules,
+                    secrets,
+                    allowed_hosts,
                 )
             except ValueError as e:
                 # Error loading helper code
@@ -1859,10 +1888,23 @@ class PythonExecutor:
             except (TypeError, ValueError):
                 result = str(result)
 
+            # SECURITY: Redact any secret values that leaked into output.
+            # This catches accidental leaks in return values and print statements.
+            stdout_text = _redact_secrets(stdout_capture.getvalue(), secrets)
+            if isinstance(result, str):
+                result = _redact_secrets(result, secrets)
+            elif isinstance(result, dict):
+                # Redact within JSON-serialized form, then parse back
+                redacted = _redact_secrets(json.dumps(result), secrets)
+                try:
+                    result = json.loads(redacted)
+                except (json.JSONDecodeError, ValueError):
+                    result = redacted
+
             return ExecutionResult(
                 success=True,
                 result=result,
-                stdout=stdout_capture.getvalue(),
+                stdout=stdout_text,
                 duration_ms=int((time.monotonic() - start_time) * 1000),
                 debug_info=debug_info,
             )
