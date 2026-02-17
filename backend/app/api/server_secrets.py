@@ -3,7 +3,7 @@
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -66,7 +66,9 @@ async def list_secrets(
     """List all secrets for a server (values never exposed)."""
     server = await server_service.get(server_id)
     if not server:
-        raise HTTPException(status_code=404, detail=f"Server {server_id} not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Server {server_id} not found"
+        )
 
     secrets = await service.list_by_server(server_id)
     return SecretListResponse(
@@ -96,7 +98,9 @@ async def create_secret(
     """Create an empty secret placeholder."""
     server = await server_service.get(server_id)
     if not server:
-        raise HTTPException(status_code=404, detail=f"Server {server_id} not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Server {server_id} not found"
+        )
 
     try:
         secret = await service.create(
@@ -116,7 +120,7 @@ async def create_secret(
     except Exception as e:
         if "uq_server_secrets_server_key" in str(e):
             raise HTTPException(
-                status_code=409,
+                status_code=status.HTTP_409_CONFLICT,
                 detail=f"Secret '{data.key_name}' already exists for this server",
             ) from e
         raise
@@ -138,7 +142,7 @@ async def set_secret_value(
     )
     if not secret:
         raise HTTPException(
-            status_code=404,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Secret '{key_name}' not found for server {server_id}",
         )
 
@@ -167,7 +171,7 @@ async def delete_secret(
     deleted = await service.delete(server_id=server_id, key_name=key_name)
     if not deleted:
         raise HTTPException(
-            status_code=404,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Secret '{key_name}' not found for server {server_id}",
         )
 

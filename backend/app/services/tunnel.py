@@ -1,12 +1,14 @@
 """Cloudflared tunnel service - manages named tunnel processes."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import re
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +21,7 @@ class TunnelService:
     Authentication is handled by Cloudflare MCP Server Portals.
     """
 
-    _instance: Optional["TunnelService"] = None
+    _instance: TunnelService | None = None
     _process: asyncio.subprocess.Process | None = None
     _url: str | None = None
     _status: str = "disconnected"
@@ -29,14 +31,14 @@ class TunnelService:
     _named_tunnel_url: str | None = None  # User-configured URL for named tunnel
     _lock: asyncio.Lock | None = None  # Protects start/stop operations
 
-    def __new__(cls) -> "TunnelService":
+    def __new__(cls) -> TunnelService:
         """Singleton pattern."""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
     @classmethod
-    def get_instance(cls) -> "TunnelService":
+    def get_instance(cls) -> TunnelService:
         """Get or create the singleton instance."""
         if cls._instance is None:
             cls._instance = cls()

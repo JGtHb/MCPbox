@@ -629,9 +629,9 @@ class ExecuteCodeRequest(BaseModel):
     arguments: dict[str, Any] = {}
     credentials: dict[str, str] = {}
     timeout_seconds: int = 30
-    allowed_modules: Optional[list[str]] = (
-        None  # Custom allowed modules (None = defaults)
-    )
+    # SECURITY: allowed_modules removed — /execute always uses admin-configured
+    # DEFAULT_ALLOWED_MODULES. Per-server overrides are only available via
+    # /servers/register (SEC-015).
     secrets: dict[str, str] = {}  # Key-value secrets for injection into namespace
 
 
@@ -714,10 +714,8 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
     # Validate timeout bounds (1 second to 5 minutes max)
     timeout_seconds = max(1, min(body.timeout_seconds, 300))
 
-    # Determine effective allowed modules (admin-configured whitelist)
-    allowed_modules_set = (
-        set(body.allowed_modules) if body.allowed_modules else DEFAULT_ALLOWED_MODULES
-    )
+    # SECURITY: Always use admin-configured module whitelist (SEC-015)
+    allowed_modules_set = DEFAULT_ALLOWED_MODULES
 
     # Create builtins using the shared function (single source of truth)
     safe_builtins_with_import = create_safe_builtins(

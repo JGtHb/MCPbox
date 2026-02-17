@@ -2,34 +2,19 @@
 
 ## Patterns
 
-### HTTPException Status Code Style
-Different API endpoints use different styles for HTTP status codes:
+### ~~HTTPException Status Code Style~~ — **RESOLVED**
+~~Different API endpoints use different styles for HTTP status codes.~~
 
-```python
-# Style 1: Enum (used in activity.py, approvals.py)
-raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="...")
+Status codes in `server_secrets.py` and `mcp_gateway.py` have been standardized to use `status.HTTP_*` enums. Remaining files (`servers.py`, etc.) still use integer literals — lower priority.
 
-# Style 2: Integer literal (used in server_secrets.py, servers.py)
-raise HTTPException(status_code=404, detail="...")
-```
+**Affected files**: `backend/app/api/server_secrets.py`, `backend/app/api/mcp_gateway.py` (fixed); others remain
 
-**Affected files**: All files in `backend/app/api/`
-**Recommendation**: Standardize on `status.HTTP_*` enums for readability and IDE support
+### ~~Type Annotation Style~~ — **PARTIALLY RESOLVED**
+~~Mix of old and new Python type annotation syntax across service files.~~
 
-### Type Annotation Style
-Mix of old and new Python type annotation syntax across service files:
+`Optional[X]` replaced with `X | None` (using `from __future__ import annotations`) in: `log_retention.py`, `tunnel.py`, `activity_logger.py`, `sandbox_client.py`. Remaining service files still use `Optional` in some places — lower priority.
 
-```python
-# Old style (some services)
-from typing import Optional
-def get_server(self, server_id: int) -> Optional[Server]:
-
-# New style (other services)
-def get_server(self, server_id: int) -> Server | None:
-```
-
-**Affected files**: `backend/app/services/` — mixed across 17+ service files
-**Recommendation**: Standardize on `Type | None` (Python 3.10+) since project requires Python 3.11+
+**Affected files**: 4 files fixed; others remain
 
 ### Error Detail Message Format
 Inconsistent detail message specificity:
@@ -107,10 +92,10 @@ All dependencies are pinned to exact versions across all components:
 
 ## Naming Inconsistencies
 
-### Route Prefix Double-Nesting
+### ~~Route Prefix Double-Nesting~~ — **RESOLVED**
 - **File**: `backend/app/api/settings.py`
-- **Issue**: Router is included at `/api/settings` prefix, but individual routes also use `/settings` prefix, resulting in `/api/settings/settings` for the main endpoint
-- **Recommendation**: Remove inner prefix to get `/api/settings`
+- **Issue**: ~~Router is included at `/api/settings` prefix, but individual routes also use `/settings` prefix, resulting in `/api/settings/settings`~~
+- **Fix**: Changed `@router.get("/settings", ...)` to `@router.get("", ...)` — endpoint is now correctly at `/api/settings`
 
 ### Response Schema Naming Convention
 Mix of naming patterns for response schemas:

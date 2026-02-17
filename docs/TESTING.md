@@ -30,11 +30,11 @@ MCPbox maintains **1,139+ test functions** across backend, sandbox, frontend, an
 | `api/export_import.py` | - | 30+ tests | - | 80% | - |
 | `api/dashboard.py` | - | tests exist | - | 60% | - |
 | `api/activity.py` | - | 10 tests | - | 50% | WebSocket stream testing limited |
-| `api/execution_logs.py` | - | **None** | - | **0%** | **No tests at all** |
-| `api/server_secrets.py` | - | **None** | - | **0%** | **No tests at all** |
+| `api/execution_logs.py` | - | 7 tests | - | 70% | Pagination, single log, 404 |
+| `api/server_secrets.py` | - | 8 tests | - | 75% | CRUD, duplicate key, value leak prevention |
 | `api/health.py` | - | **None** | - | **0%** | **No tests (low risk)** |
 | `api/settings.py` | - | indirect only | - | 20% | Route prefix issue untested |
-| `api/external_mcp_sources.py` | - | **None** | - | **0%** | New feature, needs tests |
+| `api/external_mcp_sources.py` | - | 8 tests | - | 65% | CRUD, 404, nonexistent server |
 | `services/mcp_management.py` | - | 16 tests | - | 30% | **1,927 lines with only 16 tests** |
 | `services/sandbox_client.py` | - | 17 tests | - | 40% | **998 lines, error recovery untested** |
 | `services/crypto.py` | 17 tests | - | - | 85% | - |
@@ -44,8 +44,8 @@ MCPbox maintains **1,139+ test functions** across backend, sandbox, frontend, an
 | `services/activity_logger.py` | 18 tests | - | - | 75% | - |
 | `services/service_token_cache.py` | 6 tests | - | - | 70% | - |
 | `services/url_validator.py` | 25+ tests | - | - | 85% | - |
-| `services/execution_log.py` | - | **None** | - | **0%** | **Untested service** |
-| `services/tool_change_notifier.py` | - | **None** | - | **0%** | **Untested service** |
+| `services/execution_log.py` | 14 tests | - | - | 80% | create, list, get, cleanup, redact, truncate |
+| `services/tool_change_notifier.py` | 6 tests | - | - | 75% | notify, fire_and_forget, error handling |
 | `services/global_config.py` | - | **None** | - | **0%** | - |
 | `services/server.py` | 1 file | - | - | 40% | Basic service, lower risk |
 | `middleware/admin_auth.py` | - | tests exist | - | 70% | - |
@@ -168,23 +168,18 @@ cd backend && pytest tests/test_tools.py::test_create_tool -v
 
 Ordered by risk (highest first):
 
-### 1. Tool Approval TOCTOU (SEC-001, SEC-002)
-- **Affected modules**: `backend/app/services/tool.py:88-146, 251-289`
-- **Risk if broken**: Approved tools can have their code silently replaced or rolled back to malicious versions
-- **Recommended test type**: Integration test — verify `approval_status` resets when `python_code` changes on approved tool, and when rollback restores different code
-- **Priority**: Critical
+### ~~1. Tool Approval TOCTOU (SEC-001, SEC-002)~~ — **RESOLVED**
+- **Status**: Tests added in `backend/tests/test_tool_service.py::TestToolServiceApprovalSecurity` (4 tests)
+- Code update resets approval, rollback resets approval, non-code update preserves approval, identical code preserves approval
 
-### 2. Server Secrets API
-- **Affected modules**: `backend/app/api/server_secrets.py`
-- **Risk if broken**: Secret creation, retrieval, update, deletion could fail silently. Secret values could leak in API responses.
-- **Recommended test type**: Integration tests — CRUD operations, verify values are encrypted, verify responses don't include actual values
-- **Priority**: High
+### ~~2. Server Secrets API~~ — **RESOLVED**
+- **Status**: Tests added in `backend/tests/test_server_secrets.py` (8 tests)
+- CRUD operations, duplicate key detection, value leak prevention, nonexistent server handling
 
-### 3. Execution Logs API
-- **Affected modules**: `backend/app/api/execution_logs.py`
-- **Risk if broken**: Tool execution history inaccessible or leaking sensitive data
-- **Recommended test type**: Integration tests — log retrieval, pagination, filtering, verify secrets are redacted
-- **Priority**: High
+### ~~3. Execution Logs API~~ — **RESOLVED**
+- **Status**: Tests added in `backend/tests/test_execution_logs.py` (7 tests) and `backend/tests/test_execution_log_service.py` (14 tests)
+- API integration: list by tool/server, pagination, single log, 404
+- Service unit: create, redact, truncate, list, get, cleanup
 
 ### 4. MCP Management Service (Underexercised)
 - **Affected modules**: `backend/app/services/mcp_management.py` (1,927 lines, only 16 tests)
@@ -204,17 +199,13 @@ Ordered by risk (highest first):
 - **Recommended test type**: Component tests with React Testing Library
 - **Priority**: Medium
 
-### 7. External MCP Sources API
-- **Affected modules**: `backend/app/api/external_mcp_sources.py`
-- **Risk if broken**: External source connections and passthrough tool discovery fails
-- **Recommended test type**: Integration tests
-- **Priority**: Medium
+### ~~7. External MCP Sources API~~ — **RESOLVED**
+- **Status**: Tests added in `backend/tests/test_external_mcp_sources.py` (8 tests)
+- CRUD operations, 404 handling, nonexistent server handling
 
-### 8. Tool Change Notifier
-- **Affected modules**: `backend/app/services/tool_change_notifier.py`
-- **Risk if broken**: Connected MCP clients don't receive tool list updates
-- **Recommended test type**: Unit tests verifying notification broadcast
-- **Priority**: Low
+### ~~8. Tool Change Notifier~~ — **RESOLVED**
+- **Status**: Tests added in `backend/tests/test_tool_change_notifier.py` (6 tests)
+- Notify via gateway, fire-and-forget, local notify, error handling, auth headers
 
 ---
 

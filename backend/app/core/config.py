@@ -75,6 +75,21 @@ class Settings(BaseSettings):
 
         return v
 
+    @field_validator("mcpbox_encryption_key_old")
+    @classmethod
+    def validate_old_encryption_key(cls, v: str | None) -> str | None:
+        """Validate old encryption key format if provided (SEC-012)."""
+        if v is None:
+            return v
+        import re
+
+        if len(v) != 64 or not re.fullmatch(r"[0-9a-fA-F]+", v):
+            raise ValueError(
+                "MCPBOX_ENCRYPTION_KEY_OLD must be exactly 64 hex characters (32 bytes). "
+                "Generate with: openssl rand -hex 32"
+            )
+        return v
+
     # CORS - for local admin panel access
     cors_origins: str = "http://localhost:3000"
 
@@ -220,6 +235,13 @@ class Settings(BaseSettings):
         if self.log_retention_days > 365:
             warnings.append(
                 f"Log retention is set to {self.log_retention_days} days - may consume significant disk space."
+            )
+
+        # SECURITY: Warn when JWT secret is derived from encryption key (SEC-011)
+        if not self.jwt_secret_key:
+            warnings.append(
+                "JWT_SECRET_KEY not set — derived from MCPBOX_ENCRYPTION_KEY. "
+                "Set a separate JWT_SECRET_KEY for production deployments."
             )
 
         # Check for duplicate secrets (security anti-pattern)

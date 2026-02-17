@@ -121,6 +121,10 @@ class ToolService:
             update_data["input_schema"] = extract_input_schema_from_python(
                 update_data["python_code"]
             )
+            # SECURITY: Reset approval when code changes to prevent TOCTOU bypass
+            # (SEC-001) — approved tool having its code silently replaced
+            if tool.python_code != update_data["python_code"]:
+                update_data["approval_status"] = "pending_review"
 
         # Apply updates
         for field, value in update_data.items():
@@ -268,6 +272,9 @@ class ToolService:
         tool.timeout_ms = target_version.timeout_ms
         tool.python_code = target_version.python_code
         tool.input_schema = target_version.input_schema
+        # SECURITY: Always reset approval on rollback — rolled-back code needs re-review
+        # (SEC-002) — rolling back to different code while keeping "approved" status
+        tool.approval_status = "pending_review"
 
         # Increment version number atomically to prevent race conditions
         # Using SQL expression ensures database-level atomicity

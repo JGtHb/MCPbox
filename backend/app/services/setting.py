@@ -38,7 +38,7 @@ class SettingService:
 
         if setting.encrypted:
             try:
-                return decrypt_from_base64(setting.value)
+                return decrypt_from_base64(setting.value, aad=f"setting:{key}")
             except DecryptionError as e:
                 # Log the error but return default for resilience
                 logger.warning("Failed to decrypt setting '%s': %s", key, e)
@@ -74,7 +74,7 @@ class SettingService:
 
         # Encrypt if needed (using base64 encoding for storage)
         if value is not None and encrypt_value:
-            setting.value = encrypt_to_base64(value)
+            setting.value = encrypt_to_base64(value, aad=f"setting:{key}")
         else:
             setting.value = value
 

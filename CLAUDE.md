@@ -91,12 +91,12 @@ Two modes: **Local** (no auth, Claude Desktop → localhost:8000/mcp) and **Remo
 
 1. **MCP gateway must run `--workers 1`** — Sessions are stateful (in-memory dict). Multiple workers cause ~50% session mismatches.
 2. **Backend tests require Docker** — testcontainers spins up PostgreSQL. No SQLite fallback (ARRAY types).
-3. **Tool approval TOCTOU** — Updating code on an approved tool doesn't reset approval status. See [SECURITY.md SEC-001](docs/SECURITY.md#sec-001).
-4. **Rollback preserves approval** — Rolling back to different code keeps "approved" status. See [SECURITY.md SEC-002](docs/SECURITY.md#sec-002).
+3. **Tool approval TOCTOU** — ~~Updating code on an approved tool doesn't reset approval status.~~ **Fixed**: approval resets to `pending_review` on code change. See [SECURITY.md SEC-001](docs/SECURITY.md#sec-001).
+4. **Rollback preserves approval** — ~~Rolling back to different code keeps "approved" status.~~ **Fixed**: rollback always resets approval. See [SECURITY.md SEC-002](docs/SECURITY.md#sec-002).
 5. **Sandbox stdout race** — `sys.stdout` globally replaced during execution. Concurrent tools can leak output.
 6. **Two entry points** — `backend/app/main.py` (admin) and `backend/app/mcp_only.py` (gateway) share code but have separate middleware stacks. Changes must be applied to both.
 7. **Encryption key required** — `MCPBOX_ENCRYPTION_KEY` must be exactly 64 hex chars. `SANDBOX_API_KEY` must be 32+ chars.
-8. **Route prefix double-nesting** — `/api/settings/settings` endpoint has doubled prefix. See [INCONSISTENCIES.md](docs/INCONSISTENCIES.md).
+8. **Route prefix double-nesting** — ~~`/api/settings/settings` endpoint has doubled prefix.~~ **Fixed**: endpoint is now `/api/settings`. See [INCONSISTENCIES.md](docs/INCONSISTENCIES.md).
 9. **alembic upgrade head required** — Auto table creation disabled. Run migrations before first start.
 10. **Service token comparison** — Must use `secrets.compare_digest()` (constant-time). Never use `==`.
 

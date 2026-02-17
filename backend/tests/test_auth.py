@@ -255,6 +255,22 @@ async def test_logout(async_client, admin_user, admin_headers):
 
 
 @pytest.mark.asyncio
+async def test_logout_blacklists_token(async_client, admin_user, admin_headers, auth_tokens):
+    """SEC-009: After logout, the same access token should be rejected."""
+    # Verify token works before logout
+    response = await async_client.get("/auth/me", headers=admin_headers)
+    assert response.status_code == 200
+
+    # Logout
+    response = await async_client.post("/auth/logout", headers=admin_headers)
+    assert response.status_code == 200
+
+    # Same token should now be rejected
+    response = await async_client.get("/auth/me", headers=admin_headers)
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_protected_endpoint_requires_auth(async_client, admin_user):
     """Test that protected endpoints require authentication."""
     response = await async_client.get("/api/servers")

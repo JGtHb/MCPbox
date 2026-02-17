@@ -41,7 +41,7 @@ Features are sorted by status, with broken/partial items at the top for visibili
 - **Owner modules**: `backend/app/api/approvals.py`, `backend/app/services/approval.py`, `frontend/src/pages/Approvals.tsx`
 - **Dependencies**: Admin auth (JWT), Tool service
 - **Test coverage**: `backend/tests/test_approvals.py` (40+ tests) — well covered
-- **Security notes**: LLMs cannot self-approve. Admin identity extracted from JWT for audit trail. See [SECURITY.md](SECURITY.md#sec-001) for TOCTOU issue with tool updates after approval.
+- **Security notes**: LLMs cannot self-approve. Admin identity extracted from JWT for audit trail. TOCTOU issue (SEC-001, SEC-002) is now **fixed** — approval resets on code update and rollback.
 
 ### Sandboxed Code Execution
 - **Status**: Complete
@@ -63,8 +63,8 @@ Features are sorted by status, with broken/partial items at the top for visibili
 - **Description**: Per-server encrypted key-value secret storage. LLMs create placeholders via `mcpbox_create_server_secret`, admins set values in UI. Secrets injected as immutable `MappingProxyType` dict (`secrets["KEY_NAME"]`) at tool execution time. Values never flow through LLMs.
 - **Owner modules**: `backend/app/api/server_secrets.py`, `backend/app/services/server_secret.py`, `backend/app/models/server_secret.py`, `backend/app/services/crypto.py`
 - **Dependencies**: Crypto service (AES-256-GCM), Sandbox (secret injection)
-- **Test coverage**: No dedicated API tests for `server_secrets.py` — **gap**. Crypto tested in `backend/tests/test_crypto.py` (17 tests).
-- **Security notes**: AES-256-GCM with per-value random IV. Secrets redacted in execution logs and debug output. See [SECURITY.md](SECURITY.md#sec-005) for missing AAD concern.
+- **Test coverage**: `backend/tests/test_server_secrets.py` (8 tests) — CRUD, duplicate key, value leak prevention. Crypto tested in `backend/tests/test_crypto.py` (17+ tests).
+- **Security notes**: AES-256-GCM with per-value random IV and AAD context binding (`server_secret:{server_id}:{key_name}`). Secrets redacted in execution logs and debug output.
 
 ### Tool Version History & Rollback
 - **Status**: Complete
@@ -72,14 +72,14 @@ Features are sorted by status, with broken/partial items at the top for visibili
 - **Owner modules**: `backend/app/services/tool.py` (rollback logic), `backend/app/models/tool_version.py`
 - **Dependencies**: Tool service
 - **Test coverage**: Covered in `backend/tests/test_tools.py`
-- **Security notes**: See [SECURITY.md](SECURITY.md#sec-002) — rollback preserves approval status
+- **Security notes**: Rollback now resets `approval_status` to `pending_review` (SEC-002 fixed)
 
 ### Tool Execution Logging
 - **Status**: Complete
 - **Description**: Every tool invocation is logged with arguments (secrets redacted), results (truncated to 10KB), errors, stdout, duration, and success status. Viewable per-tool in UI and via `mcpbox_get_tool_logs`.
 - **Owner modules**: `backend/app/services/execution_log.py`, `backend/app/api/execution_logs.py`, `backend/app/models/tool_execution_log.py`
 - **Dependencies**: Activity logger
-- **Test coverage**: No dedicated API tests for `execution_logs.py` — **gap**. Service tested indirectly.
+- **Test coverage**: `backend/tests/test_execution_logs.py` (7 tests), `backend/tests/test_execution_log_service.py` (14 tests) — API integration + service unit tests.
 
 ### Activity Logging & Live Stream
 - **Status**: Complete
@@ -102,7 +102,7 @@ Features are sorted by status, with broken/partial items at the top for visibili
 - **Owner modules**: `backend/app/api/auth.py`, `backend/app/core/security.py`, `backend/app/middleware/admin_auth.py`
 - **Dependencies**: PostgreSQL (admin_users table)
 - **Test coverage**: `backend/tests/test_auth.py` (15+ tests), `backend/tests/test_admin_auth.py`
-- **Security notes**: JWT secret derived from encryption key if not set separately — acceptable for homelab. See [DECISIONS.md](DECISIONS.md#adr-011).
+- **Security notes**: JWT secret derived from encryption key if not set separately — startup warning emitted (SEC-011). JWT logout now server-side via in-memory JTI blacklist (SEC-009). See [DECISIONS.md](DECISIONS.md#adr-011).
 
 ### Cloudflare Remote Access
 - **Status**: Complete
@@ -124,7 +124,7 @@ Features are sorted by status, with broken/partial items at the top for visibili
 - **Description**: MCP `tools/list_changed` notifications broadcast to all connected clients when tools are added, removed, approved, or servers start/stop.
 - **Owner modules**: `backend/app/services/tool_change_notifier.py`, `backend/app/api/mcp_gateway.py`
 - **Dependencies**: MCP gateway sessions
-- **Test coverage**: No dedicated tests — **gap**
+- **Test coverage**: `backend/tests/test_tool_change_notifier.py` (6 tests) — notify, fire-and-forget, error handling
 
 ### External MCP Source Passthrough
 - **Status**: Complete
@@ -132,7 +132,7 @@ Features are sorted by status, with broken/partial items at the top for visibili
 - **Owner modules**: `backend/app/api/external_mcp_sources.py`, `backend/app/models/external_mcp_source.py`, `sandbox/app/mcp_client.py`, `sandbox/app/mcp_session_pool.py`
 - **Dependencies**: Sandbox (MCP client), External MCP servers
 - **Test coverage**: `sandbox/tests/test_mcp_client.py` (20+ tests), `sandbox/tests/test_mcp_session_pool.py` (15+ tests)
-- **Security notes**: See [SECURITY.md](SECURITY.md#sec-007) — MCP client follows redirects without SSRF validation
+- **Security notes**: MCP client now uses `allow_redirects=False` to prevent redirect-based SSRF (SEC-007 fixed)
 
 ### Export / Import
 - **Status**: Complete

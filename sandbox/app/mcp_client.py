@@ -127,6 +127,7 @@ class MCPClient:
                     await self._session.delete(
                         self.url,
                         headers=self._request_headers(),
+                        allow_redirects=False,
                     )
                 except Exception:
                     pass  # Best-effort cleanup
@@ -153,10 +154,13 @@ class MCPClient:
             raise MCPClientError("Client not initialized. Use async with.")
 
         try:
+            # SECURITY: Disable redirects to prevent SSRF bypass (SEC-007).
+            # A malicious external MCP server could redirect to internal IPs.
             response = await self._session.post(
                 self.url,
                 json=request,
                 headers=self._request_headers(),
+                allow_redirects=False,
             )
         except CurlTimeout as e:
             raise MCPClientError(f"Request timed out: {e}") from e
@@ -252,6 +256,7 @@ class MCPClient:
                     self.url,
                     json=notification,
                     headers=self._request_headers(),
+                    allow_redirects=False,
                 )
         except Exception:
             pass  # Notification is best-effort

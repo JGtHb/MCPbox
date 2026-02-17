@@ -38,6 +38,33 @@ _login_attempts: dict[str, list[float]] = defaultdict(list)
 _LOGIN_WINDOW = 60  # 1-minute window
 _LOGIN_MAX_ATTEMPTS = 5  # Max login attempts per window
 
+# --- Token Blacklist (SEC-009) ---
+# In-memory blacklist for revoked JTIs. Each entry stores the token's expiry
+# timestamp so we can garbage-collect entries after they would have expired
+# naturally. This prevents stolen tokens from being used after logout.
+_token_blacklist: dict[str, float] = {}  # jti -> expiry_timestamp
+
+
+def _cleanup_blacklist() -> None:
+    """Remove expired entries from the token blacklist."""
+    now = time.time()
+    expired = [jti for jti, exp in _token_blacklist.items() if exp < now]
+    for jti in expired:
+        del _token_blacklist[jti]
+
+
+def blacklist_token(jti: str, exp: float) -> None:
+    """Add a token to the blacklist. exp is the Unix timestamp when it expires."""
+    _token_blacklist[jti] = exp
+    # Opportunistic cleanup
+    if len(_token_blacklist) > 100:
+        _cleanup_blacklist()
+
+
+def is_token_blacklisted(jti: str) -> bool:
+    """Check if a token JTI has been revoked."""
+    return jti in _token_blacklist
+
 
 def _check_login_rate_limit(client_ip: str) -> None:
     """Check if a client IP has exceeded the login attempt rate limit."""
@@ -83,6 +110,10 @@ async def get_current_user(
 
     try:
         payload = validate_access_token(token)
+        # SECURITY: Check if token has been revoked via logout (SEC-009)
+        jti = payload.get("jti")
+        if jti and is_token_blacklisted(jti):
+            raise InvalidTokenError("Token has been revoked")
         user = await auth_service.validate_token_user(payload)
         return user
     except TokenExpiredError as e:
@@ -207,13 +238,26 @@ async def refresh_tokens(
 
 @router.post("/logout", response_model=MessageResponse)
 async def logout(
+    request: Request,
     current_user: Any = Depends(get_current_user),
 ) -> MessageResponse:
     """Log out the current user.
 
-    This is a client-side operation - the client should discard the tokens.
-    The endpoint exists for API consistency and potential future token blacklisting.
+    Blacklists the current access token's JTI so it cannot be reused
+    for the remainder of its TTL (SEC-009).
     """
+    # Extract JTI from the current token to blacklist it
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+        try:
+            payload = validate_access_token(token)
+            jti = payload.get("jti")
+            exp = payload.get("exp", 0)
+            if jti:
+                blacklist_token(jti, exp)
+        except Exception:
+            pass  # Token was already validated by get_current_user dependency
     logger.info(f"User logged out: {current_user.username}")
     return MessageResponse(message="Logged out successfully")
 

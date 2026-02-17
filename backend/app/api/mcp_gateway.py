@@ -16,7 +16,7 @@ import time
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -287,14 +287,16 @@ async def mcp_delete_session(
     """
     session_id = request.headers.get("mcp-session-id")
     if not session_id:
-        raise HTTPException(status_code=400, detail="Missing Mcp-Session-Id header")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Missing Mcp-Session-Id header"
+        )
 
     deleted = await _delete_session(session_id)
     if deleted:
         logger.info("MCP session terminated: %s", session_id)
         return Response(status_code=200)
     else:
-        raise HTTPException(status_code=404, detail="Session not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
 
 
 # --- MCP Gateway Endpoint ---
@@ -828,12 +830,18 @@ async def _verify_internal_auth(
     """
     expected_key = settings.sandbox_api_key
     if not expected_key:
-        raise HTTPException(status_code=403, detail="Internal auth not configured")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Internal auth not configured"
+        )
     if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=403, detail="Missing Authorization header")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Missing Authorization header"
+        )
     token = authorization[7:]
     if not secrets.compare_digest(token.encode(), expected_key.encode()):
-        raise HTTPException(status_code=403, detail="Invalid internal auth token")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Invalid internal auth token"
+        )
 
 
 @router.post("/mcp/internal/notify-tools-changed")

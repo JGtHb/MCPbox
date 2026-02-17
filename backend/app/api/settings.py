@@ -48,7 +48,7 @@ def get_setting_service(db: AsyncSession = Depends(get_db)) -> SettingService:
     return SettingService(db)
 
 
-@router.get("/settings", response_model=SettingListResponse)
+@router.get("", response_model=SettingListResponse)
 async def list_settings(
     setting_service: SettingService = Depends(get_setting_service),
 ) -> SettingListResponse:

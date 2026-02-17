@@ -1,9 +1,11 @@
 """Sandbox Client - communicates with the shared sandbox service."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import threading
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -45,7 +47,7 @@ class SandboxClient:
     for resilience against transient failures.
     """
 
-    _instance: Optional["SandboxClient"] = None
+    _instance: SandboxClient | None = None
     _instance_lock: threading.Lock = threading.Lock()
 
     def __init__(self, sandbox_url: str = "http://sandbox:8001"):
@@ -66,7 +68,7 @@ class SandboxClient:
         return headers
 
     @classmethod
-    def get_instance(cls, sandbox_url: str = "http://sandbox:8001") -> "SandboxClient":
+    def get_instance(cls, sandbox_url: str = "http://sandbox:8001") -> SandboxClient:
         """Get or create singleton instance (thread-safe)."""
         if cls._instance is None:
             with cls._instance_lock:

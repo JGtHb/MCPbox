@@ -112,7 +112,7 @@ class TunnelConfigurationService:
     ) -> TunnelConfiguration:
         """Create a new tunnel configuration."""
         # Encrypt the tunnel token
-        encrypted_token = encrypt_to_base64(data.tunnel_token)
+        encrypted_token = encrypt_to_base64(data.tunnel_token, aad="tunnel_token")
 
         config = TunnelConfiguration(
             name=data.name,
@@ -146,7 +146,7 @@ class TunnelConfigurationService:
         if data.public_url is not None:
             config.public_url = data.public_url
         if data.tunnel_token is not None:
-            config.tunnel_token = encrypt_to_base64(data.tunnel_token)
+            config.tunnel_token = encrypt_to_base64(data.tunnel_token, aad="tunnel_token")
 
         await self.db.flush()
         await self.db.refresh(config)
@@ -201,7 +201,7 @@ class TunnelConfigurationService:
             return None
 
         try:
-            return decrypt_from_base64(config.tunnel_token)
+            return decrypt_from_base64(config.tunnel_token, aad="tunnel_token")
         except DecryptionError as e:
             logger.warning(f"Failed to decrypt tunnel token for {config_id}: {e}")
             return None
