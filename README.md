@@ -1,8 +1,8 @@
 # MCPbox
 
-**Self-hosted MCP server management for homelabs.**
+**A self-extending MCP platform where LLMs create their own tools.**
 
-Run your own Model Context Protocol (MCP) servers securely, manage them through a web UI, and connect them to Claude Web via Cloudflare tunnels.
+MCPbox lets AI create, test, and manage its own MCP tools — write Python code, register it as a permanent tool, and use it in future conversations. Think of it as a tool forge: the LLM is both the toolmaker and the tool user.
 
 [![CI](https://github.com/JGtHb/MCPbox/actions/workflows/ci.yml/badge.svg)](https://github.com/JGtHb/MCPbox/actions/workflows/ci.yml)
 
@@ -10,25 +10,46 @@ Run your own Model Context Protocol (MCP) servers securely, manage them through 
 
 ## What is MCPbox?
 
-MCPbox is a Docker-based platform that lets you:
+MCPbox is a self-hosted platform where LLMs extend their own capabilities by writing tools. Unlike MCP gateways (which proxy existing servers) or MCP hosts (which deploy pre-built servers), MCPbox lets the LLM itself author new tools as Python code that persist across sessions.
 
-- **Create Custom Tools via MCP** - External LLMs (Claude Code, etc.) create tools programmatically using `mcpbox_*` MCP tools
-- **Code-First Approach** - Write Python code for your MCP tools with full control
-- **Connect to Claude Web** - Secure Cloudflare tunnel integration exposes your MCP servers to claude.ai
-- **Manage Everything** - Web UI to start/stop servers, enable/disable individual tools, monitor activity
-- **Tool Approval Workflow** - LLMs create tools in draft status, admins approve before publishing
+- **LLM as Toolmaker** - Claude writes Python code via `mcpbox_create_tool`, the code becomes a permanent MCP tool, available for future use
+- **Human-in-the-Loop** - Tools are created in draft status; admins review and approve before publishing
+- **Sandboxed Execution** - All tool code runs in a hardened sandbox with restricted builtins, import whitelisting, and SSRF prevention
+- **Self-Hosted for Homelabs** - Single `docker compose up`, no Kubernetes required
+- **Remote Access** - Optional Cloudflare Worker + tunnel integration to use your tools from Claude Web
+
+## How It Works
+
+```
+Claude writes Python code
+        |
+        v
+  mcpbox_create_tool  →  Tool saved in draft status
+        |
+        v
+  mcpbox_test_code    →  Code tested in sandbox
+        |
+        v
+  mcpbox_request_publish  →  Admin reviews and approves
+        |
+        v
+  Tool is live  →  Available as MCP tool for all future conversations
+```
+
+MCPbox exposes 24 management tools (`mcpbox_*`) that LLMs use to create and manage servers, tools, secrets, and the approval workflow. See [MCP Management Tools](docs/MCP-MANAGEMENT-TOOLS.md) for the full reference.
 
 ## Key Features
 
-### MCP-First Architecture
+### Self-Extending via MCP
 
-MCPbox exposes 24 management tools that external LLMs can use:
-- `mcpbox_create_server`, `mcpbox_create_tool`, `mcpbox_test_code`
-- `mcpbox_create_server_secret`, `mcpbox_list_tool_versions`, `mcpbox_get_tool_logs`
-- `mcpbox_request_publish`, `mcpbox_request_module`, `mcpbox_request_network_access`
-- Full CRUD for servers, tools, secrets, and approval workflow
-
-See [MCP Management Tools](docs/MCP-MANAGEMENT-TOOLS.md) for details.
+The LLM doesn't just use tools — it builds them:
+- `mcpbox_create_server` / `mcpbox_create_tool` — author new tools as Python code
+- `mcpbox_test_code` / `mcpbox_validate_code` — test and validate before publishing
+- `mcpbox_request_publish` — submit for admin approval
+- `mcpbox_create_server_secret` — create secret placeholders (admins set values)
+- `mcpbox_request_module` / `mcpbox_request_network_access` — request new capabilities
+- `mcpbox_list_tool_versions` / `mcpbox_rollback_tool` — version history and rollback
+- `mcpbox_get_tool_logs` — inspect execution history
 
 ### Security-First Design
 
@@ -190,4 +211,4 @@ If you discover a security vulnerability, please open a [GitHub Security Advisor
 
 ---
 
-Built for the homelab community.
+Built for the homelab community. [Competitive analysis](docs/COMPETITIVE-ANALYSIS.md) — how MCPBox compares to the MCP ecosystem.

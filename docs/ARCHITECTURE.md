@@ -1,6 +1,6 @@
 # MCPbox Architecture
 
-> A self-hosted MCP server management platform for homelabs, designed for secure Claude Web integration via Cloudflare tunnels.
+> A self-extending MCP platform where LLMs create their own tools — self-hosted for homelabs, with optional secure remote access via Cloudflare.
 
 ## Table of Contents
 
@@ -19,19 +19,20 @@
 
 ### What MCPbox Does
 
-MCPbox provides homelab users with a single Docker deployment that:
+MCPbox is a self-hosted platform where LLMs extend their own capabilities by writing tools. The LLM writes Python code, that code becomes a permanent MCP tool, and the tool is available for future conversations. A single Docker deployment provides:
 
-1. **Manages MCP Servers** - Create, deploy, and control MCP servers in a shared sandbox
-2. **Tunnels to Claude Web** - Secure Cloudflare tunnel integration for remote MCP access
-3. **Creates Custom Tools** - External LLMs (Claude Code, etc.) create Python tools programmatically via `mcpbox_*` MCP tools
-4. **Tool Approval Workflow** - LLMs create tools in draft status, admins approve before publishing
+1. **Self-Extending Tool Creation** - LLMs write Python code via `mcpbox_create_tool` that becomes permanent, callable MCP tools
+2. **Human-in-the-Loop Approval** - All tools start as drafts; admins review and approve before publishing
+3. **Sandboxed Execution** - Tool code runs in a hardened sandbox with restricted builtins, import whitelisting, and SSRF prevention
+4. **Remote Access** - Optional Cloudflare Worker + tunnel integration for Claude Web access
 
 ### Design Principles
 
-- **MCP-First**: External LLMs create tools via `mcpbox_*` MCP tools -- no embedded LLM or visual builders.
+- **LLM as Toolmaker**: The LLM authors tools via `mcpbox_*` MCP tools — no embedded LLM, no visual builders, no API spec import.
 - **Code-First**: All tools are Python code with `async def main()` entry points.
-- **Sandbox by Default**: All MCP tools run in a hardened shared sandbox with resource limits.
-- **Homelab-First**: Single Docker Compose deployment, minimal external dependencies.
+- **Human-in-the-Loop**: Admin approval required before any tool goes live. Module and network access whitelisted individually.
+- **Sandbox by Default**: All tool code runs in a hardened shared sandbox with resource limits.
+- **Homelab-First**: Single `docker compose up`, no Kubernetes required.
 - **Hybrid Architecture**: Local-first with optional remote access via Cloudflare Workers VPC.
 
 ### Hybrid Architecture

@@ -4,12 +4,13 @@ This file provides context for AI assistants (like Claude) working on this codeb
 
 ## Project Summary
 
-**MCPbox** is a self-hosted MCP (Model Context Protocol) server management platform for homelabs. It enables users to:
+**MCPbox** is a self-extending MCP platform where LLMs create their own tools. The LLM writes Python code, that code becomes a permanent MCP tool, and the tool is available for future conversations. Self-hosted for homelabs with optional Cloudflare remote access.
 
-- Create MCP tools programmatically via LLMs (Claude Code, etc.)
-- Securely expose tools to Claude Web via Cloudflare Worker + Tunnel
-- Manage servers and tools through a web UI
-- **MCP-first approach** - External LLMs create/manage servers and tools via `mcpbox_*` MCP tools
+- **LLM as toolmaker** - Claude writes Python code via `mcpbox_create_tool` that becomes permanent, callable MCP tools
+- **Human-in-the-loop** - Tools start as drafts; admins review and approve before publishing
+- **Sandboxed execution** - Hardened sandbox with restricted builtins, import whitelisting, SSRF prevention
+- **Self-hosted** - Single `docker compose up`, no Kubernetes required
+- **Remote access** - Optional Cloudflare Worker + tunnel for Claude Web integration
 
 ## Current Status
 
