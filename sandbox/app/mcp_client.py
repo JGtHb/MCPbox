@@ -98,12 +98,26 @@ class MCPClient:
         self._session_id: str | None = None
         self._session: AsyncSession | None = None
 
-    async def __aenter__(self) -> "MCPClient":
-        self._session = AsyncSession(
-            timeout=self.timeout,
-            impersonate=IMPERSONATE_BROWSER,
-        )
+    async def open(self) -> "MCPClient":
+        """Open the HTTP session. Can be used directly or via async with."""
+        if not self._session:
+            self._session = AsyncSession(
+                timeout=self.timeout,
+                impersonate=IMPERSONATE_BROWSER,
+            )
         return self
+
+    def close(self) -> None:
+        """Close the HTTP session and reset state."""
+        if self._session:
+            # Best-effort session termination is skipped here;
+            # use __aexit__ (async with) for graceful MCP session cleanup.
+            self._session.close()
+            self._session = None
+        self._session_id = None
+
+    async def __aenter__(self) -> "MCPClient":
+        return await self.open()
 
     async def __aexit__(self, *args: Any) -> None:
         if self._session:

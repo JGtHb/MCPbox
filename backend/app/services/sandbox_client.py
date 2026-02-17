@@ -618,6 +618,67 @@ class SandboxClient:
             logger.exception(f"Error discovering external tools: {e}")
             return {"success": False, "error": str(e)}
 
+    async def health_check_external(
+        self,
+        url: str,
+        auth_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Check connectivity to an external MCP server via the sandbox.
+
+        Args:
+            url: External MCP server URL
+            auth_headers: Optional auth headers for the external server
+
+        Returns:
+            Dict with healthy (bool), latency_ms (int), and optional error (str)
+        """
+        try:
+
+            async def do_health_check() -> dict[str, Any]:
+                client = await self._get_client()
+                response = await client.post(
+                    f"{self.sandbox_url}/mcp-health-check",
+                    headers=self._get_headers(),
+                    json={
+                        "url": url,
+                        "auth_headers": auth_headers or {},
+                    },
+                    timeout=30.0,
+                )
+                if response.status_code >= 500:
+                    return {
+                        "healthy": False,
+                        "latency_ms": 0,
+                        "error": f"Sandbox server error: {response.status_code}",
+                    }
+                try:
+                    result: dict[str, Any] = response.json()
+                    return result
+                except ValueError as e:
+                    logger.error(f"Invalid JSON from health check: {e}")
+                    return {
+                        "healthy": False,
+                        "latency_ms": 0,
+                        "error": "Invalid JSON response",
+                    }
+
+            result: dict[str, Any] = await retry_async(
+                do_health_check,
+                config=SANDBOX_RETRY_CONFIG,
+                circuit_breaker=self._circuit_breaker,
+            )
+            return result
+
+        except CircuitBreakerOpen as e:
+            return {
+                "healthy": False,
+                "latency_ms": 0,
+                "error": f"Sandbox unavailable: {e}",
+            }
+        except Exception as e:
+            logger.exception(f"Error checking external health: {e}")
+            return {"healthy": False, "latency_ms": 0, "error": str(e)}
+
     async def close(self) -> None:
         """Close the HTTP client."""
         if self._client:

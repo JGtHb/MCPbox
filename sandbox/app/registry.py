@@ -275,8 +275,12 @@ class ToolRegistry:
         tool: Tool,
         arguments: dict[str, Any],
     ) -> dict[str, Any]:
-        """Execute a passthrough tool by proxying to an external MCP server."""
-        from app.mcp_client import call_external_tool
+        """Execute a passthrough tool by proxying to an external MCP server.
+
+        Uses the MCP session pool for connection reuse and automatic retry
+        on transient errors (timeouts, 502/503/504, connection resets).
+        """
+        from app.mcp_session_pool import mcp_session_pool
 
         server = self.get_server_for_tool(tool.full_name)
         if not server:
@@ -305,7 +309,7 @@ class ToolRegistry:
             f"Proxying tool call: {tool.full_name} → {external_name}@{source.url}"
         )
 
-        result = await call_external_tool(
+        result = await mcp_session_pool.call_tool(
             url=source.url,
             tool_name=external_name,
             arguments=arguments,

@@ -12,6 +12,7 @@ from app.schemas.external_mcp_source import (
     ExternalMCPSourceCreate,
     ExternalMCPSourceResponse,
     ExternalMCPSourceUpdate,
+    HealthCheckResponse,
     ImportToolsRequest,
     OAuthExchangeRequest,
     OAuthStartRequest,
@@ -265,6 +266,58 @@ async def import_tools(
         await db.refresh(tool)
 
     return tools
+
+
+# --- Health Check ---
+
+
+@router.post(
+    "/sources/{source_id}/health",
+    response_model=HealthCheckResponse,
+)
+async def health_check_source(
+    source_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    source_service: ExternalMCPSourceService = Depends(get_source_service),
+    sandbox_client: SandboxClient = Depends(get_sandbox_client),
+):
+    """Check connectivity to an external MCP server.
+
+    Performs an MCP initialize handshake to verify the server is reachable
+    and responding to MCP protocol requests. Updates the source status
+    based on the result.
+    """
+    source = await source_service.get(source_id)
+    if not source:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"External MCP source {source_id} not found",
+        )
+
+    # Get decrypted secrets for auth credential lookup
+    secret_service = ServerSecretService(db)
+    secrets = await secret_service.get_decrypted_for_injection(source.server_id)
+    auth_headers = await source_service._build_auth_headers(source, secrets)
+
+    result = await sandbox_client.health_check_external(
+        url=source.url,
+        auth_headers=auth_headers,
+    )
+
+    # Update source status based on health check result
+    if result.get("healthy"):
+        source.status = "active"
+    else:
+        source.status = "error"
+    await db.commit()
+
+    return HealthCheckResponse(
+        source_id=source.id,
+        source_name=source.name,
+        healthy=result.get("healthy", False),
+        latency_ms=result.get("latency_ms", 0),
+        error=result.get("error"),
+    )
 
 
 # --- OAuth ---

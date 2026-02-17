@@ -514,14 +514,13 @@ class MCPDiscoverResponse(BaseModel):
 async def discover_external_tools(body: MCPDiscoverRequest):
     """Discover tools from an external MCP server.
 
-    Connects to the external server, performs MCP handshake,
-    and returns the list of available tools.
+    Uses the MCP session pool for connection reuse and automatic retry
+    on transient errors.
     """
-    from app.mcp_client import discover_tools
+    from app.mcp_session_pool import mcp_session_pool
 
-    result = await discover_tools(
+    result = await mcp_session_pool.discover_tools(
         url=body.url,
-        transport_type=body.transport_type,
         auth_headers=body.auth_headers,
     )
 
@@ -530,6 +529,59 @@ async def discover_external_tools(body: MCPDiscoverRequest):
         tools=result.get("tools", []),
         error=result.get("error"),
     )
+
+
+class ExternalHealthCheckRequest(BaseModel):
+    """Request to check connectivity to an external MCP server."""
+
+    url: str
+    auth_headers: dict[str, str] = {}
+
+
+class ExternalHealthCheckResponse(BaseModel):
+    """Response from external MCP server health check."""
+
+    healthy: bool
+    latency_ms: int = 0
+    error: Optional[str] = None
+
+
+@router.post("/mcp-health-check", response_model=ExternalHealthCheckResponse)
+async def check_external_health(body: ExternalHealthCheckRequest):
+    """Check connectivity to an external MCP server.
+
+    Performs an MCP initialize handshake to verify the server is reachable
+    and responding to MCP protocol requests.
+    """
+    from app.mcp_session_pool import mcp_session_pool
+
+    result = await mcp_session_pool.health_check(
+        url=body.url,
+        auth_headers=body.auth_headers,
+    )
+
+    return ExternalHealthCheckResponse(
+        healthy=result.get("healthy", False),
+        latency_ms=result.get("latency_ms", 0),
+        error=result.get("error"),
+    )
+
+
+class SessionPoolStatsResponse(BaseModel):
+    """Response with MCP session pool statistics."""
+
+    pool_size: int
+    max_size: int
+    sessions: list[dict[str, Any]] = []
+
+
+@router.get("/mcp-pool-stats", response_model=SessionPoolStatsResponse)
+async def get_pool_stats():
+    """Get MCP session pool statistics for monitoring."""
+    from app.mcp_session_pool import mcp_session_pool
+
+    stats = mcp_session_pool.stats()
+    return SessionPoolStatsResponse(**stats)
 
 
 # --- Python Code Execution (Direct Endpoint for Testing) ---

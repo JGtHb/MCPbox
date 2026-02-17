@@ -114,3 +114,13 @@ class OAuthExchangeRequest(BaseModel):
 
     state: str = Field(..., min_length=1)
     code: str = Field(..., min_length=1)
+
+
+class HealthCheckResponse(BaseModel):
+    """Response from external MCP server health check."""
+
+    source_id: UUID
+    source_name: str
+    healthy: bool
+    latency_ms: int = 0
+    error: str | None = None
