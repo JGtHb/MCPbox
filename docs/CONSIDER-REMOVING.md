@@ -40,17 +40,13 @@ Items are organized by category and prioritized by impact. Each item includes th
 
 ## 3. Deprecated / Backwards-Compatibility Code
 
-### 3a. Sandbox `credentials` Parameter
-- **Files**: `sandbox/app/routes.py:89,91`, `sandbox/app/registry.py:102`
-- **Issue**: `register_server()` accepts a `credentials` parameter marked as "Deprecated, ignored. Kept for API compatibility"
-- **Kept for**: API backward compatibility — but nothing has been released
-- **Action**: Remove the parameter from `RegisterServerRequest` schema and `register_server()` function. Update any callers (backend's `sandbox_client.py`)
+### ~~3a. Sandbox `credentials` Parameter~~ — **REMOVED**
+- **Files**: `sandbox/app/routes.py`, `sandbox/app/registry.py`, `backend/app/services/sandbox_client.py`
+- **Resolution**: Removed deprecated `credentials` parameter from schema, function, client, and all callers. Removed test fixture.
 
-### 3b. Crypto Legacy Decrypt Fallback (aad=None)
-- **File**: `backend/app/services/crypto.py`
-- **Issue**: `decrypt()` has a fallback path for `aad=None` to handle data encrypted before AAD was enforced. Emits a deprecation warning
-- **Kept for**: Backward compatibility with existing encrypted data
-- **Action**: If no production databases exist yet, remove the fallback and require AAD on all decrypt calls. If dev databases exist, run a one-time re-encryption migration first
+### ~~3b. Crypto Legacy Decrypt Fallback (aad=None)~~ — **REMOVED**
+- **File**: `backend/app/services/crypto.py`, `backend/app/core/config.py`
+- **Resolution**: Made `aad` a required parameter on encrypt/decrypt. Removed aad=None fallback, old-key rotation fallback, and `mcpbox_encryption_key_old` setting. Updated tests and SECURITY.md.
 
 ---
 
@@ -173,8 +169,8 @@ When reviewing this document, for each item decide:
 | ~~1c~~ | ~~Missing LICENSE~~ | ~~File creation~~ | ~~Trivial~~ | **FIXED** |
 | ~~2a~~ | ~~ServerStatus.building~~ | ~~DB migration~~ | ~~Low~~ | **REMOVED** |
 | ~~2b~~ | ~~NetworkMode.monitored/learning~~ | ~~DB migration~~ | ~~Low~~ | **REMOVED** |
-| 3a | Sandbox credentials param | API change | Low | Low |
-| 3b | Crypto aad=None fallback | Code change | Low | Medium (data) |
+| ~~3a~~ | ~~Sandbox credentials param~~ | ~~API change~~ | ~~Low~~ | **REMOVED** |
+| ~~3b~~ | ~~Crypto aad=None fallback~~ | ~~Code change~~ | ~~Low~~ | **REMOVED** |
 | 4a | Duplicate config endpoints | API change | Low | Low |
 | 4b | Duplicate _build_tool_defs | Refactor | Medium | Low |
 | 4c | Duplicate enum definitions | Refactor | Medium | Low |

@@ -86,7 +86,6 @@ class ToolRegistry:
         server_id: str,
         server_name: str,
         tools: list[dict[str, Any]],
-        credentials: list[dict[str, Any]] | None = None,
         helper_code: Optional[str] = None,
         allowed_modules: Optional[list[str]] = None,
         secrets: dict[str, str] | None = None,
@@ -99,7 +98,6 @@ class ToolRegistry:
             server_id: Unique server identifier
             server_name: Human-readable server name
             tools: List of tool definitions
-            credentials: Deprecated, ignored. Kept for API compatibility.
             helper_code: Optional shared Python code for all tools
             allowed_modules: Custom list of allowed Python modules (None = defaults)
             secrets: Dict of secret key→value pairs for injection into tool namespace

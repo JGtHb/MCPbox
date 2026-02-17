@@ -130,15 +130,3 @@ def sample_tool_def():
         },
         "python_code": 'async def main(city: str) -> dict:\n    response = await http.get(f"https://api.weather.com/v1/weather?q={city}")\n    return response.json()',
     }
-
-
-@pytest.fixture
-def sample_credentials():
-    """Sample credentials for testing."""
-    return [
-        {
-            "name": "API_KEY",
-            "auth_type": "bearer",
-            "value": "test-api-key-12345",
-        }
-    ]

@@ -86,9 +86,6 @@ class RegisterServerRequest(BaseModel):
     server_id: str
     server_name: str
     tools: list[ToolDef]
-    credentials: list[
-        dict[str, Any]
-    ] = []  # Deprecated, ignored. Kept for API compatibility.
     helper_code: Optional[str] = None
     allowed_modules: Optional[list[str]] = (
         None  # Custom allowed modules (None = defaults)

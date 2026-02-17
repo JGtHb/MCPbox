@@ -48,7 +48,6 @@ class Settings(BaseSettings):
 
     # Security - encryption key for credential storage
     mcpbox_encryption_key: str
-    mcpbox_encryption_key_old: str | None = None
 
     @field_validator("mcpbox_encryption_key")
     @classmethod
@@ -73,21 +72,6 @@ class Settings(BaseSettings):
                 "Generate with: openssl rand -hex 32"
             )
 
-        return v
-
-    @field_validator("mcpbox_encryption_key_old")
-    @classmethod
-    def validate_old_encryption_key(cls, v: str | None) -> str | None:
-        """Validate old encryption key format if provided (SEC-012)."""
-        if v is None:
-            return v
-        import re
-
-        if len(v) != 64 or not re.fullmatch(r"[0-9a-fA-F]+", v):
-            raise ValueError(
-                "MCPBOX_ENCRYPTION_KEY_OLD must be exactly 64 hex characters (32 bytes). "
-                "Generate with: openssl rand -hex 32"
-            )
         return v
 
     # CORS - for local admin panel access
