@@ -1,6 +1,7 @@
 """Activity log API endpoints for observability.
 
-Accessible without authentication (Option B architecture - admin panel is local-only).
+WebSocket endpoint requires JWT token for authentication (passed as query parameter).
+REST endpoints are protected by AdminAuthMiddleware.
 """
 
 import asyncio
@@ -17,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import get_db
 from app.models import ActivityLog
 from app.services.activity_logger import ActivityLoggerService, get_activity_logger
+from app.services.auth import InvalidTokenError, TokenExpiredError, validate_access_token
 
 logger = logging.getLogger(__name__)
 
@@ -366,6 +368,7 @@ _register_websocket_listener()
 @ws_router.websocket("/stream")
 async def activity_stream(
     websocket: WebSocket,
+    token: str | None = None,
     server_id: str | None = None,
     log_types: str | None = None,
     levels: str | None = None,
@@ -373,14 +376,26 @@ async def activity_stream(
     """WebSocket endpoint for live activity log streaming.
 
     Query parameters:
+    - token: JWT access token (required for authentication)
     - server_id: Filter by server UUID
     - log_types: Comma-separated log types (e.g., "mcp_request,mcp_response")
     - levels: Comma-separated levels (e.g., "info,error")
 
     Messages sent are JSON objects with log entry data.
 
-    No authentication required - admin panel is local-only (Option B architecture).
+    SECURITY: Requires valid JWT token passed as query parameter.
+    WebSocket API doesn't support custom headers, so token is passed via query string.
     """
+    # Validate JWT token before accepting the connection
+    if not token:
+        await websocket.close(code=4001, reason="Authentication required")
+        return
+    try:
+        validate_access_token(token)
+    except (TokenExpiredError, InvalidTokenError) as e:
+        await websocket.close(code=4001, reason=f"Authentication failed: {e}")
+        return
+
     await websocket.accept()
 
     # Parse filters

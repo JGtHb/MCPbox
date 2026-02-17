@@ -128,9 +128,9 @@ class CreateTunnelResponse(BaseModel):
     success: bool
     tunnel_id: str
     tunnel_name: str
-    tunnel_token: str = Field(
-        description="Tunnel connector token - stored in database, used automatically by cloudflared container"
-    )
+    # SECURITY: tunnel_token removed from API response to prevent token leakage
+    # via browser DevTools, HTTP proxy logs, or error tracking services.
+    # The token is stored encrypted in the database and used automatically.
     message: str | None = None
 
 
@@ -194,10 +194,9 @@ class DeployWorkerResponse(BaseModel):
     success: bool
     worker_name: str
     worker_url: str = Field(description="Worker URL (e.g., mcpbox-proxy.you.workers.dev)")
-    service_token: str | None = Field(
-        None,
-        description="Generated service token - stored in database, pushed to Worker by deploy script",
-    )
+    # SECURITY: service_token removed from API response to prevent token leakage
+    # via browser DevTools, HTTP proxy logs, or error tracking services.
+    # The token is stored encrypted in the database and pushed to Worker by deploy script.
     message: str | None = None
 
 

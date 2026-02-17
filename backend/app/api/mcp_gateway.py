@@ -11,16 +11,18 @@ Authentication:
 import asyncio
 import json
 import logging
+import secrets
 import time
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth_simple import AuthenticatedUser, verify_mcp_auth
+from app.core.config import settings
 from app.core.database import async_session_maker, get_db
 from app.services.activity_logger import ActivityLoggerService, get_activity_logger
 from app.services.execution_log import ExecutionLogService
@@ -803,13 +805,35 @@ async def mcp_health(
 # --- Internal Notification Endpoint ---
 
 
+async def _verify_internal_auth(
+    authorization: str | None = Header(default=None),
+) -> None:
+    """Verify internal service-to-service auth via SANDBOX_API_KEY.
+
+    Defense-in-depth: even though this endpoint is only reachable on the
+    Docker internal network, require the shared secret to prevent abuse
+    from compromised containers.
+    """
+    expected_key = settings.sandbox_api_key
+    if not expected_key:
+        raise HTTPException(status_code=403, detail="Internal auth not configured")
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=403, detail="Missing Authorization header")
+    token = authorization[7:]
+    if not secrets.compare_digest(token.encode(), expected_key.encode()):
+        raise HTTPException(status_code=403, detail="Invalid internal auth token")
+
+
 @router.post("/mcp/internal/notify-tools-changed")
-async def notify_tools_changed(request: Request) -> dict[str, str]:
+async def notify_tools_changed(
+    request: Request,
+    _auth: None = Depends(_verify_internal_auth),
+) -> dict[str, str]:
     """Internal endpoint to trigger tools/list_changed notification to all SSE clients.
 
     Called by the backend process when tools change (approval, enable/disable,
     server start/stop). This endpoint is internal-only — not exposed through
-    the tunnel and not authenticated (Docker-internal network only).
+    the tunnel. Requires SANDBOX_API_KEY as defense-in-depth.
 
     The backend and MCP gateway run as separate processes, so this HTTP endpoint
     bridges the inter-process notification gap.

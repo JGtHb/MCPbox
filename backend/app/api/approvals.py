@@ -1,17 +1,18 @@
 """Approval API endpoints for admin review of tools and requests.
 
 Protected by admin API key authentication via AdminAuthMiddleware.
-User identity is captured via X-Admin-Username header or client IP for audit trail.
+Admin identity is extracted from JWT token claims for audit trail integrity.
 """
 
 import logging
-from typing import Annotated, Any
+from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.auth import get_current_user
 from app.core import get_db
 from app.models import Tool
 from app.schemas.approval import (
@@ -128,29 +129,15 @@ async def _refresh_server_registration(tool: Any, db: AsyncSession) -> bool:
 
 
 def get_admin_identity(
-    request: Request,
-    x_admin_username: Annotated[str | None, Header()] = None,
+    current_user: Any = Depends(get_current_user),
 ) -> str:
-    """Extract admin identity for audit trail.
+    """Extract admin identity from verified JWT token for audit trail.
 
-    Uses X-Admin-Username header if provided, otherwise falls back to
-    client IP address for audit trail purposes.
+    SECURITY: Identity is always derived from the cryptographically-verified
+    JWT token, never from client-supplied headers. This prevents admin
+    identity spoofing in approval audit logs.
     """
-    if x_admin_username:
-        return x_admin_username
-
-    # Get client IP, considering X-Forwarded-For for reverse proxy setups
-    forwarded_for = request.headers.get("X-Forwarded-For")
-    if forwarded_for:
-        # Take the first IP in the chain (original client)
-        client_ip = forwarded_for.split(",")[0].strip()
-        # Validate we got a non-empty IP (handles malformed headers like ", , ,")
-        if not client_ip:
-            client_ip = request.client.host if request.client else "unknown"
-    else:
-        client_ip = request.client.host if request.client else "unknown"
-
-    return f"admin@{client_ip}"
+    return current_user.username
 
 
 # =============================================================================
@@ -212,7 +199,7 @@ async def take_tool_action(
     """Approve or reject a tool.
 
     The admin must provide a reason for rejection.
-    Admin identity is captured via X-Admin-Username header or client IP.
+    Admin identity is extracted from verified JWT token.
 
     When a tool is approved, the server is automatically re-registered with
     the sandbox to make the tool immediately available.
@@ -279,7 +266,7 @@ async def bulk_tool_action(
     """Approve or reject multiple tools at once.
 
     The admin must provide a reason for bulk rejection.
-    Admin identity is captured via X-Admin-Username header or client IP.
+    Admin identity is extracted from verified JWT token.
 
     When tools are approved, their servers are automatically re-registered with
     the sandbox to make the tools immediately available.
@@ -409,7 +396,7 @@ async def take_module_request_action(
 
     Approval will add the module to the server's allowed modules list.
     Rejection requires a reason.
-    Admin identity is captured via X-Admin-Username header or client IP.
+    Admin identity is extracted from verified JWT token.
     """
     try:
         if action.action == "approve":
@@ -453,7 +440,7 @@ async def bulk_module_request_action(
 
     Approval will add the modules to the respective server's allowed modules list.
     Rejection requires a reason.
-    Admin identity is captured via X-Admin-Username header or client IP.
+    Admin identity is extracted from verified JWT token.
     """
     if action.action == "reject" and not action.reason:
         raise HTTPException(
@@ -521,7 +508,7 @@ async def take_network_request_action(
     Approval will add the host to the server's allowed hosts list and
     switch the server to allowlist network mode if needed.
     Rejection requires a reason.
-    Admin identity is captured via X-Admin-Username header or client IP.
+    Admin identity is extracted from verified JWT token.
     """
     try:
         if action.action == "approve":
@@ -566,7 +553,7 @@ async def bulk_network_request_action(
     Approval will add the hosts to the respective server's allowed hosts list and
     switch servers to allowlist network mode if needed.
     Rejection requires a reason.
-    Admin identity is captured via X-Admin-Username header or client IP.
+    Admin identity is extracted from verified JWT token.
     """
     if action.action == "reject" and not action.reason:
         raise HTTPException(

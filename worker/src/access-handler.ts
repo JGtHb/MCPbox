@@ -104,10 +104,20 @@ async function handleAuthorizePost(
 ): Promise<Response> {
   const formData = await request.formData();
 
-  // Validate CSRF token
+  // Validate CSRF token using constant-time comparison to prevent timing attacks
   const csrfFromForm = formData.get('csrf_token');
   const csrfFromCookie = getCookieValue(request, 'mcpbox_csrf');
-  if (!csrfFromForm || !csrfFromCookie || csrfFromForm !== csrfFromCookie) {
+  if (!csrfFromForm || !csrfFromCookie) {
+    return new Response('CSRF validation failed', { status: 403 });
+  }
+  // Use constant-time comparison (TextEncoder + timingSafeEqual pattern)
+  const formBytes = new TextEncoder().encode(String(csrfFromForm));
+  const cookieBytes = new TextEncoder().encode(String(csrfFromCookie));
+  if (formBytes.byteLength !== cookieBytes.byteLength) {
+    return new Response('CSRF validation failed', { status: 403 });
+  }
+  const csrfMatch = crypto.subtle.timingSafeEqual(formBytes, cookieBytes);
+  if (!csrfMatch) {
     return new Response('CSRF validation failed', { status: 403 });
   }
 
@@ -297,11 +307,23 @@ async function fetchUpstreamTokens(
 let jwksCache: { keys: Array<JsonWebKey & { kid: string }>; cachedAt: number } | null = null;
 const JWKS_CACHE_TTL_MS = 5 * 60 * 1000;
 
+// Negative cache for unknown kid values (prevents repeated JWKS fetches for
+// tokens with fabricated kid values). Entries expire after 60 seconds so
+// legitimate key rotations are picked up quickly.
+const MISSING_KID_CACHE_TTL_MS = 60 * 1000;
+let missingKidCache: Map<string, number> = new Map();
+
 async function fetchAccessPublicKey(
   env: Env,
   kid: string,
 ): Promise<CryptoKey | null> {
   const now = Date.now();
+
+  // Check negative cache first — reject known-missing kids without fetching
+  const missingAt = missingKidCache.get(kid);
+  if (missingAt && (now - missingAt) < MISSING_KID_CACHE_TTL_MS) {
+    return null;
+  }
 
   // Try cached keys first
   if (jwksCache && (now - jwksCache.cachedAt) < JWKS_CACHE_TTL_MS) {
@@ -329,6 +351,14 @@ async function fetchAccessPublicKey(
     const jwk = data.keys.find(k => k.kid === kid);
     if (!jwk) {
       console.error(`Key ${kid} not found in JWKS`);
+      // Negative-cache this kid to avoid repeated fetches
+      missingKidCache.set(kid, now);
+      // Prune old entries to prevent unbounded growth
+      if (missingKidCache.size > 100) {
+        for (const [k, t] of missingKidCache) {
+          if (now - t >= MISSING_KID_CACHE_TTL_MS) missingKidCache.delete(k);
+        }
+      }
       return null;
     }
 
@@ -483,12 +513,14 @@ async function validateOAuthState(
 
   try {
     const parsed = JSON.parse(stored);
-    // Handle both old format (AuthRequest directly) and new format ({ oauthReqInfo, nonce })
-    if (parsed.oauthReqInfo) {
+    // Require the current format with oauthReqInfo and nonce.
+    // Legacy format (AuthRequest without nonce) is no longer supported —
+    // all legacy state entries have expired (5-minute TTL).
+    if (parsed.oauthReqInfo && parsed.nonce) {
       return parsed as OAuthStateData;
     }
-    // Legacy: stored was just AuthRequest
-    return { oauthReqInfo: parsed as AuthRequest, nonce: '' };
+    console.warn('SECURITY: Rejected OAuth state with missing oauthReqInfo or nonce');
+    return null;
   } catch {
     return null;
   }
@@ -526,6 +558,9 @@ async function isClientApproved(
   }
 }
 
+// Max approved clients stored in cookie (prevents unbounded cookie growth)
+const MAX_APPROVED_CLIENTS = 50;
+
 async function addApprovedClient(
   request: Request,
   clientId: string,
@@ -544,6 +579,10 @@ async function addApprovedClient(
   }
 
   if (!approved.includes(clientId)) {
+    // LRU eviction: drop oldest entries if at capacity
+    if (approved.length >= MAX_APPROVED_CLIENTS) {
+      approved = approved.slice(approved.length - MAX_APPROVED_CLIENTS + 1);
+    }
     approved.push(clientId);
   }
 

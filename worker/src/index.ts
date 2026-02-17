@@ -341,6 +341,17 @@ export default {
           }
           const existing = await env.OAUTH_KV.get(`client:${tokenClientId}`);
           if (!existing) {
+            // Rate limit auto-registration at /token (same limit as /register)
+            const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
+            const rateLimitKey = `ratelimit:register:${clientIp}`;
+            const currentCount = parseInt(await env.OAUTH_KV.get(rateLimitKey) || '0', 10);
+            if (currentCount >= 10) {
+              console.warn(`SECURITY: Rate-limited /token auto-registration from ${clientIp}`);
+              return new Response(JSON.stringify({ error: 'too_many_requests' }), {
+                status: 429,
+                headers: { 'Content-Type': 'application/json', 'Retry-After': '3600', ...corsHeaders },
+              });
+            }
             const clientData = {
               clientId: tokenClientId,
               redirectUris: tokenRedirectUri ? [tokenRedirectUri] : [],
@@ -350,6 +361,8 @@ export default {
               registrationDate: Math.floor(Date.now() / 1000),
             };
             await env.OAUTH_KV.put(`client:${tokenClientId}`, JSON.stringify(clientData));
+            // Share the rate limit counter with /register (same key prefix)
+            await env.OAUTH_KV.put(rateLimitKey, String(currentCount + 1), { expirationTtl: 3600 });
             console.warn(`SECURITY: Auto-registered unknown client at /token: ${tokenClientId}`);
           }
         }

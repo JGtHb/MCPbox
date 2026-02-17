@@ -5,7 +5,6 @@ import json
 import logging
 import os
 import resource
-import sys
 import time
 import traceback
 from dataclasses import dataclass
@@ -121,14 +120,22 @@ def set_resource_limits() -> ResourceLimitStatus:
             logger.warning(f"Could not set memory limit: {e}")
 
     try:
-        # Limit CPU time as backup to asyncio timeout
-        # This catches blocking CPU loops that bypass asyncio.wait_for
-        cpu_limit = 60  # 60 seconds of CPU time
+        # CPU time limiting: RLIMIT_CPU is cumulative across the entire process
+        # lifetime, not per-execution. Setting a low value (e.g., 60s) would
+        # crash the long-running sandbox process after 60 cumulative CPU seconds
+        # across ALL tool executions (DoS vulnerability).
+        #
+        # Per-execution CPU limits are enforced by:
+        # 1. asyncio.wait_for() timeout (per-execution, default 30s)
+        # 2. Container cgroup CPU limits (enforced by Docker)
+        #
+        # We set a generous process-level limit as a last-resort safety net.
+        cpu_limit = 3600  # 1 hour cumulative CPU — safety net, not per-execution
         soft, hard = resource.getrlimit(resource.RLIMIT_CPU)
         resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit, hard))
         status.cpu_limit_set = True
         status.cpu_limit_value = cpu_limit
-        logger.info(f"Set CPU time limit to {cpu_limit}s")
+        logger.info(f"Set CPU time limit to {cpu_limit}s (process-level safety net)")
     except (ValueError, resource.error) as e:
         if in_container:
             logger.info(f"CPU limit via cgroup (container): {e}")
@@ -198,6 +205,527 @@ if not is_valid:
         logger.error(f"SECURITY: {error_msg}")
     else:
         logger.warning(f"SECURITY WARNING: {error_msg}")
+
+
+# =============================================================================
+# SAFE MODULE PROXY
+# =============================================================================
+#
+# Modules injected into the sandbox (json, datetime, and any imported module)
+# are wrapped in SafeModuleProxy to prevent attribute traversal attacks.
+#
+# Attack vector: Standard library modules carry references to `sys`, `os`, etc.
+# via internal attributes (e.g., json.codecs.sys, datetime.sys).
+# An attacker can traverse: datetime.sys.modules["os"].popen("id")
+#
+# Solution: Only expose a whitelist of safe public attributes per module.
+# All other attribute access is blocked.
+# =============================================================================
+
+# Per-module allowlists of safe attributes.
+# Only these attributes are accessible through the proxy.
+# If a module is not listed here, all non-underscore public attrs are allowed.
+_MODULE_SAFE_ATTRS: dict[str, set[str]] = {
+    "json": {
+        "dumps",
+        "loads",
+        "dump",
+        "load",
+        "JSONEncoder",
+        "JSONDecoder",
+        "JSONDecodeError",
+    },
+    "datetime": {
+        "datetime",
+        "date",
+        "time",
+        "timedelta",
+        "timezone",
+        "tzinfo",
+        "MINYEAR",
+        "MAXYEAR",
+        "UTC",
+    },
+    "base64": {
+        "b64encode",
+        "b64decode",
+        "urlsafe_b64encode",
+        "urlsafe_b64decode",
+        "b32encode",
+        "b32decode",
+        "b16encode",
+        "b16decode",
+        "encodebytes",
+        "decodebytes",
+        "standard_b64encode",
+        "standard_b64decode",
+    },
+    "math": {
+        "ceil",
+        "floor",
+        "sqrt",
+        "pow",
+        "log",
+        "log2",
+        "log10",
+        "exp",
+        "sin",
+        "cos",
+        "tan",
+        "asin",
+        "acos",
+        "atan",
+        "atan2",
+        "pi",
+        "e",
+        "tau",
+        "inf",
+        "nan",
+        "isnan",
+        "isinf",
+        "isfinite",
+        "fabs",
+        "factorial",
+        "gcd",
+        "lcm",
+        "comb",
+        "perm",
+        "degrees",
+        "radians",
+        "hypot",
+        "dist",
+        "fsum",
+        "prod",
+        "trunc",
+        "modf",
+        "frexp",
+        "ldexp",
+        "copysign",
+        "remainder",
+        "isclose",
+        "nextafter",
+        "ulp",
+    },
+    "hashlib": {
+        "md5",
+        "sha1",
+        "sha224",
+        "sha256",
+        "sha384",
+        "sha512",
+        "sha3_224",
+        "sha3_256",
+        "sha3_384",
+        "sha3_512",
+        "blake2b",
+        "blake2s",
+        "new",
+        "algorithms_available",
+        "algorithms_guaranteed",
+        "pbkdf2_hmac",
+        "scrypt",
+    },
+    "hmac": {
+        "new",
+        "compare_digest",
+        "digest",
+        "HMAC",
+    },
+    "collections": {
+        "OrderedDict",
+        "defaultdict",
+        "deque",
+        "Counter",
+        "namedtuple",
+        "ChainMap",
+        "UserDict",
+        "UserList",
+        "UserString",
+    },
+    "itertools": {
+        "count",
+        "cycle",
+        "repeat",
+        "accumulate",
+        "chain",
+        "compress",
+        "dropwhile",
+        "filterfalse",
+        "groupby",
+        "islice",
+        "pairwise",
+        "starmap",
+        "takewhile",
+        "tee",
+        "zip_longest",
+        "product",
+        "permutations",
+        "combinations",
+        "combinations_with_replacement",
+        "batched",
+    },
+    "functools": {
+        "reduce",
+        "partial",
+        "partialmethod",
+        "lru_cache",
+        "cache",
+        "cached_property",
+        "total_ordering",
+        "cmp_to_key",
+        "wraps",
+        "update_wrapper",
+        "singledispatch",
+        "singledispatchmethod",
+    },
+    "statistics": {
+        "mean",
+        "median",
+        "median_low",
+        "median_high",
+        "median_grouped",
+        "mode",
+        "multimode",
+        "stdev",
+        "pstdev",
+        "variance",
+        "pvariance",
+        "harmonic_mean",
+        "geometric_mean",
+        "quantiles",
+        "NormalDist",
+        "correlation",
+        "covariance",
+        "linear_regression",
+        "fmean",
+    },
+    "decimal": {
+        "Decimal",
+        "getcontext",
+        "setcontext",
+        "localcontext",
+        "BasicContext",
+        "ExtendedContext",
+        "DefaultContext",
+        "ROUND_UP",
+        "ROUND_DOWN",
+        "ROUND_CEILING",
+        "ROUND_FLOOR",
+        "ROUND_HALF_UP",
+        "ROUND_HALF_DOWN",
+        "ROUND_HALF_EVEN",
+        "ROUND_05UP",
+        "InvalidOperation",
+        "DivisionByZero",
+        "Inexact",
+        "Rounded",
+        "Subnormal",
+        "Overflow",
+        "Underflow",
+        "FloatOperation",
+    },
+    "uuid": {
+        "uuid1",
+        "uuid3",
+        "uuid4",
+        "uuid5",
+        "UUID",
+        "NAMESPACE_DNS",
+        "NAMESPACE_URL",
+        "NAMESPACE_OID",
+        "NAMESPACE_X500",
+        "SafeUUID",
+    },
+    "html": {
+        "escape",
+        "unescape",
+    },
+    "urllib.parse": {
+        "urlparse",
+        "urlunparse",
+        "urljoin",
+        "urlencode",
+        "quote",
+        "quote_plus",
+        "unquote",
+        "unquote_plus",
+        "parse_qs",
+        "parse_qsl",
+        "urlsplit",
+        "urlunsplit",
+        "ParseResult",
+        "SplitResult",
+    },
+    "string": {
+        "ascii_letters",
+        "ascii_lowercase",
+        "ascii_uppercase",
+        "digits",
+        "hexdigits",
+        "octdigits",
+        "punctuation",
+        "printable",
+        "whitespace",
+        "capwords",
+        "Formatter",
+        "Template",
+    },
+    "textwrap": {
+        "wrap",
+        "fill",
+        "shorten",
+        "dedent",
+        "indent",
+        "TextWrapper",
+    },
+    "copy": {
+        "copy",
+        "deepcopy",
+        "error",
+    },
+    "enum": {
+        "Enum",
+        "IntEnum",
+        "StrEnum",
+        "Flag",
+        "IntFlag",
+        "auto",
+        "unique",
+        "EnumType",
+    },
+    "dataclasses": {
+        "dataclass",
+        "field",
+        "fields",
+        "asdict",
+        "astuple",
+        "make_dataclass",
+        "replace",
+        "is_dataclass",
+        "FrozenInstanceError",
+        "InitVar",
+        "Field",
+        "KW_ONLY",
+        "MISSING",
+    },
+    "typing": {
+        "Any",
+        "Union",
+        "Optional",
+        "List",
+        "Dict",
+        "Tuple",
+        "Set",
+        "FrozenSet",
+        "Sequence",
+        "Mapping",
+        "MutableMapping",
+        "Iterable",
+        "Iterator",
+        "Generator",
+        "Callable",
+        "ClassVar",
+        "Final",
+        "Literal",
+        "TypeVar",
+        "Generic",
+        "Protocol",
+        "runtime_checkable",
+        "TypedDict",
+        "NamedTuple",
+        "get_type_hints",
+        "cast",
+        "overload",
+        "no_type_check",
+        "TYPE_CHECKING",
+    },
+    "binascii": {
+        "hexlify",
+        "unhexlify",
+        "a2b_base64",
+        "b2a_base64",
+        "a2b_hex",
+        "b2a_hex",
+        "crc32",
+        "crc_hqx",
+        "Error",
+        "Incomplete",
+    },
+    "difflib": {
+        "SequenceMatcher",
+        "Differ",
+        "HtmlDiff",
+        "context_diff",
+        "unified_diff",
+        "ndiff",
+        "get_close_matches",
+        "IS_CHARACTER_JUNK",
+        "IS_LINE_JUNK",
+        "restore",
+    },
+    "fractions": {
+        "Fraction",
+    },
+    "cmath": {
+        "phase",
+        "polar",
+        "rect",
+        "exp",
+        "log",
+        "log10",
+        "sqrt",
+        "cos",
+        "sin",
+        "tan",
+        "acos",
+        "asin",
+        "atan",
+        "cosh",
+        "sinh",
+        "tanh",
+        "acosh",
+        "asinh",
+        "atanh",
+        "isfinite",
+        "isinf",
+        "isnan",
+        "isclose",
+        "pi",
+        "e",
+        "tau",
+        "inf",
+        "infj",
+        "nan",
+        "nanj",
+    },
+    "calendar": {
+        "Calendar",
+        "TextCalendar",
+        "HTMLCalendar",
+        "LocaleTextCalendar",
+        "LocaleHTMLCalendar",
+        "setfirstweekday",
+        "firstweekday",
+        "isleap",
+        "leapdays",
+        "weekday",
+        "weekheader",
+        "monthrange",
+        "monthcalendar",
+        "prmonth",
+        "month",
+        "prcal",
+        "calendar",
+        "timegm",
+        "month_name",
+        "month_abbr",
+        "day_name",
+        "day_abbr",
+        "MONDAY",
+        "TUESDAY",
+        "WEDNESDAY",
+        "THURSDAY",
+        "FRIDAY",
+        "SATURDAY",
+        "SUNDAY",
+    },
+    "zoneinfo": {
+        "ZoneInfo",
+        "available_timezones",
+        "TZPATH",
+        "reset_tzpath",
+        "ZoneInfoNotFoundError",
+    },
+}
+
+# Attributes that are NEVER safe on any module (traversal vectors)
+_MODULE_FORBIDDEN_ATTRS = frozenset(
+    {
+        "sys",
+        "os",
+        "subprocess",
+        "builtins",
+        "codecs",
+        "posixpath",
+        "genericpath",
+        "posix",
+        "nt",
+        "ntpath",
+        "_os",
+        "_sys",
+        "__spec__",
+        "__loader__",
+        "__builtins__",
+        "__file__",
+        "__path__",
+        "__cached__",
+    }
+)
+
+
+class SafeModuleProxy:
+    """Proxy wrapper that restricts module attribute access to a whitelist.
+
+    Prevents sandbox escape via module attribute traversal (e.g.,
+    datetime.sys.modules["os"].popen("id")).
+
+    Only explicitly whitelisted attributes are accessible. All others
+    raise AttributeError.
+    """
+
+    __slots__ = ("_module", "_allowed_attrs", "_name")
+
+    def __init__(self, module: Any, name: str | None = None):
+        mod_name = name or getattr(module, "__name__", "unknown")
+        object.__setattr__(self, "_name", mod_name)
+        object.__setattr__(self, "_module", module)
+
+        # Use explicit allowlist if defined, otherwise auto-generate from public attrs
+        if mod_name in _MODULE_SAFE_ATTRS:
+            object.__setattr__(self, "_allowed_attrs", _MODULE_SAFE_ATTRS[mod_name])
+        else:
+            # For modules without explicit allowlists, allow public non-underscore attrs
+            # but always block known-dangerous traversal attrs
+            safe_attrs = {
+                attr
+                for attr in dir(module)
+                if not attr.startswith("_") and attr not in _MODULE_FORBIDDEN_ATTRS
+            }
+            object.__setattr__(self, "_allowed_attrs", safe_attrs)
+
+    def __getattr__(self, name: str) -> Any:
+        if name in _MODULE_FORBIDDEN_ATTRS:
+            raise AttributeError(
+                f"Access to '{name}' on module '{self._name}' is forbidden "
+                f"(potential sandbox escape vector)"
+            )
+        if name not in self._allowed_attrs:
+            raise AttributeError(
+                f"module '{self._name}' has no attribute '{name}' "
+                f"(not in sandbox allowlist)"
+            )
+        attr = getattr(self._module, name)
+
+        # If the attribute is itself a module, wrap it too
+        import types
+
+        if isinstance(attr, types.ModuleType):
+            return SafeModuleProxy(attr, name=f"{self._name}.{name}")
+
+        return attr
+
+    def __repr__(self) -> str:
+        return f"<SafeModuleProxy '{self._name}'>"
+
+    def __str__(self) -> str:
+        return f"<SafeModuleProxy '{self._name}'>"
+
+    # Prevent attribute setting/deletion
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError("Cannot set attributes on sandbox module proxy")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError("Cannot delete attributes on sandbox module proxy")
 
 
 class SizeLimitedStringIO(StringIO):
@@ -443,7 +971,9 @@ def create_safe_builtins(
         if name == "regex":
             return TimeoutProtectedRegex(module)
 
-        return module
+        # Wrap all imported modules with SafeModuleProxy to prevent
+        # attribute traversal attacks (e.g., json.codecs.sys.modules["os"])
+        return SafeModuleProxy(module, name=name)
 
     safe_builtins["__import__"] = safe_import
 
@@ -507,6 +1037,14 @@ FORBIDDEN_PATTERNS = [
     r"\.__loader__\b",
     r"\.__spec__\b",
     r"\.__dict__\b",
+    # Module traversal patterns (e.g., datetime.sys, json.codecs.sys)
+    r"\.sys\b",
+    r"\bsys\s*\[",
+    r"\[[\'\"]os[\'\"]\]",
+    r"\[[\'\"]sys[\'\"]\]",
+    r"\[[\'\"]subprocess[\'\"]\]",
+    r"\[[\'\"]builtins[\'\"]\]",
+    r"\.modules\s*\[",
     # getattr-style access (in case someone passes strings)
     r"getattr\s*\([^)]*['\"]__\w+__['\"]",
     # vars() can expose __dict__ which contains dunders
@@ -1145,9 +1683,10 @@ class PythonExecutor:
             "__builtins__": self._create_safe_builtins(allowed_modules),
             # Inject SSRF-protected HTTP client
             "http": protected_client,
-            # Inject commonly used modules
-            "json": json,
-            "datetime": datetime,
+            # Inject commonly used modules wrapped in SafeModuleProxy
+            # to prevent attribute traversal (e.g., datetime.sys.modules["os"])
+            "json": SafeModuleProxy(json, name="json"),
+            "datetime": SafeModuleProxy(datetime, name="datetime"),
             # Inject read-only secrets dict
             "secrets": MappingProxyType(secrets or {}),
         }
@@ -1253,81 +1792,80 @@ class PythonExecutor:
                     debug_info=debug_info,
                 )
 
-            # Capture stdout
-            old_stdout = sys.stdout
-            sys.stdout = stdout_capture
+            # SECURITY: Override print() in builtins to capture stdout per-execution
+            # instead of replacing global sys.stdout. This prevents output leakage
+            # between concurrent tool executions (race condition).
+            namespace["__builtins__"]["print"] = lambda *args, **kwargs: print(
+                *args, file=stdout_capture, **kwargs
+            )
 
-            try:
-                # Compile and execute the user's code to define main()
-                compiled = compile(python_code, "<tool>", "exec")
-                exec(compiled, namespace)
+            # Compile and execute the user's code to define main()
+            compiled = compile(python_code, "<tool>", "exec")
+            exec(compiled, namespace)
 
-                # Verify main() exists and is async
-                if "main" not in namespace:
-                    error_detail = ErrorDetail(
-                        message="Code must define an async main() function",
-                        error_type="ValidationError",
-                    )
-                    return ExecutionResult(
-                        success=False,
-                        error="Code must define an async main() function",
-                        error_detail=error_detail,
-                        stdout=stdout_capture.getvalue(),
-                        duration_ms=int((time.monotonic() - start_time) * 1000),
-                        debug_info=debug_info,
-                    )
-
-                main_func = namespace["main"]
-                if not asyncio.iscoroutinefunction(main_func):
-                    error_detail = ErrorDetail(
-                        message="main() must be an async function (use 'async def main(...)')",
-                        error_type="ValidationError",
-                    )
-                    return ExecutionResult(
-                        success=False,
-                        error="main() must be an async function (use 'async def main(...)')",
-                        error_detail=error_detail,
-                        stdout=stdout_capture.getvalue(),
-                        duration_ms=int((time.monotonic() - start_time) * 1000),
-                        debug_info=debug_info,
-                    )
-
-                # Execute main() with timeout
-                try:
-                    result = await asyncio.wait_for(
-                        main_func(**arguments),
-                        timeout=timeout,
-                    )
-                except asyncio.TimeoutError:
-                    error_detail = ErrorDetail(
-                        message=f"Execution timed out after {timeout} seconds",
-                        error_type="TimeoutError",
-                    )
-                    return ExecutionResult(
-                        success=False,
-                        error=f"Execution timed out after {timeout} seconds",
-                        error_detail=error_detail,
-                        stdout=stdout_capture.getvalue(),
-                        duration_ms=int(timeout * 1000),
-                        debug_info=debug_info,
-                    )
-
-                # Ensure result is JSON-serializable
-                try:
-                    json.dumps(result)
-                except (TypeError, ValueError):
-                    result = str(result)
-
+            # Verify main() exists and is async
+            if "main" not in namespace:
+                error_detail = ErrorDetail(
+                    message="Code must define an async main() function",
+                    error_type="ValidationError",
+                )
                 return ExecutionResult(
-                    success=True,
-                    result=result,
+                    success=False,
+                    error="Code must define an async main() function",
+                    error_detail=error_detail,
                     stdout=stdout_capture.getvalue(),
                     duration_ms=int((time.monotonic() - start_time) * 1000),
                     debug_info=debug_info,
                 )
 
-            finally:
-                sys.stdout = old_stdout
+            main_func = namespace["main"]
+            if not asyncio.iscoroutinefunction(main_func):
+                error_detail = ErrorDetail(
+                    message="main() must be an async function (use 'async def main(...)')",
+                    error_type="ValidationError",
+                )
+                return ExecutionResult(
+                    success=False,
+                    error="main() must be an async function (use 'async def main(...)')",
+                    error_detail=error_detail,
+                    stdout=stdout_capture.getvalue(),
+                    duration_ms=int((time.monotonic() - start_time) * 1000),
+                    debug_info=debug_info,
+                )
+
+            # Execute main() with timeout
+            try:
+                result = await asyncio.wait_for(
+                    main_func(**arguments),
+                    timeout=timeout,
+                )
+            except asyncio.TimeoutError:
+                error_detail = ErrorDetail(
+                    message=f"Execution timed out after {timeout} seconds",
+                    error_type="TimeoutError",
+                )
+                return ExecutionResult(
+                    success=False,
+                    error=f"Execution timed out after {timeout} seconds",
+                    error_detail=error_detail,
+                    stdout=stdout_capture.getvalue(),
+                    duration_ms=int(timeout * 1000),
+                    debug_info=debug_info,
+                )
+
+            # Ensure result is JSON-serializable
+            try:
+                json.dumps(result)
+            except (TypeError, ValueError):
+                result = str(result)
+
+            return ExecutionResult(
+                success=True,
+                result=result,
+                stdout=stdout_capture.getvalue(),
+                duration_ms=int((time.monotonic() - start_time) * 1000),
+                debug_info=debug_info,
+            )
 
         except SyntaxError as e:
             # Extract code context for syntax errors
