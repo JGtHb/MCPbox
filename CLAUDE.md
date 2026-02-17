@@ -66,7 +66,7 @@ Two modes: **Local** (no auth, Claude Desktop → localhost:8000/mcp) and **Remo
 
 | Document | When to Consult |
 |----------|----------------|
-| [docs/architecture.md](docs/architecture.md) | Module map, data flow, dependencies, identified issues |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Module map, data flow, dependencies, identified issues |
 | [docs/FEATURES.md](docs/FEATURES.md) | Feature inventory with status, test coverage, owner modules |
 | [docs/SECURITY.md](docs/SECURITY.md) | Security risk registry (17 findings by severity) |
 | [docs/TESTING.md](docs/TESTING.md) | Test coverage map, critical gaps, infrastructure |
@@ -77,6 +77,7 @@ Two modes: **Local** (no auth, Claude Desktop → localhost:8000/mcp) and **Remo
 | [docs/PRODUCTION-DEPLOYMENT.md](docs/PRODUCTION-DEPLOYMENT.md) | Production env vars, HTTPS, monitoring |
 | [docs/MCP-MANAGEMENT-TOOLS.md](docs/MCP-MANAGEMENT-TOOLS.md) | 24 `mcpbox_*` MCP tool reference |
 | [docs/INCIDENT-RESPONSE.md](docs/INCIDENT-RESPONSE.md) | Operational runbooks for failures |
+| [docs/CONSIDER-REMOVING.md](docs/CONSIDER-REMOVING.md) | Pre-release cleanup candidates (dead code, duplicates, vestigial features) |
 
 ## Workflow Rules
 
@@ -93,7 +94,7 @@ Two modes: **Local** (no auth, Claude Desktop → localhost:8000/mcp) and **Remo
 2. **Backend tests require Docker** — testcontainers spins up PostgreSQL. No SQLite fallback (ARRAY types).
 3. **Tool approval TOCTOU** — ~~Updating code on an approved tool doesn't reset approval status.~~ **Fixed**: approval resets to `pending_review` on code change. See [SECURITY.md SEC-001](docs/SECURITY.md#sec-001).
 4. **Rollback preserves approval** — ~~Rolling back to different code keeps "approved" status.~~ **Fixed**: rollback always resets approval. See [SECURITY.md SEC-002](docs/SECURITY.md#sec-002).
-5. **Sandbox stdout race** — `sys.stdout` globally replaced during execution. Concurrent tools can leak output.
+5. **Sandbox stdout race** — ~~`sys.stdout` globally replaced during execution. Concurrent tools can leak output.~~ **Already mitigated**: `print` is overridden per-execution via a custom function injected into the execution namespace. No global `sys.stdout` replacement occurs.
 6. **Two entry points** — `backend/app/main.py` (admin) and `backend/app/mcp_only.py` (gateway) share code but have separate middleware stacks. Changes must be applied to both.
 7. **Encryption key required** — `MCPBOX_ENCRYPTION_KEY` must be exactly 64 hex chars. `SANDBOX_API_KEY` must be 32+ chars.
 8. **Route prefix double-nesting** — ~~`/api/settings/settings` endpoint has doubled prefix.~~ **Fixed**: endpoint is now `/api/settings`. See [INCONSISTENCIES.md](docs/INCONSISTENCIES.md).

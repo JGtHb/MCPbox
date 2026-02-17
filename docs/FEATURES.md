@@ -7,21 +7,21 @@ Features are sorted by status, with broken/partial items at the top for visibili
 ## Partial / Needs Attention
 
 ### Settings Model
-- **Status**: Partial
-- **Description**: Key-value settings storage with optional encryption. The `Setting` database model exists but is minimally utilized — only basic listing via `/api/settings` endpoint. Designed for feature toggles, preferences, and encrypted configuration but not fully wired up.
+- **Status**: Partial — **decision required before release** (see [CONSIDER-REMOVING.md](CONSIDER-REMOVING.md#7a-settings-model-under-utilized))
+- **Description**: Key-value settings storage with optional encryption. The `Setting` database model exists but is minimally utilized — only basic listing via `/api/settings` endpoint. The module whitelist management has taken over the primary use case. Designed for feature toggles, preferences, and encrypted configuration but not fully wired up.
 - **Owner modules**: `backend/app/models/setting.py`, `backend/app/services/setting.py`, `backend/app/api/settings.py`
 - **Dependencies**: Crypto service (for encrypted values)
 - **Test coverage**: No dedicated tests for settings API endpoints
 - **Security notes**: Supports encrypted values via AES-256-GCM
-- **Issues found**: Under-utilized model; unclear intended scope
+- **Issues found**: Under-utilized model; unclear intended scope. Either expand with CRUD endpoints + UI, or narrow scope and rename to clarify purpose
 
 ### Helper Code (Shared Server Code)
-- **Status**: Partial
+- **Status**: Partial — **decision required before release** (see [CONSIDER-REMOVING.md](CONSIDER-REMOVING.md#7b-helper-code-shared-server-code))
 - **Description**: `helper_code` field on Server model allows sharing Python utility code across all tools in a server. The database field exists and the executor loads it, but there is no API endpoint to update helper code directly (must be set at server creation or via raw update).
 - **Owner modules**: `backend/app/models/server.py` (field), `sandbox/app/executor.py` (loading)
 - **Dependencies**: Sandbox executor
 - **Test coverage**: No dedicated tests for helper code execution
-- **Issues found**: No UI or dedicated API endpoint for updating helper code after server creation
+- **Issues found**: No UI or dedicated API endpoint for updating helper code after server creation. If shipping in v1, needs API + UI. If deferring, add code comment and hide from docs
 
 ---
 
