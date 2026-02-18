@@ -1,5 +1,7 @@
 # Consider Removing — Pre-Release Cleanup Candidates
 
+> **Status: All 22 items resolved.** Review completed across 9 categories. 10 items fixed, 7 removed, 2 expanded/created, 3 already resolved at time of review. No remaining action items.
+
 This document catalogs code, files, and patterns identified during a comprehensive codebase inventory that are candidates for removal, consolidation, or refactoring before initial release. Nothing has been released yet, so there are no backwards-compatibility obligations.
 
 Items are organized by category and prioritized by impact. Each item includes the rationale, affected files, and recommended action.
@@ -132,10 +134,10 @@ Items are organized by category and prioritized by impact. Each item includes th
 
 ## 9. Duplicate Middleware Initialization
 
-### 9a. Two Entry Points With Duplicated Setup
+### ~~9a. Two Entry Points With Duplicated Setup~~ — **FIXED**
 - **Files**: `backend/app/main.py`, `backend/app/mcp_only.py`
 - **Issue**: Both entry points initialize similar middleware stacks (CORS, SecurityHeaders, RateLimit) and lifespan handlers (activity logger, service token cache, log retention, server recovery). Changes must be applied in both files
-- **Action**: Extract shared initialization into a common module (e.g., `backend/app/core/shared_lifespan.py`). Already documented in `INCONSISTENCIES.md`
+- **Resolution**: Extracted shared lifespan logic into `backend/app/core/shared_lifespan.py` with `common_startup()` and `common_shutdown()` functions. Shared: logging setup, activity logger, service token cache, security checks, log retention, rate-limit cleanup, session cleanup, server recovery. Each entry point retains its unique logic (main.py: token blacklist cleanup + tunnel shutdown; mcp_only.py: auth mode logging). `main.py` reduced from 246→165 lines, `mcp_only.py` from 217→138 lines.
 
 ---
 
@@ -169,4 +171,4 @@ When reviewing this document, for each item decide:
 | ~~7b~~ | ~~Helper code feature~~ | ~~Feature decision~~ | ~~Medium~~ | **REMOVED** |
 | ~~8a~~ | ~~In-memory token blacklist~~ | ~~Documentation~~ | ~~Trivial~~ | **FIXED** |
 | ~~8b~~ | ~~Session dict cleanup~~ | ~~Feature~~ | ~~Low~~ | **FIXED** |
-| 9a | Duplicate middleware init | Refactor | Medium | Low |
+| ~~9a~~ | ~~Duplicate middleware init~~ | ~~Refactor~~ | ~~Medium~~ | **FIXED** |

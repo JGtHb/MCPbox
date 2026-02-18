@@ -95,7 +95,7 @@ Two modes: **Local** (no auth, Claude Desktop → localhost:8000/mcp) and **Remo
 3. **Tool approval TOCTOU** — ~~Updating code on an approved tool doesn't reset approval status.~~ **Fixed**: approval resets to `pending_review` on code change. See [SECURITY.md SEC-001](docs/SECURITY.md#sec-001).
 4. **Rollback preserves approval** — ~~Rolling back to different code keeps "approved" status.~~ **Fixed**: rollback always resets approval. See [SECURITY.md SEC-002](docs/SECURITY.md#sec-002).
 5. **Sandbox stdout race** — ~~`sys.stdout` globally replaced during execution. Concurrent tools can leak output.~~ **Already mitigated**: `print` is overridden per-execution via a custom function injected into the execution namespace. No global `sys.stdout` replacement occurs.
-6. **Two entry points** — `backend/app/main.py` (admin) and `backend/app/mcp_only.py` (gateway) share code but have separate middleware stacks. Changes must be applied to both.
+6. **Two entry points** — `backend/app/main.py` (admin) and `backend/app/mcp_only.py` (gateway) have separate middleware stacks but share lifespan logic via `backend/app/core/shared_lifespan.py`. Middleware changes still need to be applied to both; lifespan changes go in the shared module.
 7. **Encryption key required** — `MCPBOX_ENCRYPTION_KEY` must be exactly 64 hex chars. `SANDBOX_API_KEY` must be 32+ chars.
 8. **Route prefix double-nesting** — ~~`/api/settings/settings` endpoint has doubled prefix.~~ **Fixed**: endpoint is now `/api/settings`. See [INCONSISTENCIES.md](docs/INCONSISTENCIES.md).
 9. **alembic upgrade head required** — Auto table creation disabled. Run migrations before first start.

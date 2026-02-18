@@ -106,25 +106,19 @@ Not all list endpoints use the same response wrapper style.
 
 ## Additional Technical Debt
 
-### Duplicate Middleware Initialization
-- **Files**: `backend/app/main.py`, `backend/app/mcp_only.py`
-- **Issue**: Both entry points initialize similar middleware stacks (CORS, SecurityHeaders, RateLimit) and lifespan handlers (activity logger, service token cache, log retention, server recovery). Changes to middleware must be applied in both files.
-- **Recommendation**: Extract shared initialization into a common module
+### ~~Duplicate Middleware Initialization~~ — **RESOLVED**
+- **Resolution**: Shared lifespan logic extracted into `backend/app/core/shared_lifespan.py` with `common_startup()` and `common_shutdown()` functions. Middleware setup (CORS, SecurityHeaders, RateLimit) remains per-app since each has different config.
 
-### Activity Logger Initialization Pattern
-- **Files**: `backend/app/main.py`, `backend/app/mcp_only.py`
-- **Issue**: Activity logger startup/shutdown replicated in both entry points
-- **Recommendation**: Factor into shared lifespan utility
+### ~~Activity Logger Initialization Pattern~~ — **RESOLVED**
+- **Resolution**: Activity logger init now in `common_startup()` in `backend/app/core/shared_lifespan.py`.
 
 ### Global Mutable State in Sandbox
 - **File**: `sandbox/app/executor.py`
 - **Issue**: `_resource_limit_status` global dict tracks resource limit availability. Modified during first execution, read thereafter. Not thread-safe for concurrent requests.
 - **Recommendation**: Initialize during startup, make immutable after
 
-### MCP Gateway Session Dict Without Cleanup
-- **File**: `backend/app/api/mcp_gateway.py:71-72`
-- **Issue**: `_active_sessions` global dict stores MCP session state. While sessions have TTL, there's no periodic cleanup of expired sessions. Long-running gateway instances could accumulate stale sessions.
-- **Recommendation**: Add periodic cleanup task or use TTL cache library
+### ~~MCP Gateway Session Dict Without Cleanup~~ — **RESOLVED**
+- **Resolution**: `cleanup_expired_sessions()` added to `mcp_gateway.py`, called every 10 minutes from `_session_cleanup_loop()` in `shared_lifespan.py`.
 
 ### Console Logging in Worker
 - **Files**: `worker/src/index.ts`, `worker/src/access-handler.ts`
