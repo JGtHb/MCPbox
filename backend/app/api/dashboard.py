@@ -210,37 +210,35 @@ async def get_dashboard(
 
     # Get time series data (hourly buckets for 24h, 10-minute for shorter)
     bucket_minutes = 60 if period in ("24h", "7d") else 10
+
+    # Single query: count all requests grouped by time bucket
+    bucket_expr = func.date_trunc("minute", ActivityLog.created_at)
+    if bucket_minutes == 60:
+        bucket_expr = func.date_trunc("hour", ActivityLog.created_at)
+
+    request_series_query = (
+        select(
+            bucket_expr.label("bucket"),
+            func.count(ActivityLog.id).label("total"),
+            func.count(ActivityLog.id).filter(ActivityLog.level == "error").label("errors"),
+        )
+        .where(ActivityLog.created_at >= since)
+        .group_by("bucket")
+        .order_by("bucket")
+    )
+
+    series_result = await db.execute(request_series_query)
+    series_rows = {row.bucket: (row.total, row.errors) for row in series_result}
+
+    # Fill gaps in Python
     time_series_points = []
     error_series_points = []
-
-    # Generate time buckets
     current = since.replace(minute=0, second=0, microsecond=0)
     while current <= datetime.now(UTC):
-        bucket_end = current + timedelta(minutes=bucket_minutes)
-
-        request_count = await db.execute(
-            select(func.count(ActivityLog.id)).where(
-                ActivityLog.created_at >= current,
-                ActivityLog.created_at < bucket_end,
-            )
-        )
-
-        error_count = await db.execute(
-            select(func.count(ActivityLog.id)).where(
-                ActivityLog.created_at >= current,
-                ActivityLog.created_at < bucket_end,
-                ActivityLog.level == "error",
-            )
-        )
-
-        time_series_points.append(
-            TimeSeriesPoint(timestamp=current, value=request_count.scalar() or 0)
-        )
-        error_series_points.append(
-            TimeSeriesPoint(timestamp=current, value=error_count.scalar() or 0)
-        )
-
-        current = bucket_end
+        total, errors = series_rows.get(current, (0, 0))
+        time_series_points.append(TimeSeriesPoint(timestamp=current, value=total))
+        error_series_points.append(TimeSeriesPoint(timestamp=current, value=errors))
+        current = current + timedelta(minutes=bucket_minutes)
 
     # Get top tools by invocation count
     # Use a labeled expression for consistent GROUP BY handling in PostgreSQL

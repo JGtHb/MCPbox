@@ -32,37 +32,37 @@ class TestEncryption:
     def test_encrypt_decrypt_roundtrip(self):
         """Test that encrypt/decrypt preserves data."""
         plaintext = "This is a secret message!"
-        encrypted = encrypt(plaintext)
-        decrypted = decrypt(encrypted)
+        encrypted = encrypt(plaintext, aad="test")
+        decrypted = decrypt(encrypted, aad="test")
         assert decrypted == plaintext
 
     def test_encrypt_produces_different_output(self):
         """Test that encryption produces different ciphertext each time (IV)."""
         plaintext = "Same message"
-        encrypted1 = encrypt(plaintext)
-        encrypted2 = encrypt(plaintext)
+        encrypted1 = encrypt(plaintext, aad="test")
+        encrypted2 = encrypt(plaintext, aad="test")
         # Due to random IV, outputs should differ
         assert encrypted1 != encrypted2
 
     def test_decrypt_invalid_data(self):
         """Test that decryption fails gracefully on invalid data."""
         with pytest.raises(DecryptionError):
-            decrypt(b"not valid encrypted data")
+            decrypt(b"not valid encrypted data", aad="test")
 
     def test_decrypt_too_short(self):
         """Test that decryption fails on too-short data."""
         with pytest.raises(DecryptionError):
-            decrypt(b"short")
+            decrypt(b"short", aad="test")
 
     def test_base64_roundtrip(self):
         """Test base64 encode/decode roundtrip."""
         plaintext = "Secret data with special chars: äöü 🎉"
-        encrypted = encrypt_to_base64(plaintext)
+        encrypted = encrypt_to_base64(plaintext, aad="test")
 
         # Should be a valid base64 string
         assert isinstance(encrypted, str)
 
-        decrypted = decrypt_from_base64(encrypted)
+        decrypted = decrypt_from_base64(encrypted, aad="test")
         assert decrypted == plaintext
 
 
@@ -113,14 +113,6 @@ class TestAADContextBinding:
         with pytest.raises(DecryptionError):
             decrypt(encrypted, aad="service_token")
 
-    def test_no_aad_compat_for_legacy_data(self):
-        """Data encrypted without AAD can still be decrypted with AAD (compat fallback)."""
-        plaintext = "legacy secret"
-        encrypted = encrypt(plaintext, aad=None)
-        # Should succeed via backwards-compat path
-        decrypted = decrypt(encrypted, aad="some_context")
-        assert decrypted == plaintext
-
     def test_base64_with_aad_roundtrip(self):
         """Base64 encode/decode roundtrip with AAD."""
         plaintext = "oauth_token_data"
@@ -140,20 +132,20 @@ class TestEncryptionEdgeCases:
 
     def test_encrypt_empty_string(self):
         """Test encrypting an empty string."""
-        encrypted = encrypt("")
-        decrypted = decrypt(encrypted)
+        encrypted = encrypt("", aad="test")
+        decrypted = decrypt(encrypted, aad="test")
         assert decrypted == ""
 
     def test_encrypt_unicode(self):
         """Test encrypting unicode characters."""
         plaintext = "Hello 世界 🌍 مرحبا"
-        encrypted = encrypt(plaintext)
-        decrypted = decrypt(encrypted)
+        encrypted = encrypt(plaintext, aad="test")
+        decrypted = decrypt(encrypted, aad="test")
         assert decrypted == plaintext
 
     def test_encrypt_large_data(self):
         """Test encrypting large amounts of data."""
         plaintext = "x" * 100000  # 100KB
-        encrypted = encrypt(plaintext)
-        decrypted = decrypt(encrypted)
+        encrypted = encrypt(plaintext, aad="test")
+        decrypted = decrypt(encrypted, aad="test")
         assert decrypted == plaintext

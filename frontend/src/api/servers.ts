@@ -6,8 +6,8 @@ export interface Server {
   id: string
   name: string
   description: string | null
-  status: 'imported' | 'building' | 'ready' | 'running' | 'stopped' | 'error'
-  network_mode: 'isolated' | 'allowlist' | 'monitored' | 'learning'
+  status: 'imported' | 'ready' | 'running' | 'stopped' | 'error'
+  network_mode: 'isolated' | 'allowlist'
   tool_count: number
   created_at: string
   updated_at: string
@@ -16,7 +16,6 @@ export interface Server {
 export interface ServerDetail extends Server {
   allowed_hosts: string[] | null
   default_timeout_ms: number
-  helper_code: string | null
   // NOTE: allowed_modules removed - now global in Settings
 }
 

@@ -27,11 +27,6 @@ class ServerUpdate(BaseModel):
     description: str | None = Field(None, max_length=2000)
     network_mode: str | None = Field(None, pattern="^(isolated|allowlist)$")
     default_timeout_ms: int | None = Field(None, ge=1000, le=300000)
-    helper_code: str | None = Field(
-        None,
-        max_length=100000,  # 100KB limit for helper code
-        description="Shared Python helper code for all actions in this tool",
-    )
     # NOTE: allowed_modules removed - now global in Settings
 
 
@@ -57,7 +52,6 @@ class ServerResponse(BaseModel):
     status: str
     network_mode: str
     default_timeout_ms: int
-    helper_code: str | None
     created_at: datetime
     updated_at: datetime
     tools: list[ToolSummary] = []

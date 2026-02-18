@@ -134,8 +134,6 @@ async def _register_server(db, server: Server, sandbox_client: SandboxClient) ->
         server_id=str(server.id),
         server_name=server.name,
         tools=tool_defs,
-        credentials=[],
-        helper_code=server.helper_code,
         allowed_modules=allowed_modules,
         secrets=secrets,
         external_sources=external_sources_data,

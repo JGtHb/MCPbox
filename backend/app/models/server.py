@@ -13,12 +13,8 @@ if TYPE_CHECKING:
     from app.models.server_secret import ServerSecret
     from app.models.tool import Tool
 
-# Server status
-# Note: "building" is vestigial from per-server container architecture,
-# kept for database enum compatibility
 ServerStatus = Enum(
     "imported",
-    "building",
     "ready",
     "running",
     "stopped",
@@ -27,13 +23,9 @@ ServerStatus = Enum(
     create_constraint=True,
 )
 
-# Network mode
-# Note: "monitored" and "learning" are unused, kept for database enum compatibility
 NetworkMode = Enum(
     "isolated",
     "allowlist",
-    "monitored",
-    "learning",
     name="network_mode",
     create_constraint=True,
 )
@@ -75,12 +67,6 @@ class Server(BaseModel):
         default=30000,
         nullable=False,
     )
-
-    # Python code helpers (shared across all actions in this tool)
-    # Contains Python code that can be imported by action code via:
-    #   from _helpers import some_function
-    # Example use cases: pagination helpers, response parsers, constants
-    helper_code: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # NOTE: allowed_modules has been moved to global_config table
     # Module whitelist is now global, not per-server

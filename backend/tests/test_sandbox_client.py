@@ -221,7 +221,6 @@ class TestSandboxClientRegisterServer:
                 server_id="test-server-id",
                 server_name="Test Server",
                 tools=[{"name": "tool1"}, {"name": "tool2"}],
-                credentials=[],
             )
 
             assert result["success"] is True
@@ -245,7 +244,6 @@ class TestSandboxClientRegisterServer:
                 server_id="test-server-id",
                 server_name="Test Server",
                 tools=[],
-                credentials=[],
             )
 
             assert result["success"] is False
@@ -264,7 +262,6 @@ class TestSandboxClientRegisterServer:
             server_id="test-server-id",
             server_name="Test Server",
             tools=[],
-            credentials=[],
         )
 
         assert result["success"] is False

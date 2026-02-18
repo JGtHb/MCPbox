@@ -14,7 +14,6 @@ export interface ExportedTool {
 export interface ExportedServer {
   name: string
   description: string | null
-  helper_code: string | null
   tools: ExportedTool[]
 }
 

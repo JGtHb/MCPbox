@@ -55,7 +55,7 @@ class TestEmailValidation:
 
         assert _MAX_EMAIL_LENGTH == 254
         # An email longer than 254 chars should be caught by the length check
-        long_email = "a" * 245 + "@test.com"
+        long_email = "a" * 246 + "@test.com"
         assert len(long_email) > 254
 
 
@@ -88,21 +88,12 @@ class TestAESGCMWithAAD:
         with pytest.raises(DecryptionError):
             decrypt(encrypted, aad="server_secret")
 
-    def test_no_aad_backwards_compatible(self):
-        """Data encrypted without AAD can still be decrypted without AAD."""
-        plaintext = "legacy-data"
-        encrypted = encrypt(plaintext)  # No AAD
-        decrypted = decrypt(encrypted)  # No AAD
-        assert decrypted == plaintext
-
-    def test_legacy_data_fallback(self):
-        """Data encrypted without AAD can be decrypted when AAD is requested (fallback)."""
-        plaintext = "legacy-service-token"
-        encrypted = encrypt(plaintext)  # No AAD (legacy)
-
-        # Decrypt with AAD should fallback to no-AAD for backwards compatibility
-        decrypted = decrypt(encrypted, aad="service_token")
-        assert decrypted == plaintext
+    def test_aad_is_required(self):
+        """AAD is a required parameter on encrypt/decrypt (no legacy fallback)."""
+        with pytest.raises(TypeError):
+            encrypt("plaintext")  # No AAD — should fail
+        with pytest.raises(TypeError):
+            decrypt(b"ciphertext")  # No AAD — should fail
 
     def test_base64_with_aad(self):
         """Base64 roundtrip works with AAD."""

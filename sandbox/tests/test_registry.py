@@ -6,15 +6,12 @@ from app.registry import Tool
 class TestToolRegistry:
     """Tests for ToolRegistry class."""
 
-    def test_register_server_creates_server(
-        self, tool_registry, sample_tool_def, sample_credentials
-    ):
+    def test_register_server_creates_server(self, tool_registry, sample_tool_def):
         """Registering a server adds it to the registry."""
         count = tool_registry.register_server(
             server_id="server-1",
             server_name="TestServer",
             tools=[sample_tool_def],
-            credentials=sample_credentials,
         )
 
         assert count == 1
@@ -29,7 +26,7 @@ class TestToolRegistry:
             server_id="server-1",
             server_name="TestServer",
             tools=tools,
-            credentials=[],
+
         )
 
         assert count == 2
@@ -40,14 +37,14 @@ class TestToolRegistry:
             server_id="server-1",
             server_name="OldServer",
             tools=[sample_tool_def],
-            credentials=[],
+
         )
 
         tool_registry.register_server(
             server_id="server-1",
             server_name="NewServer",
             tools=[{**sample_tool_def, "name": "new_tool"}],
-            credentials=[],
+
         )
 
         assert tool_registry.servers["server-1"].server_name == "NewServer"
@@ -60,7 +57,7 @@ class TestToolRegistry:
             server_id="server-1",
             server_name="TestServer",
             tools=[sample_tool_def],
-            credentials=[],
+
         )
 
         result = tool_registry.unregister_server("server-1")
@@ -79,7 +76,7 @@ class TestToolRegistry:
             server_id="server-1",
             server_name="TestServer",
             tools=[sample_tool_def],
-            credentials=[],
+
         )
 
         tool = tool_registry.get_tool("TestServer__get_weather")
@@ -99,7 +96,7 @@ class TestToolRegistry:
             server_id="server-1",
             server_name="TestServer",
             tools=[sample_tool_def],
-            credentials=[],
+
         )
 
         tools = tool_registry.list_tools()
@@ -115,13 +112,13 @@ class TestToolRegistry:
             server_id="server-1",
             server_name="Server1",
             tools=[sample_tool_def],
-            credentials=[],
+
         )
         tool_registry.register_server(
             server_id="server-2",
             server_name="Server2",
             tools=[{**sample_tool_def, "name": "other_tool"}],
-            credentials=[],
+
         )
 
         tools = tool_registry.list_tools_for_server("server-1")
@@ -135,13 +132,13 @@ class TestToolRegistry:
             server_id="server-1",
             server_name="Server1",
             tools=[sample_tool_def, {**sample_tool_def, "name": "tool2"}],
-            credentials=[],
+
         )
         tool_registry.register_server(
             server_id="server-2",
             server_name="Server2",
             tools=[sample_tool_def],
-            credentials=[],
+
         )
 
         assert tool_registry.tool_count == 3

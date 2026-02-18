@@ -696,7 +696,6 @@ class MCPManagementService:
             "status": server.status,
             "network_mode": server.network_mode,
             "default_timeout_ms": server.default_timeout_ms,
-            "helper_code": server.helper_code,
             "created_at": server.created_at.isoformat() if server.created_at else None,
             "updated_at": server.updated_at.isoformat() if server.updated_at else None,
             "tools": tools_list,
@@ -944,7 +943,6 @@ class MCPManagementService:
                             server_id=str(server.id),
                             server_name=server.name,
                             tools=tool_defs,
-                            credentials=[],
                             allowed_modules=allowed_modules,
                             secrets=secrets,
                             external_sources=external_sources,
@@ -1018,7 +1016,6 @@ class MCPManagementService:
                     server_id=str(server.id),
                     server_name=server.name,
                     tools=tool_defs,
-                    credentials=[],
                     allowed_modules=allowed_modules,
                     secrets=secrets,
                     external_sources=external_sources,
@@ -1082,8 +1079,6 @@ class MCPManagementService:
                 server_id=str(server_id),
                 server_name=server.name,
                 tools=tool_defs,
-                credentials=[],
-                helper_code=server.helper_code,
                 allowed_modules=allowed_modules,
                 secrets=secrets,
                 external_sources=external_sources_data,
@@ -1888,38 +1883,10 @@ class MCPManagementService:
     # =========================================================================
 
     def _build_tool_definitions(self, tools: list) -> list[dict]:
-        """Build tool definitions for sandbox registration.
+        """Build tool definitions for sandbox registration (enabled + approved only)."""
+        from app.services.tool_utils import build_tool_definitions
 
-        Handles both python_code and mcp_passthrough tools.
-        """
-        tool_defs = []
-
-        for tool in tools:
-            # Only include enabled and approved tools
-            if not tool.enabled:
-                continue
-            if tool.approval_status != "approved":
-                continue
-
-            tool_def = {
-                "name": tool.name,
-                "description": tool.description or "",
-                "parameters": tool.input_schema or {},
-                "timeout_ms": tool.timeout_ms or 30000,
-                "python_code": tool.python_code,
-                "tool_type": getattr(tool, "tool_type", "python_code"),
-            }
-
-            # Add passthrough-specific fields
-            if tool_def["tool_type"] == "mcp_passthrough":
-                tool_def["external_source_id"] = (
-                    str(tool.external_source_id) if tool.external_source_id else None
-                )
-                tool_def["external_tool_name"] = tool.external_tool_name
-
-            tool_defs.append(tool_def)
-
-        return tool_defs
+        return build_tool_definitions(tools, filter_enabled_approved=True)
 
 
 def get_management_tools_list() -> list[dict]:

@@ -12,13 +12,13 @@ from app.api.auth import router as auth_router
 from app.api.health import router as health_router
 from app.api.internal import router as internal_router
 from app.api.mcp_gateway import router as mcp_router
-from app.core import async_session_maker, settings, setup_logging
+from app.core import async_session_maker, settings
 from app.core.logging import get_logger
+from app.core.shared_lifespan import common_shutdown, common_startup, task_done_callback
 from app.middleware import (
     AdminAuthMiddleware,
     RateLimitMiddleware,
     SecurityHeadersMiddleware,
-    rate_limit_cleanup_loop,
 )
 
 # Import all models to ensure they're registered with Base for Alembic
@@ -30,97 +30,60 @@ from app.models import (  # noqa: F401
     Server,
     ServerSecret,
     Setting,
+    TokenBlacklist,
     Tool,
     ToolExecutionLog,
     ToolVersion,
     TunnelConfiguration,
 )
-from app.services.activity_logger import ActivityLoggerService
-from app.services.log_retention import LogRetentionService
-from app.services.sandbox_client import SandboxClient
-from app.services.service_token_cache import ServiceTokenCache
 from app.services.tunnel import TunnelService
 
 logger = get_logger("main")
 
-# Background task for rate limiter cleanup
-_rate_limit_cleanup_task: asyncio.Task | None = None
 
+async def _token_blacklist_cleanup_loop() -> None:
+    """Periodically remove expired entries from the token blacklist."""
+    from app.api.auth import cleanup_expired_blacklist_entries
 
-def _task_done_callback(task: asyncio.Task[None]) -> None:
-    """Log unhandled exceptions from background tasks."""
-    if task.cancelled():
-        return
-    exc = task.exception()
-    if exc is not None:
-        logger.error(f"Background task {task.get_name()} failed: {exc}")
+    while True:
+        await asyncio.sleep(300)  # Every 5 minutes
+        try:
+            async with async_session_maker() as db:
+                removed = await cleanup_expired_blacklist_entries(db)
+                await db.commit()
+                if removed > 0:
+                    logger.info(f"Cleaned up {removed} expired token blacklist entries")
+        except Exception:
+            logger.exception("Error cleaning up token blacklist")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan handler for startup/shutdown."""
-    # Startup
-    setup_logging(
-        level=settings.log_level,
-        format_type="structured" if not settings.debug else "dev",
-    )
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
 
-    # Initialize activity logger with database session factory
-    activity_logger = ActivityLoggerService.get_instance()
-    activity_logger.set_db_session_factory(async_session_maker)
+    # Shared startup (logging, activity logger, service token, security
+    # checks, log retention, rate-limit + session cleanup, server recovery)
+    tasks = await common_startup(logger)
     logger.info("Activity logger initialized with database")
 
-    # Load service token from database
-    service_token_cache = ServiceTokenCache.get_instance()
-    await service_token_cache.load()
-
-    # Check security configuration
-    security_warnings = settings.check_security_configuration()
-    for warning in security_warnings:
-        logger.warning(f"SECURITY: {warning}")
-
-    # Start background log retention service
-    log_retention_service = LogRetentionService.get_instance()
-    log_retention_service.retention_days = settings.log_retention_days
-    await log_retention_service.start()
-
-    # Start rate limiter cleanup task
-    global _rate_limit_cleanup_task
-    _rate_limit_cleanup_task = asyncio.create_task(rate_limit_cleanup_loop())
-    _rate_limit_cleanup_task.add_done_callback(_task_done_callback)
-
-    # Re-register servers that were "running" before container restart
-    from app.services.server_recovery import recover_running_servers
-
-    recovery_task = asyncio.create_task(recover_running_servers())
-    recovery_task.add_done_callback(_task_done_callback)
+    # Main-only: token blacklist cleanup (admin API handles JWT auth)
+    blacklist_task = asyncio.create_task(_token_blacklist_cleanup_loop())
+    blacklist_task.add_done_callback(task_done_callback)
+    tasks.append(blacklist_task)
 
     yield
 
     # Shutdown
     logger.info("Shutting down...")
 
-    # Stop rate limiter cleanup task
-    if _rate_limit_cleanup_task:
-        _rate_limit_cleanup_task.cancel()
-        try:
-            await _rate_limit_cleanup_task
-        except asyncio.CancelledError:
-            pass
-
-    # Stop log retention service
-    await log_retention_service.stop()
-
-    # Stop tunnel if running
+    # Stop tunnel if running (main-only)
     tunnel_service = TunnelService.get_instance()
     if tunnel_service.status == "connected":
         logger.info("Stopping Cloudflare tunnel...")
         await tunnel_service.stop()
 
-    # Close sandbox client HTTP connection
-    sandbox_client = SandboxClient.get_instance()
-    await sandbox_client.close()
+    await common_shutdown(logger, tasks)
 
 
 def create_app() -> FastAPI:

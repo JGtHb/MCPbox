@@ -5,11 +5,10 @@
 
 // --- Server Status ---
 
-export type ServerStatus = 'imported' | 'building' | 'ready' | 'running' | 'stopped' | 'error'
+export type ServerStatus = 'imported' | 'ready' | 'running' | 'stopped' | 'error'
 
 export const STATUS_COLORS: Record<ServerStatus, string> = {
   imported: 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300',
-  building: 'bg-yellow-100 dark:bg-yellow-900/50 text-yellow-800 dark:text-yellow-300',
   ready: 'bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300',
   running: 'bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-300',
   stopped: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400',
@@ -18,7 +17,6 @@ export const STATUS_COLORS: Record<ServerStatus, string> = {
 
 export const STATUS_LABELS: Record<ServerStatus, string> = {
   imported: 'Imported',
-  building: 'Building',
   ready: 'Ready',
   running: 'Running',
   stopped: 'Stopped',

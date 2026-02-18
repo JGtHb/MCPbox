@@ -184,8 +184,6 @@ class SandboxClient:
         server_id: str,
         server_name: str,
         tools: list[dict[str, Any]],
-        credentials: list[dict[str, Any]],
-        helper_code: str | None = None,
         allowed_modules: list[str] | None = None,
         secrets: dict[str, str] | None = None,
         external_sources: list[dict[str, Any]] | None = None,
@@ -197,8 +195,6 @@ class SandboxClient:
             server_id: Unique server ID
             server_name: Human-readable server name
             tools: List of tool definitions (with python_code for execution)
-            credentials: List of credential dicts with auth_type metadata and encrypted values
-            helper_code: Optional shared Python code for all tools
             allowed_modules: Custom list of allowed Python modules (None = use defaults)
             secrets: Dict of secret key→value pairs for injection into tool namespace
             external_sources: List of external MCP source configs for passthrough tools
@@ -218,8 +214,6 @@ class SandboxClient:
                         "server_id": server_id,
                         "server_name": server_name,
                         "tools": tools,
-                        "credentials": credentials,
-                        "helper_code": helper_code,
                         "allowed_modules": allowed_modules,
                         "secrets": secrets or {},
                         "external_sources": external_sources or [],

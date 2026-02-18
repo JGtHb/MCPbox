@@ -22,7 +22,6 @@ export const createMockServerDetail = (overrides?: Partial<ServerDetail>): Serve
   ...createMockServer(),
   allowed_hosts: null,
   default_timeout_ms: 30000,
-  helper_code: null,
   // NOTE: allowed_modules removed - now global in Settings
   ...overrides,
 })
@@ -325,6 +324,7 @@ export const handlers = [
     return HttpResponse.json({
       app_name: 'MCPbox',
       app_version: '0.1.0',
+      auth_required: true,
     })
   }),
 ]

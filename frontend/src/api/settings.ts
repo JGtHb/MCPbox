@@ -67,11 +67,31 @@ export interface ModuleSyncResponse {
   results: ModuleInstallResponse[]
 }
 
+// Security policy types
+export interface SecurityPolicy {
+  remote_tool_editing: string
+  tool_approval_mode: string
+  network_access_policy: string
+  module_approval_mode: string
+  redact_secrets_in_output: string
+  log_retention_days: number
+}
+
+export interface SecurityPolicyUpdate {
+  remote_tool_editing?: string
+  tool_approval_mode?: string
+  network_access_policy?: string
+  module_approval_mode?: string
+  redact_secrets_in_output?: string
+  log_retention_days?: number
+}
+
 // Query keys
 export const settingsKeys = {
   all: ['settings'] as const,
   modules: () => [...settingsKeys.all, 'modules'] as const,
   modulesEnhanced: () => [...settingsKeys.all, 'modules', 'enhanced'] as const,
+  securityPolicy: () => [...settingsKeys.all, 'security-policy'] as const,
   pypiInfo: (moduleName: string) =>
     [...settingsKeys.all, 'modules', 'pypi', moduleName] as const,
 }
@@ -166,6 +186,36 @@ export function useSyncModules() {
     mutationFn: syncModules,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: settingsKeys.modulesEnhanced() })
+    },
+  })
+}
+
+// Security policy API functions
+export async function fetchSecurityPolicy(): Promise<SecurityPolicy> {
+  return api.get<SecurityPolicy>('/api/settings/security-policy')
+}
+
+export async function updateSecurityPolicy(
+  data: SecurityPolicyUpdate
+): Promise<SecurityPolicy> {
+  return api.patch<SecurityPolicy>('/api/settings/security-policy', data)
+}
+
+// Security policy hooks
+export function useSecurityPolicy() {
+  return useQuery({
+    queryKey: settingsKeys.securityPolicy(),
+    queryFn: fetchSecurityPolicy,
+  })
+}
+
+export function useUpdateSecurityPolicy() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: updateSecurityPolicy,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: settingsKeys.securityPolicy() })
     },
   })
 }

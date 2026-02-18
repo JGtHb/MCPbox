@@ -6,7 +6,7 @@ Accessible without authentication (Option B architecture - admin panel is local-
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +22,65 @@ from app.services.setting import SettingService
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/settings", tags=["settings"])
+
+
+# --- Security Policy ---
+
+# Defines the valid security policy settings, their allowed values, and defaults.
+SECURITY_POLICY_SETTINGS: dict[str, dict[str, Any]] = {
+    "remote_tool_editing": {
+        "default": "disabled",
+        "allowed": ["disabled", "enabled"],
+        "description": "Whether remote (Worker/tunnel) sessions can create, update, or delete tools and servers",
+    },
+    "tool_approval_mode": {
+        "default": "require_approval",
+        "allowed": ["require_approval", "auto_approve"],
+        "description": "Whether new tools require admin approval or are auto-approved",
+    },
+    "network_access_policy": {
+        "default": "require_approval",
+        "allowed": ["require_approval", "allow_all_public"],
+        "description": "Whether tools can access any public host, or only explicitly approved hosts",
+    },
+    "module_approval_mode": {
+        "default": "require_approval",
+        "allowed": ["require_approval", "auto_approve"],
+        "description": "Whether module requests require admin approval or are auto-added to the allowlist",
+    },
+    "redact_secrets_in_output": {
+        "default": "enabled",
+        "allowed": ["enabled", "disabled"],
+        "description": "Whether known secret values are scrubbed from tool output before returning to the LLM",
+    },
+    "log_retention_days": {
+        "default": "30",
+        "allowed": None,  # Numeric, validated separately
+        "description": "How long execution logs are kept before cleanup (days)",
+    },
+}
+
+
+class SecurityPolicyResponse(BaseModel):
+    """Response for security policy settings."""
+
+    remote_tool_editing: str
+    tool_approval_mode: str
+    network_access_policy: str
+    module_approval_mode: str
+    redact_secrets_in_output: str
+    log_retention_days: int
+
+
+class SecurityPolicyUpdate(BaseModel):
+    """Request to update security policy settings."""
+
+    remote_tool_editing: str | None = None
+    tool_approval_mode: str | None = None
+    network_access_policy: str | None = None
+    module_approval_mode: str | None = None
+    redact_secrets_in_output: str | None = None
+    log_retention_days: int | None = Field(None, ge=1, le=3650)
 
 
 # --- Module Config Schemas ---
@@ -71,6 +130,69 @@ async def list_settings(
             for s in settings
         ]
     )
+
+
+# --- Security Policy Endpoints ---
+
+
+@router.get("/security-policy", response_model=SecurityPolicyResponse)
+async def get_security_policy(
+    setting_service: SettingService = Depends(get_setting_service),
+) -> SecurityPolicyResponse:
+    """Get all security policy settings with current values (or defaults)."""
+    values: dict[str, str] = {}
+    for key, meta in SECURITY_POLICY_SETTINGS.items():
+        db_value = await setting_service.get_value(key, default=meta["default"])
+        values[key] = db_value or meta["default"]
+
+    return SecurityPolicyResponse(
+        remote_tool_editing=values["remote_tool_editing"],
+        tool_approval_mode=values["tool_approval_mode"],
+        network_access_policy=values["network_access_policy"],
+        module_approval_mode=values["module_approval_mode"],
+        redact_secrets_in_output=values["redact_secrets_in_output"],
+        log_retention_days=int(values["log_retention_days"]),
+    )
+
+
+@router.patch("/security-policy", response_model=SecurityPolicyResponse)
+async def update_security_policy(
+    request: SecurityPolicyUpdate,
+    db: AsyncSession = Depends(get_db),
+    setting_service: SettingService = Depends(get_setting_service),
+) -> SecurityPolicyResponse:
+    """Update one or more security policy settings.
+
+    Only provided fields are updated. Validates values against allowed options.
+    """
+    updates = request.model_dump(exclude_none=True)
+    if not updates:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No fields provided to update",
+        )
+
+    for key, value in updates.items():
+        meta = SECURITY_POLICY_SETTINGS[key]
+        str_value = str(value)
+
+        # Validate allowed values for enum-style settings
+        if meta["allowed"] is not None and str_value not in meta["allowed"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid value '{str_value}' for {key}. Allowed: {meta['allowed']}",
+            )
+
+        await setting_service.set_value(
+            key=key,
+            value=str_value,
+            description=meta["description"],
+        )
+
+    await db.commit()
+
+    # Return the full current state
+    return await get_security_policy(setting_service=setting_service)
 
 
 # --- Module Configuration Endpoints ---

@@ -63,16 +63,6 @@ export function SettingsTab({ server }: SettingsTabProps) {
             <dd className="mt-1 sm:mt-0 text-sm text-gray-900 dark:text-white">{server.default_timeout_ms}ms</dd>
           </div>
           <div className="sm:flex sm:justify-between sm:items-start">
-            <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Helper Code</dt>
-            <dd className="mt-1 sm:mt-0 text-sm text-gray-900 dark:text-white">
-              {server.helper_code ? (
-                <span className="text-green-600 dark:text-green-400">Configured</span>
-              ) : (
-                <span className="text-gray-400 dark:text-gray-500 italic">None</span>
-              )}
-            </dd>
-          </div>
-          <div className="sm:flex sm:justify-between sm:items-start">
             <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Created</dt>
             <dd className="mt-1 sm:mt-0 text-sm text-gray-900 dark:text-white">
               {new Date(server.created_at).toLocaleString()}

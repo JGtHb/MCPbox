@@ -26,7 +26,6 @@ def _normalize_import_data(data: dict) -> dict:
         normalized_server = {
             "name": server.get("name"),
             "description": server.get("description"),
-            "helper_code": server.get("helper_code"),
             "tools": [],
         }
 
@@ -153,7 +152,7 @@ class TestExportSingleServer:
         self, async_client: AsyncClient, server_factory, tool_factory, admin_headers
     ):
         """Test exporting a single server."""
-        server = await server_factory(name="Single Server", helper_code="def helper(): pass")
+        server = await server_factory(name="Single Server")
         await tool_factory(server=server, name="single_tool")
 
         response = await async_client.get(f"/api/export/servers/{server.id}", headers=admin_headers)
@@ -161,7 +160,6 @@ class TestExportSingleServer:
         data = response.json()
 
         assert data["name"] == "Single Server"
-        assert data["helper_code"] == "def helper(): pass"
         assert len(data["tools"]) == 1
         assert data["tools"][0]["name"] == "single_tool"
 
@@ -293,45 +291,6 @@ class TestImportServers:
         assert "Existing Server" in names
         assert "Existing Server (imported)" in names
 
-    async def test_import_with_helper_code(self, async_client: AsyncClient, admin_headers):
-        """Test importing a server with helper code."""
-        helper_code = """
-def format_response(data):
-    return {"formatted": data}
-"""
-        import_data = _sign_import_data(
-            {
-                "version": "1.0",
-                "servers": [
-                    {
-                        "name": "Server With Helpers",
-                        "description": "Has helper code",
-                        "helper_code": helper_code,
-                        "tools": [],
-                    }
-                ],
-            }
-        )
-        response = await async_client.post(
-            "/api/export/import",
-            json=import_data,
-            headers=admin_headers,
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["success"] is True
-
-        # Verify helper code was saved
-        list_response = await async_client.get("/api/servers", headers=admin_headers)
-        servers = list_response.json()["items"]
-        server = next(s for s in servers if s["name"] == "Server With Helpers")
-
-        detail_response = await async_client.get(
-            f"/api/servers/{server['id']}", headers=admin_headers
-        )
-        server_detail = detail_response.json()
-        assert server_detail["helper_code"] == helper_code
-
     async def test_import_multiple_servers(self, async_client: AsyncClient, admin_headers):
         """Test importing multiple servers at once."""
         import_data = _sign_import_data(
@@ -362,7 +321,6 @@ def format_response(data):
         server = await server_factory(
             name="Roundtrip Server",
             description="Test roundtrip",
-            helper_code="# Helper code",
         )
         await tool_factory(
             server=server,
@@ -403,7 +361,6 @@ def format_response(data):
         )
         server_detail = detail_response.json()
         assert server_detail["description"] == "Test roundtrip"
-        assert server_detail["helper_code"] == "# Helper code"
 
 
 class TestExportSignature:

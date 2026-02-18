@@ -72,11 +72,6 @@ class TestCodeRequest(BaseModel):
         default_factory=dict,
         description="Arguments to pass to main() function",
     )
-    helper_code: str | None = Field(
-        None,
-        max_length=100000,
-        description="Optional helper code to include",
-    )
     debug_mode: bool = Field(
         default=False,
         description="Enable debug mode for detailed execution info",
@@ -228,8 +223,6 @@ async def test_code(
             server_id=test_server_id,
             server_name="Test Server",
             tools=[tool_def],
-            credentials=[],
-            helper_code=data.helper_code,
         )
 
         if not reg_result.get("success"):

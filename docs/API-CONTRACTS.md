@@ -10,7 +10,7 @@
 
 #### POST /servers/register
 - **Purpose**: Register a server and its approved tools with the sandbox
-- **Input**: `{ server_id, server_name, tools: [{ name, description, python_code, helper_code?, input_schema, allowed_modules, allowed_hosts }], secrets: { key: value } }`
+- **Input**: `{ server_id, server_name, tools: [{ name, description, python_code, input_schema, allowed_modules, allowed_hosts }], secrets: { key: value } }`
 - **Output**: `{ success: true, server_id, tools_registered: N }`
 - **Error cases**: 400 (invalid tool definition), 401 (bad API key), 500 (registration failure)
 

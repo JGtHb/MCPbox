@@ -14,7 +14,6 @@ Authentication (Hybrid Model):
   - Remote mode: Validates X-MCPbox-Service-Token from Cloudflare Worker
 """
 
-import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -23,12 +22,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.mcp_gateway import router as mcp_router
-from app.core import settings, setup_logging
+from app.core import settings
 from app.core.logging import get_logger
+from app.core.shared_lifespan import common_shutdown, common_startup
 from app.middleware import (
     RateLimitMiddleware,
     SecurityHeadersMiddleware,
-    rate_limit_cleanup_loop,
 )
 
 # Import models for table creation
@@ -42,88 +41,31 @@ from app.models import (  # noqa: F401
     ToolVersion,
     TunnelConfiguration,
 )
-from app.services.log_retention import LogRetentionService
-from app.services.sandbox_client import SandboxClient
 from app.services.service_token_cache import ServiceTokenCache
 
 logger = get_logger("mcp_gateway")
-
-# Background task for rate limiter cleanup
-_rate_limit_cleanup_task: asyncio.Task | None = None
-
-
-def _task_done_callback(task: asyncio.Task[None]) -> None:
-    """Log unhandled exceptions from background tasks."""
-    if task.cancelled():
-        return
-    exc = task.exception()
-    if exc is not None:
-        logger.error(f"Background task {task.get_name()} failed: {exc}")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan handler."""
-    # Startup
-    setup_logging(
-        level=settings.log_level,
-        format_type="structured" if not settings.debug else "dev",
-    )
     logger.info("Starting MCP Gateway")
 
-    # Wire up activity logger with database session factory
-    # (mirrors main.py lifespan — without this, activity logs are not persisted)
-    from app.core.database import async_session_maker
-    from app.services.activity_logger import ActivityLoggerService
+    # Shared startup (logging, activity logger, service token, security
+    # checks, log retention, rate-limit + session cleanup, server recovery)
+    tasks = await common_startup(logger)
 
-    activity_logger = ActivityLoggerService.get_instance()
-    activity_logger.set_db_session_factory(async_session_maker)
-
-    # Load service token from database
+    # Log auth mode (gateway-only)
     service_token_cache = ServiceTokenCache.get_instance()
-    await service_token_cache.load()
-
     if await service_token_cache.is_auth_enabled():
         logger.info("MCP Gateway running in REMOTE mode (service token auth enabled)")
     else:
         logger.info("MCP Gateway running in LOCAL mode (no auth required)")
 
-    # Check security configuration
-    security_warnings = settings.check_security_configuration()
-    for warning in security_warnings:
-        logger.warning(f"SECURITY: {warning}")
-
-    # Start background services
-    log_retention_service = LogRetentionService.get_instance()
-    log_retention_service.retention_days = settings.log_retention_days
-    await log_retention_service.start()
-
-    global _rate_limit_cleanup_task
-    _rate_limit_cleanup_task = asyncio.create_task(rate_limit_cleanup_loop())
-    _rate_limit_cleanup_task.add_done_callback(_task_done_callback)
-
-    # Re-register servers that were "running" before container restart
-    from app.services.server_recovery import recover_running_servers
-
-    recovery_task = asyncio.create_task(recover_running_servers())
-    recovery_task.add_done_callback(_task_done_callback)
-
     yield
 
-    # Shutdown
     logger.info("Shutting down MCP Gateway...")
-
-    if _rate_limit_cleanup_task:
-        _rate_limit_cleanup_task.cancel()
-        try:
-            await _rate_limit_cleanup_task
-        except asyncio.CancelledError:
-            pass
-
-    await log_retention_service.stop()
-
-    sandbox_client = SandboxClient.get_instance()
-    await sandbox_client.close()
+    await common_shutdown(logger, tasks)
 
 
 def create_mcp_app() -> FastAPI:

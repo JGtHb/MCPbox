@@ -112,10 +112,11 @@ def get_source_service(db: AsyncSession = Depends(get_db)) -> ExternalMCPSourceS
 
 def _source_to_response(source) -> dict:
     """Convert a source model to a response dict with computed fields."""
-    return {
-        **{c.name: getattr(source, c.name) for c in source.__table__.columns},
-        "oauth_authenticated": source.oauth_tokens_encrypted is not None,
-    }
+    from app.schemas.external_mcp_source import ExternalMCPSourceResponse
+
+    data = ExternalMCPSourceResponse.model_validate(source).model_dump()
+    data["oauth_authenticated"] = source.oauth_tokens_encrypted is not None
+    return data
 
 
 # --- Source CRUD ---

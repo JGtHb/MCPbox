@@ -86,10 +86,6 @@ class RegisterServerRequest(BaseModel):
     server_id: str
     server_name: str
     tools: list[ToolDef]
-    credentials: list[
-        dict[str, Any]
-    ] = []  # Deprecated, ignored. Kept for API compatibility.
-    helper_code: Optional[str] = None
     allowed_modules: Optional[list[str]] = (
         None  # Custom allowed modules (None = defaults)
     )
@@ -97,13 +93,6 @@ class RegisterServerRequest(BaseModel):
     external_sources: list[ExternalSourceDef] = []  # External MCP source configs
     # Network access control: approved hostnames (None = no restriction)
     allowed_hosts: Optional[list[str]] = None
-
-    def model_post_init(self, __context: Any) -> None:
-        """Validate helper_code size limit after model initialization."""
-        if self.helper_code and len(self.helper_code) > MAX_CODE_SIZE:
-            raise ValueError(
-                f"helper_code exceeds maximum size of {MAX_CODE_SIZE} bytes"
-            )
 
 
 class RegisterServerResponse(BaseModel):
@@ -246,7 +235,6 @@ async def register_server(request: RegisterServerRequest):
         server_id=request.server_id,
         server_name=request.server_name,
         tools=tools_data,
-        helper_code=request.helper_code,
         allowed_modules=request.allowed_modules,
         secrets=request.secrets,
         external_sources=external_sources_data,

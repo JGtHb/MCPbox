@@ -42,10 +42,10 @@ describe('ServerCard', () => {
   })
 
   it('displays network mode', () => {
-    const server = createMockServer({ network_mode: 'monitored' })
+    const server = createMockServer({ network_mode: 'allowlist' })
     render(<ServerCard server={server} />)
 
-    expect(screen.getByText('monitored')).toBeInTheDocument()
+    expect(screen.getByText('allowlist')).toBeInTheDocument()
   })
 
   it('displays status badge', () => {
@@ -84,8 +84,8 @@ describe('ServerCard', () => {
     expect(screen.getByRole('button', { name: /Start/ })).toBeInTheDocument()
   })
 
-  it('does not show start/stop for building server', () => {
-    const server = createMockServer({ status: 'building' })
+  it('does not show start/stop for imported server', () => {
+    const server = createMockServer({ status: 'imported' })
     render(<ServerCard server={server} />)
 
     expect(screen.queryByRole('button', { name: /Start/ })).not.toBeInTheDocument()

@@ -18,11 +18,11 @@ from app.ssrf import SSRFProtectedAsyncHttpClient
 
 logger = logging.getLogger(__name__)
 
-# Maximum output size (1MB)
-MAX_OUTPUT_SIZE = 1024 * 1024
+# Maximum output size (configurable, default 1MB)
+MAX_OUTPUT_SIZE = int(os.environ.get("SANDBOX_MAX_OUTPUT_SIZE", 1024 * 1024))
 
-# Maximum memory per execution (256MB) - prevents memory exhaustion attacks
-MAX_MEMORY_BYTES = 256 * 1024 * 1024
+# Maximum memory per execution (configurable, default 256MB)
+MAX_MEMORY_BYTES = int(os.environ.get("SANDBOX_MAX_MEMORY_BYTES", 256 * 1024 * 1024))
 
 # Default execution timeout (30 seconds)
 DEFAULT_TIMEOUT = 30.0
@@ -985,8 +985,8 @@ def create_safe_builtins(
 # If an admin chooses to allow potentially dangerous modules like 'os' or
 # 'subprocess', that is their decision to make for their homelab deployment.
 
-# Timeout for regex operations (in seconds) to prevent ReDoS attacks
-REGEX_TIMEOUT = 5.0
+# Timeout for regex operations (configurable, default 5s) to prevent ReDoS attacks
+REGEX_TIMEOUT = float(os.environ.get("SANDBOX_REGEX_TIMEOUT", 5.0))
 
 # =============================================================================
 # SANDBOX ESCAPE PREVENTION
@@ -1680,7 +1680,6 @@ class PythonExecutor:
     def _create_execution_namespace(
         self,
         http_client: httpx.AsyncClient,
-        helper_code: Optional[str] = None,
         allowed_modules: set[str] | None = None,
         secrets: dict[str, str] | None = None,
         allowed_hosts: set[str] | None = None,
@@ -1689,7 +1688,6 @@ class PythonExecutor:
 
         Args:
             http_client: HTTP client for making requests
-            helper_code: Optional shared code to execute in namespace
             allowed_modules: Set of allowed module names (None = use defaults)
             secrets: Dict of secret key→value pairs (read-only)
             allowed_hosts: Set of approved network hostnames (None = no restriction)
@@ -1714,14 +1712,6 @@ class PythonExecutor:
             "secrets": MappingProxyType(secrets or {}),
         }
 
-        # Execute helper code to add to namespace
-        if helper_code:
-            try:
-                exec(compile(helper_code, "<helpers>", "exec"), namespace)
-            except Exception as e:
-                logger.error(f"Failed to load helper code: {e}")
-                raise ValueError(f"Invalid helper code: {e}")
-
         return namespace
 
     async def execute(
@@ -1729,7 +1719,6 @@ class PythonExecutor:
         python_code: str,
         arguments: dict[str, Any],
         http_client: httpx.AsyncClient,
-        helper_code: Optional[str] = None,
         timeout: float = DEFAULT_TIMEOUT,
         debug_mode: bool = False,
         allowed_modules: set[str] | None = None,
@@ -1742,7 +1731,6 @@ class PythonExecutor:
             python_code: Python code with async main() function
             arguments: Keyword arguments to pass to main()
             http_client: Pre-authenticated httpx client
-            helper_code: Optional helper code to load first
             timeout: Execution timeout in seconds
             debug_mode: If True, capture detailed debug info
             allowed_modules: Set of module names allowed for import (None = defaults)
@@ -1760,25 +1748,6 @@ class PythonExecutor:
             http_client = DebugHttpClient(http_client, debug_info)
 
         # SECURITY: Validate code for sandbox escape patterns before execution
-        # Check helper code first
-        if helper_code:
-            is_safe, error_msg = validate_code_safety(helper_code, "<helpers>")
-            if not is_safe:
-                error_detail = ErrorDetail(
-                    message=error_msg,
-                    error_type="SecurityError",
-                    source_file="<helpers>",
-                )
-                return ExecutionResult(
-                    success=False,
-                    error=error_msg,
-                    error_detail=error_detail,
-                    stdout="",
-                    duration_ms=int((time.monotonic() - start_time) * 1000),
-                    debug_info=debug_info,
-                )
-
-        # Check main code
         is_safe, error_msg = validate_code_safety(python_code, "<tool>")
         if not is_safe:
             error_detail = ErrorDetail(
@@ -1800,17 +1769,15 @@ class PythonExecutor:
             try:
                 namespace = self._create_execution_namespace(
                     http_client,
-                    helper_code,
                     allowed_modules,
                     secrets,
                     allowed_hosts,
                 )
             except ValueError as e:
-                # Error loading helper code
                 error_detail = ErrorDetail(
                     message=str(e),
-                    error_type="HelperCodeError",
-                    source_file="<helpers>",
+                    error_type="NamespaceError",
+                    source_file="<setup>",
                 )
                 return ExecutionResult(
                     success=False,

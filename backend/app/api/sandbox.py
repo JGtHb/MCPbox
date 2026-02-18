@@ -109,13 +109,11 @@ async def start_server(
     allowed_hosts = server.allowed_hosts if server.network_mode == "allowlist" else None
 
     try:
-        # Register with sandbox (include helper_code, allowed_modules, and network config)
+        # Register with sandbox (include allowed_modules and network config)
         result = await sandbox_client.register_server(
             server_id=str(server_id),
             server_name=server.name,
             tools=tool_defs,
-            credentials=[],
-            helper_code=server.helper_code,
             allowed_modules=allowed_modules,
             secrets=secrets,
             external_sources=external_sources_data,
@@ -257,13 +255,11 @@ async def restart_server(
     allowed_hosts = server.allowed_hosts if server.network_mode == "allowlist" else None
 
     try:
-        # Re-register (include helper_code, allowed_modules, and network config)
+        # Re-register (include allowed_modules and network config)
         result = await sandbox_client.register_server(
             server_id=str(server_id),
             server_name=server.name,
             tools=tool_defs,
-            credentials=[],
-            helper_code=server.helper_code,
             allowed_modules=allowed_modules,
             secrets=secrets,
             external_sources=external_sources_data,
@@ -353,32 +349,10 @@ async def get_server_logs(
 
 
 def _build_tool_definitions(tools: list) -> list[dict]:
-    """Build tool definitions for sandbox registration.
+    """Build tool definitions for sandbox registration (all tools, no filtering)."""
+    from app.services.tool_utils import build_tool_definitions
 
-    Handles both Python code tools and MCP passthrough tools.
-    """
-    tool_defs = []
-
-    for tool in tools:
-        tool_def = {
-            "name": tool.name,
-            "description": tool.description or "",
-            "parameters": tool.input_schema or {},
-            "python_code": tool.python_code,
-            "timeout_ms": tool.timeout_ms or 30000,
-            "tool_type": getattr(tool, "tool_type", "python_code"),
-        }
-
-        # Add passthrough-specific fields
-        if tool_def["tool_type"] == "mcp_passthrough":
-            tool_def["external_source_id"] = (
-                str(tool.external_source_id) if tool.external_source_id else None
-            )
-            tool_def["external_tool_name"] = tool.external_tool_name
-
-        tool_defs.append(tool_def)
-
-    return tool_defs
+    return build_tool_definitions(tools)
 
 
 async def _build_external_source_configs(

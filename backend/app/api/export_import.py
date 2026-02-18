@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import get_db, settings
-from app.schemas.server import ServerCreate, ServerUpdate
+from app.schemas.server import ServerCreate
 from app.schemas.tool import ToolCreate
 from app.services.server import ServerService
 from app.services.tool import ToolService
@@ -93,7 +93,6 @@ class ExportedServer(BaseModel):
 
     name: str
     description: str | None
-    helper_code: str | None
     tools: list[ExportedTool]
 
 
@@ -111,7 +110,6 @@ class ImportServerRequest(BaseModel):
 
     name: str
     description: str | None = None
-    helper_code: str | None = None
     tools: list[ExportedTool] = []
 
 
@@ -162,7 +160,6 @@ async def export_all_servers(
             ExportedServer(
                 name=server.name,
                 description=server.description,
-                helper_code=server.helper_code,
                 tools=exported_tools,
             )
         )
@@ -217,7 +214,6 @@ async def export_server(
     return ExportedServer(
         name=server.name,
         description=server.description,
-        helper_code=server.helper_code,
         tools=exported_tools,
     )
 
@@ -247,7 +243,6 @@ async def import_servers(
             {
                 "name": s.name,
                 "description": s.description,
-                "helper_code": s.helper_code,
                 "tools": [t.model_dump() for t in s.tools],
             }
             for s in data.servers
@@ -292,15 +287,6 @@ async def import_servers(
                     description=server_data.description,
                 )
                 server = await server_service.create(server_create)
-
-                # Update helper_code if provided
-                if server_data.helper_code:
-                    await server_service.update(
-                        server.id,
-                        ServerUpdate(  # type: ignore[call-arg]
-                            helper_code=server_data.helper_code,
-                        ),
-                    )
 
                 # Create all tools - if any fail, entire server is rolled back
                 server_tools_created = 0
