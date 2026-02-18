@@ -38,7 +38,8 @@ export function Sidebar({ isDark, theme, setTheme, onClose }: SidebarProps) {
         {onClose && (
           <button
             onClick={onClose}
-            className="lg:hidden p-2 text-muted hover:text-on-base hover:bg-hl-med rounded-lg"
+            className="lg:hidden p-2 text-muted hover:text-on-base hover:bg-hl-med rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
+            aria-label="Close sidebar"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -80,34 +81,34 @@ export function Sidebar({ isDark, theme, setTheme, onClose }: SidebarProps) {
         <div className="flex rounded-lg overflow-hidden bg-hl-low">
           <button
             onClick={() => setTheme('light')}
-            className={`flex-1 px-2 py-1.5 text-xs transition-colors ${
+            className={`flex-1 px-2 py-1.5 text-xs transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:z-10 ${
               theme === 'light'
                 ? 'bg-iris text-base'
                 : 'text-muted hover:text-on-base'
             }`}
-            title="Light mode"
+            aria-label="Light mode"
           >
             ☀️
           </button>
           <button
             onClick={() => setTheme('system')}
-            className={`flex-1 px-2 py-1.5 text-xs transition-colors ${
+            className={`flex-1 px-2 py-1.5 text-xs transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:z-10 ${
               theme === 'system'
                 ? 'bg-iris text-base'
                 : 'text-muted hover:text-on-base'
             }`}
-            title="System preference"
+            aria-label="System theme"
           >
             💻
           </button>
           <button
             onClick={() => setTheme('dark')}
-            className={`flex-1 px-2 py-1.5 text-xs transition-colors ${
+            className={`flex-1 px-2 py-1.5 text-xs transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:z-10 ${
               theme === 'dark'
                 ? 'bg-iris text-base'
                 : 'text-muted hover:text-on-base'
             }`}
-            title="Dark mode"
+            aria-label="Dark mode"
           >
             🌙
           </button>
@@ -118,7 +119,7 @@ export function Sidebar({ isDark, theme, setTheme, onClose }: SidebarProps) {
       <div className="p-4 border-t border-hl-med">
         <button
           onClick={logout}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-subtle hover:bg-hl-med hover:text-on-base transition-colors"
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-subtle hover:bg-hl-med hover:text-on-base transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
         >
           <span className="text-lg">🚪</span>
           <span>Logout</span>

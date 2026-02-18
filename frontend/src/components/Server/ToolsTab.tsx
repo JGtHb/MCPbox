@@ -114,12 +114,12 @@ export function ToolsTab({ serverId }: ToolsTabProps) {
 
       {/* Delete Tool Confirm Modal */}
       {deleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50" onClick={() => setDeleteTarget(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50" role="dialog" aria-modal="true" aria-labelledby="delete-tool-title" onClick={() => setDeleteTarget(null)}>
           <div
             className="bg-surface rounded-lg shadow-xl p-6 w-full max-w-md mx-4"
             onClick={e => e.stopPropagation()}
           >
-            <h3 className="text-lg font-medium text-on-base mb-2">Delete Tool</h3>
+            <h3 id="delete-tool-title" className="text-lg font-medium text-on-base mb-2">Delete Tool</h3>
             <p className="text-sm text-subtle mb-4">
               Are you sure you want to delete <span className="font-mono font-medium text-on-base">{deleteTarget.name}</span>? This action cannot be undone.
             </p>
@@ -132,7 +132,7 @@ export function ToolsTab({ serverId }: ToolsTabProps) {
               <button
                 type="button"
                 onClick={() => setDeleteTarget(null)}
-                className="px-4 py-2 text-sm font-medium text-on-base hover:text-on-base"
+                className="px-4 py-2 text-sm font-medium text-subtle bg-surface border border-hl-med rounded-lg hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
               >
                 Cancel
               </button>
@@ -144,7 +144,7 @@ export function ToolsTab({ serverId }: ToolsTabProps) {
                     onSuccess: () => setDeleteTarget(null),
                   })
                 }}
-                className="px-4 py-2 bg-love text-base text-sm font-medium rounded-md hover:bg-love/80 disabled:opacity-50"
+                className="px-4 py-2 bg-love text-base text-sm font-medium rounded-lg hover:bg-love/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-love"
               >
                 {deleteTool.isPending ? 'Deleting...' : 'Delete'}
               </button>
@@ -178,7 +178,8 @@ function ToolRow({ tool, isExpanded, onToggle, onToggleEnabled, onRename, onDele
         <div className="flex items-center justify-between">
           <button
             onClick={onToggle}
-            className="flex items-center gap-3 min-w-0 flex-1 text-left hover:bg-hl-low rounded px-1 py-1 -ml-1"
+            aria-expanded={isExpanded}
+            className="flex items-center gap-3 min-w-0 flex-1 text-left hover:bg-hl-low rounded px-1 py-1 -ml-1 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
           >
             <span className={`px-2 py-0.5 text-xs font-medium rounded flex-shrink-0 ${badge.className}`}>
               {badge.label}
@@ -220,19 +221,19 @@ function ToolRow({ tool, isExpanded, onToggle, onToggleEnabled, onRename, onDele
           <div className="flex items-center gap-3 ml-3">
             <button
               onClick={(e) => { e.stopPropagation(); onRename() }}
-              className="p-1 text-muted hover:text-subtle rounded"
-              title="Rename tool"
+              className="p-1 text-muted hover:text-subtle hover:bg-hl-low rounded transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
+              aria-label="Rename tool"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
               </svg>
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); onDelete() }}
-              className="p-1 text-muted hover:text-love rounded"
-              title="Delete tool"
+              className="p-1 text-muted hover:text-love hover:bg-love/10 rounded transition-colors focus:outline-none focus:ring-2 focus:ring-love"
+              aria-label="Delete tool"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
             </button>
@@ -324,20 +325,20 @@ function ToolDescription({ toolId, description }: ToolDescriptionProps) {
           rows={3}
           maxLength={2000}
           placeholder="Describe what this tool does, when to use it, and what it returns..."
-          className="w-full px-3 py-2 text-sm border border-hl-med rounded-md bg-surface text-on-base placeholder-muted focus:ring-iris focus:border-iris"
+          className="w-full px-3 py-2 text-sm border border-hl-med rounded-lg bg-surface text-on-base placeholder-muted focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
           autoFocus
         />
         <div className="flex items-center gap-2">
           <button
             onClick={handleSave}
             disabled={updateDescription.isPending}
-            className="px-3 py-1 text-xs font-medium bg-iris text-base rounded hover:bg-iris/80 disabled:opacity-50"
+            className="px-2.5 py-1 text-xs font-medium bg-iris text-base rounded-lg hover:bg-iris/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
           >
             {updateDescription.isPending ? 'Saving...' : 'Save'}
           </button>
           <button
             onClick={handleCancel}
-            className="px-3 py-1 text-xs font-medium text-subtle hover:text-on-base"
+            className="px-2.5 py-1 text-xs font-medium text-subtle hover:text-on-base rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
           >
             Cancel
           </button>
@@ -366,8 +367,8 @@ function ToolDescription({ toolId, description }: ToolDescriptionProps) {
         </div>
         <button
           onClick={() => { setValue(description || ''); setIsEditing(true) }}
-          className="p-1 text-muted hover:text-iris rounded opacity-0 group-hover/desc:opacity-100 transition-opacity mt-4"
-          title="Edit description"
+          className="p-1 text-muted hover:text-iris rounded opacity-0 group-hover/desc:opacity-100 transition-opacity mt-4 focus:outline-none focus:ring-2 focus:ring-iris focus:opacity-100"
+          aria-label="Edit description"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -407,12 +408,12 @@ function RenameToolModal({ tool, onClose }: RenameToolModalProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50" role="dialog" aria-modal="true" aria-labelledby="rename-tool-title" onClick={onClose}>
       <div
         className="bg-surface rounded-lg shadow-xl p-6 w-full max-w-md mx-4"
         onClick={e => e.stopPropagation()}
       >
-        <h3 className="text-lg font-medium text-on-base mb-4">Rename Tool</h3>
+        <h3 id="rename-tool-title" className="text-lg font-medium text-on-base mb-4">Rename Tool</h3>
         <form onSubmit={handleSubmit}>
           <div className="mb-4">
             <label className="block text-sm font-medium text-on-base mb-1">
@@ -423,7 +424,7 @@ function RenameToolModal({ tool, onClose }: RenameToolModalProps) {
               value={name}
               onChange={e => setName(e.target.value.toLowerCase())}
               pattern="^[a-z][a-z0-9_]*$"
-              className="w-full px-3 py-2 border border-hl-med rounded-md text-sm bg-surface text-on-base focus:ring-iris focus:border-iris"
+              className="w-full px-3 py-2 border border-hl-med rounded-lg text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
               autoFocus
             />
             <p className="mt-1 text-xs text-subtle">
@@ -447,14 +448,14 @@ function RenameToolModal({ tool, onClose }: RenameToolModalProps) {
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-on-base hover:text-on-base"
+              className="px-4 py-2 text-sm font-medium text-subtle bg-surface border border-hl-med rounded-lg hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={!isValid || renameMutation.isPending}
-              className="px-4 py-2 bg-iris text-base text-sm font-medium rounded-md hover:bg-iris/80 disabled:opacity-50"
+              className="px-4 py-2 bg-iris text-base text-sm font-medium rounded-lg hover:bg-iris/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
             >
               {renameMutation.isPending ? 'Renaming...' : 'Rename'}
             </button>
@@ -498,7 +499,8 @@ function ToolCodeViewer({ code }: ToolCodeViewerProps) {
     <div>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 text-xs font-medium text-on-base hover:text-on-base"
+        aria-expanded={isOpen}
+        className="flex items-center gap-2 text-xs font-medium text-on-base hover:text-on-base transition-colors focus:outline-none focus:ring-2 focus:ring-iris rounded"
       >
         <svg
           className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-90' : ''}`}
@@ -514,8 +516,8 @@ function ToolCodeViewer({ code }: ToolCodeViewerProps) {
         <div className="mt-2 relative">
           <button
             onClick={handleCopy}
-            className="absolute top-2 right-2 px-2 py-1 text-xs font-medium text-subtle hover:text-on-base bg-surface border border-hl-med rounded shadow-sm"
-            title="Copy code"
+            className="absolute top-2 right-2 px-2 py-1 text-xs font-medium text-subtle hover:text-on-base bg-surface border border-hl-med rounded-md shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
+            aria-label="Copy code"
           >
             {copied ? 'Copied!' : 'Copy'}
           </button>

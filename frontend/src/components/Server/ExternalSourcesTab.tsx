@@ -198,7 +198,7 @@ export function ExternalSourcesTab({ serverId, onImportSuccess }: ExternalSource
         </div>
         <button
           onClick={() => setShowAddForm(true)}
-          className="px-4 py-2 bg-iris text-base text-sm font-medium rounded-md hover:bg-iris/80"
+          className="px-4 py-2 bg-iris text-base text-sm font-medium rounded-lg hover:bg-iris/80 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
         >
           Add Source
         </button>
@@ -261,11 +261,11 @@ export function ExternalSourcesTab({ serverId, onImportSuccess }: ExternalSource
                           value={renameValue}
                           onChange={e => setRenameValue(e.target.value)}
                           onKeyDown={e => { if (e.key === 'Escape') setRenamingSourceId(null) }}
-                          className="px-2 py-0.5 text-sm font-medium border border-iris rounded focus:ring-1 focus:ring-iris focus:border-iris w-48"
+                          className="px-2 py-0.5 text-sm font-medium border border-iris rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris w-48"
                           autoFocus
                         />
-                        <button type="submit" className="text-xs text-iris hover:text-iris/80 font-medium">Save</button>
-                        <button type="button" onClick={() => setRenamingSourceId(null)} className="text-xs text-subtle hover:text-on-base">Cancel</button>
+                        <button type="submit" className="text-xs text-iris hover:text-iris/80 font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-iris rounded-md px-1">Save</button>
+                        <button type="button" onClick={() => setRenamingSourceId(null)} className="text-xs text-subtle hover:text-on-base transition-colors focus:outline-none focus:ring-2 focus:ring-iris rounded-md px-1">Cancel</button>
                       </form>
                     ) : (
                       <div className="flex items-center gap-1.5 group/name">
@@ -276,8 +276,9 @@ export function ExternalSourcesTab({ serverId, onImportSuccess }: ExternalSource
                             setRenamingSourceId(source.id)
                             setRenameValue(source.name)
                           }}
-                          className="p-0.5 text-muted hover:text-subtle opacity-0 group-hover/name:opacity-100 transition-opacity"
+                          className="p-0.5 text-muted hover:text-subtle opacity-0 group-hover/name:opacity-100 transition-opacity rounded-md focus:outline-none focus:ring-2 focus:ring-iris focus:opacity-100"
                           title="Rename source"
+                          aria-label="Rename source"
                         >
                           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -330,7 +331,7 @@ export function ExternalSourcesTab({ serverId, onImportSuccess }: ExternalSource
                     <button
                       onClick={() => handleOAuthAuthenticate(source)}
                       disabled={startOAuth.isPending}
-                      className="px-3 py-1.5 text-sm font-medium text-gold bg-gold/10 rounded-md hover:bg-gold/20 disabled:opacity-50"
+                      className="px-3 py-1.5 text-sm font-medium text-gold bg-gold/10 rounded-lg hover:bg-gold/20 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
                     >
                       {startOAuth.isPending ? 'Starting...' : 'Authenticate'}
                     </button>
@@ -340,7 +341,7 @@ export function ExternalSourcesTab({ serverId, onImportSuccess }: ExternalSource
                     <button
                       onClick={() => handleOAuthAuthenticate(source)}
                       disabled={startOAuth.isPending}
-                      className="px-3 py-1.5 text-sm font-medium text-subtle bg-hl-low rounded-md hover:bg-hl-med disabled:opacity-50"
+                      className="px-3 py-1.5 text-sm font-medium text-subtle bg-hl-low rounded-lg hover:bg-hl-med disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
                       title="Re-authenticate if the token has expired"
                     >
                       Re-auth
@@ -351,7 +352,7 @@ export function ExternalSourcesTab({ serverId, onImportSuccess }: ExternalSource
                     <button
                       onClick={() => handleDiscover(source.id)}
                       disabled={isDiscovering(source.id)}
-                      className="px-3 py-1.5 text-sm font-medium text-iris bg-iris/10 rounded-md hover:bg-iris/20 disabled:opacity-50 flex items-center gap-1.5"
+                      className="px-3 py-1.5 text-sm font-medium text-iris bg-iris/10 rounded-lg hover:bg-iris/20 disabled:opacity-50 flex items-center gap-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
                       title="Re-scan the external server for tool changes"
                     >
                       <svg className={`h-3.5 w-3.5 ${isDiscovering(source.id) ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -363,7 +364,7 @@ export function ExternalSourcesTab({ serverId, onImportSuccess }: ExternalSource
                     <button
                       onClick={() => handleDiscover(source.id)}
                       disabled={isDiscovering(source.id)}
-                      className="px-3 py-1.5 text-sm font-medium text-iris bg-iris/10 rounded-md hover:bg-iris/20 disabled:opacity-50"
+                      className="px-3 py-1.5 text-sm font-medium text-iris bg-iris/10 rounded-lg hover:bg-iris/20 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
                     >
                       {isDiscovering(source.id) ? 'Discovering...' : 'Discover Tools'}
                     </button>
@@ -371,7 +372,7 @@ export function ExternalSourcesTab({ serverId, onImportSuccess }: ExternalSource
                   <button
                     onClick={() => setDeleteTarget(source)}
                     disabled={deleteSource.isPending}
-                    className="px-3 py-1.5 text-sm font-medium text-love bg-love/10 rounded-md hover:bg-love/20 disabled:opacity-50"
+                    className="px-3 py-1.5 text-sm font-medium text-love bg-love/10 rounded-lg hover:bg-love/20 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-love"
                   >
                     Delete
                   </button>
@@ -402,13 +403,13 @@ export function ExternalSourcesTab({ serverId, onImportSuccess }: ExternalSource
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => setSelectedTools(new Set(discoveredTools.map(t => t.name)))}
-                            className="text-xs text-iris hover:text-iris/80"
+                            className="text-xs text-iris hover:text-iris/80 transition-colors rounded-md px-1 focus:outline-none focus:ring-2 focus:ring-iris"
                           >
                             Select All
                           </button>
                           <button
                             onClick={() => setSelectedTools(new Set())}
-                            className="text-xs text-subtle hover:text-on-base"
+                            className="text-xs text-subtle hover:text-on-base transition-colors rounded-md px-1 focus:outline-none focus:ring-2 focus:ring-iris"
                           >
                             Deselect All
                           </button>
@@ -424,7 +425,7 @@ export function ExternalSourcesTab({ serverId, onImportSuccess }: ExternalSource
                               type="checkbox"
                               checked={selectedTools.has(tool.name)}
                               onChange={() => toggleToolSelection(tool.name)}
-                              className="mt-0.5 h-4 w-4 rounded border-hl-med text-iris"
+                              className="mt-0.5 h-4 w-4 rounded border-hl-med text-iris transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
                             />
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
@@ -446,7 +447,7 @@ export function ExternalSourcesTab({ serverId, onImportSuccess }: ExternalSource
                         <button
                           onClick={handleImport}
                           disabled={selectedTools.size === 0 || importToolsMutation.isPending}
-                          className="px-4 py-2 bg-iris text-base text-sm font-medium rounded-md hover:bg-iris/80 disabled:opacity-50"
+                          className="px-4 py-2 bg-iris text-base text-sm font-medium rounded-lg hover:bg-iris/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
                         >
                           {importToolsMutation.isPending
                             ? 'Importing...'
@@ -457,7 +458,7 @@ export function ExternalSourcesTab({ serverId, onImportSuccess }: ExternalSource
                             setExpandedSourceId(null)
                             setSelectedTools(new Set())
                           }}
-                          className="px-4 py-2 text-sm font-medium text-on-base hover:text-on-base"
+                          className="px-4 py-2 text-sm font-medium text-on-base hover:text-on-base rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
                         >
                           Collapse
                         </button>
@@ -518,7 +519,7 @@ export function ExternalSourcesTab({ serverId, onImportSuccess }: ExternalSource
           </p>
           <button
             onClick={() => setShowAddForm(true)}
-            className="mt-4 px-4 py-2 bg-iris text-base text-sm font-medium rounded-md hover:bg-iris/80"
+            className="mt-4 px-4 py-2 bg-iris text-base text-sm font-medium rounded-lg hover:bg-iris/80 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
           >
             Add Source
           </button>
@@ -581,7 +582,7 @@ function AddSourceForm({ onSubmit, onCancel, isLoading, error }: AddSourceFormPr
             onChange={e => setName(e.target.value)}
             placeholder="e.g. GitHub MCP"
             required
-            className="w-full px-3 py-2 border border-hl-med rounded-md text-sm focus:ring-iris focus:border-iris"
+            className="w-full px-3 py-2 border border-hl-med rounded-md text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
           />
         </div>
         <div>
@@ -592,7 +593,7 @@ function AddSourceForm({ onSubmit, onCancel, isLoading, error }: AddSourceFormPr
             onChange={e => setUrl(e.target.value)}
             placeholder="https://mcp.example.com/mcp"
             required
-            className="w-full px-3 py-2 border border-hl-med rounded-md text-sm font-mono focus:ring-iris focus:border-iris"
+            className="w-full px-3 py-2 border border-hl-med rounded-md text-sm font-mono transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
           />
         </div>
         <div>
@@ -600,7 +601,7 @@ function AddSourceForm({ onSubmit, onCancel, isLoading, error }: AddSourceFormPr
           <select
             value={transportType}
             onChange={e => setTransportType(e.target.value as 'streamable_http' | 'sse')}
-            className="w-full px-3 py-2 border border-hl-med rounded-md text-sm focus:ring-iris focus:border-iris"
+            className="w-full px-3 py-2 border border-hl-med rounded-md text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
           >
             <option value="streamable_http">Streamable HTTP</option>
             <option value="sse">SSE</option>
@@ -611,7 +612,7 @@ function AddSourceForm({ onSubmit, onCancel, isLoading, error }: AddSourceFormPr
           <select
             value={authType}
             onChange={e => setAuthType(e.target.value as 'none' | 'bearer' | 'header' | 'oauth')}
-            className="w-full px-3 py-2 border border-hl-med rounded-md text-sm focus:ring-iris focus:border-iris"
+            className="w-full px-3 py-2 border border-hl-med rounded-md text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
           >
             <option value="none">None</option>
             <option value="bearer">Bearer Token</option>
@@ -639,7 +640,7 @@ function AddSourceForm({ onSubmit, onCancel, isLoading, error }: AddSourceFormPr
                 value={authSecretName}
                 onChange={e => setAuthSecretName(e.target.value)}
                 placeholder="e.g. GITHUB_TOKEN"
-                className="w-full px-3 py-2 border border-hl-med rounded-md text-sm focus:ring-iris focus:border-iris"
+                className="w-full px-3 py-2 border border-hl-med rounded-md text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
               />
             </div>
             {authType === 'header' && (
@@ -650,7 +651,7 @@ function AddSourceForm({ onSubmit, onCancel, isLoading, error }: AddSourceFormPr
                   value={authHeaderName}
                   onChange={e => setAuthHeaderName(e.target.value)}
                   placeholder="e.g. X-API-Key"
-                  className="w-full px-3 py-2 border border-hl-med rounded-md text-sm focus:ring-iris focus:border-iris"
+                  className="w-full px-3 py-2 border border-hl-med rounded-md text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
                 />
               </div>
             )}
@@ -664,14 +665,14 @@ function AddSourceForm({ onSubmit, onCancel, isLoading, error }: AddSourceFormPr
         <button
           type="submit"
           disabled={isLoading || !name || !url}
-          className="px-4 py-2 bg-iris text-base text-sm font-medium rounded-md hover:bg-iris/80 disabled:opacity-50"
+          className="px-4 py-2 bg-iris text-base text-sm font-medium rounded-lg hover:bg-iris/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
         >
           {isLoading ? 'Adding...' : 'Add Source'}
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="px-4 py-2 text-sm font-medium text-on-base hover:text-on-base"
+          className="px-4 py-2 text-sm font-medium text-on-base hover:text-on-base rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
         >
           Cancel
         </button>

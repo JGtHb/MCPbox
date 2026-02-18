@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Header } from '../components/Layout'
+import { ConfirmModal } from '../components/ui'
 import { useCloudflareStatus, useTeardown } from '../api/cloudflare'
 
 export function Tunnel() {
@@ -8,6 +9,7 @@ export function Tunnel() {
   const teardownMutation = useTeardown()
 
   const [copySuccess, setCopySuccess] = useState<string | null>(null)
+  const [showTeardownConfirm, setShowTeardownConfirm] = useState(false)
 
   const handleCopy = async (text: string, label: string) => {
     try {
@@ -19,11 +21,14 @@ export function Tunnel() {
     }
   }
 
-  const handleTeardown = async () => {
+  const handleTeardown = () => {
     if (!cloudflareStatus?.config_id) return
-    if (!confirm('Are you sure you want to remove all Cloudflare resources? This will delete the tunnel, worker, and OIDC configuration.')) {
-      return
-    }
+    setShowTeardownConfirm(true)
+  }
+
+  const confirmTeardown = async () => {
+    if (!cloudflareStatus?.config_id) return
+    setShowTeardownConfirm(false)
     try {
       await teardownMutation.mutateAsync(cloudflareStatus.config_id)
     } catch {
@@ -81,7 +86,7 @@ export function Tunnel() {
                       />
                       <button
                         onClick={() => handleCopy(`${cloudflareStatus.worker_url}/mcp`, 'worker')}
-                        className="px-4 py-2 bg-iris hover:bg-iris/80 text-base rounded-lg text-sm transition-colors"
+                        className="px-4 py-2 bg-iris hover:bg-iris/80 text-base rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
                       >
                         {copySuccess === 'worker' ? 'Copied!' : 'Copy URL'}
                       </button>
@@ -137,7 +142,7 @@ export function Tunnel() {
               <div className="flex flex-wrap gap-3">
                 <Link
                   to="/tunnel/setup"
-                  className="px-4 py-2 bg-hl-low hover:bg-hl-med text-subtle rounded-lg text-sm transition-colors"
+                  className="px-4 py-2 bg-hl-low hover:bg-hl-med text-subtle rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
                 >
                   View Setup Details
                 </Link>
@@ -145,14 +150,14 @@ export function Tunnel() {
                   href="https://one.dash.cloudflare.com"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="px-4 py-2 bg-hl-low hover:bg-hl-med text-subtle rounded-lg text-sm transition-colors"
+                  className="px-4 py-2 bg-hl-low hover:bg-hl-med text-subtle rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
                 >
                   Cloudflare Dashboard
                 </a>
                 <button
                   onClick={handleTeardown}
                   disabled={teardownMutation.isPending}
-                  className="px-4 py-2 bg-love/10 hover:bg-love/20 text-love rounded-lg text-sm transition-colors"
+                  className="px-4 py-2 bg-love/10 hover:bg-love/20 text-love rounded-lg text-sm font-medium transition-colors disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-love"
                 >
                   {teardownMutation.isPending ? 'Removing...' : 'Remove Setup'}
                 </button>
@@ -183,7 +188,7 @@ export function Tunnel() {
               </div>
               <Link
                 to="/tunnel/setup"
-                className="px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 transition-colors text-sm"
+                className="px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 transition-colors text-sm font-medium focus:outline-none focus:ring-2 focus:ring-iris"
               >
                 Continue Setup
               </Link>
@@ -203,7 +208,7 @@ export function Tunnel() {
               </p>
               <Link
                 to="/tunnel/setup"
-                className="inline-block px-6 py-3 bg-base text-iris font-medium rounded-lg hover:bg-hl-low transition-colors"
+                className="inline-block px-6 py-3 bg-base text-iris font-medium rounded-lg hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-base"
               >
                 Start Setup Wizard
               </Link>
@@ -256,6 +261,17 @@ export function Tunnel() {
         )}
 
       </div>
+
+      <ConfirmModal
+        isOpen={showTeardownConfirm}
+        title="Remove Cloudflare Setup"
+        message="Are you sure you want to remove all Cloudflare resources? This will delete the tunnel, worker, and OIDC configuration."
+        confirmLabel="Remove Setup"
+        destructive
+        isLoading={teardownMutation.isPending}
+        onConfirm={confirmTeardown}
+        onCancel={() => setShowTeardownConfirm(false)}
+      />
     </div>
   )
 }

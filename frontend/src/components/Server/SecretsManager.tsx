@@ -88,14 +88,14 @@ function SetValueModal({
                   onCancel()
                 }}
                 disabled={isLoading}
-                className="flex-1 px-4 py-2 text-sm font-medium text-on-base bg-surface border border-hl-med rounded-md hover:bg-hl-low focus:outline-none focus:ring-2 focus:ring-iris disabled:opacity-50"
+                className="flex-1 px-4 py-2 text-sm font-medium text-on-base bg-surface border border-hl-med rounded-md hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isLoading || !value.trim()}
-                className="flex-1 px-4 py-2 text-sm font-medium text-base bg-iris rounded-md hover:bg-iris/80 focus:outline-none focus:ring-2 focus:ring-iris disabled:opacity-50"
+                className="flex-1 px-4 py-2 text-sm font-medium text-base bg-iris rounded-md hover:bg-iris/80 transition-colors focus:outline-none focus:ring-2 focus:ring-iris disabled:opacity-50"
               >
                 {isLoading ? 'Setting...' : secret.has_value ? 'Update Value' : 'Set Value'}
               </button>
@@ -219,14 +219,14 @@ function CreateSecretModal({
                   onCancel()
                 }}
                 disabled={isLoading}
-                className="flex-1 px-4 py-2 text-sm font-medium text-on-base bg-surface border border-hl-med rounded-md hover:bg-hl-low focus:outline-none focus:ring-2 focus:ring-iris disabled:opacity-50"
+                className="flex-1 px-4 py-2 text-sm font-medium text-on-base bg-surface border border-hl-med rounded-md hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isLoading || !keyName.trim()}
-                className="flex-1 px-4 py-2 text-sm font-medium text-base bg-iris rounded-md hover:bg-iris/80 focus:outline-none focus:ring-2 focus:ring-iris disabled:opacity-50"
+                className="flex-1 px-4 py-2 text-sm font-medium text-base bg-iris rounded-md hover:bg-iris/80 transition-colors focus:outline-none focus:ring-2 focus:ring-iris disabled:opacity-50"
               >
                 {isLoading ? 'Creating...' : 'Create'}
               </button>
@@ -303,7 +303,7 @@ export function SecretsManager({ serverId }: SecretsManagerProps) {
             setMutationError(null)
             setShowCreateModal(true)
           }}
-          className="px-3 py-1.5 text-sm font-medium text-iris bg-iris/10 border border-iris rounded-md hover:bg-iris/20 focus:outline-none focus:ring-2 focus:ring-iris"
+          className="px-3 py-1.5 text-sm font-medium text-iris bg-iris/10 border border-iris rounded-md hover:bg-iris/20 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
         >
           + Add Secret
         </button>
@@ -381,7 +381,7 @@ export function SecretsManager({ serverId }: SecretsManagerProps) {
                     setSelectedSecret(secret)
                     setShowSetValueModal(true)
                   }}
-                  className="px-2.5 py-1 text-xs font-medium text-on-base bg-surface border border-hl-med rounded hover:bg-hl-low focus:outline-none focus:ring-2 focus:ring-iris"
+                  className="px-2.5 py-1 text-xs font-medium text-on-base bg-surface border border-hl-med rounded-lg hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
                 >
                   {secret.has_value ? 'Update' : 'Set Value'}
                 </button>
@@ -390,7 +390,7 @@ export function SecretsManager({ serverId }: SecretsManagerProps) {
                     setMutationError(null)
                     setDeleteTarget(secret)
                   }}
-                  className="px-2.5 py-1 text-xs font-medium text-love bg-surface border border-love/20 rounded hover:bg-love/10 focus:outline-none focus:ring-2 focus:ring-love"
+                  className="px-2.5 py-1 text-xs font-medium text-love bg-surface border border-love/20 rounded-lg hover:bg-love/10 transition-colors focus:outline-none focus:ring-2 focus:ring-love"
                 >
                   Delete
                 </button>

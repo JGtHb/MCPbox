@@ -32,7 +32,7 @@ export function ServerControls({ serverId, status, hasTools }: ServerControlsPro
           <button
             onClick={() => stopMutation.mutate(serverId)}
             disabled={isLoading}
-            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-base bg-love hover:bg-love/80 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-base bg-love hover:bg-love/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-love"
           >
             <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 24 24">
               <rect x="6" y="6" width="12" height="12" />
@@ -42,7 +42,7 @@ export function ServerControls({ serverId, status, hasTools }: ServerControlsPro
           <button
             onClick={() => restartMutation.mutate(serverId)}
             disabled={isLoading}
-            className="inline-flex items-center px-4 py-2 border border-hl-med rounded-md shadow-sm text-sm font-medium text-on-base bg-surface hover:bg-hl-low disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center px-4 py-2 border border-hl-med rounded-lg shadow-sm text-sm font-medium text-on-base bg-surface hover:bg-hl-low disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
           >
             <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
@@ -59,7 +59,7 @@ export function ServerControls({ serverId, status, hasTools }: ServerControlsPro
         <button
           onClick={() => startMutation.mutate(serverId)}
           disabled={isLoading || !canStart}
-          className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-base bg-foam hover:bg-foam/80 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-base bg-foam hover:bg-foam/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-foam"
           title={!hasTools ? 'Add tools first' : undefined}
         >
           <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 24 24">

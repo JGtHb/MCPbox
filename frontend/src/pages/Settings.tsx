@@ -179,7 +179,7 @@ function PolicyToggle({
         value={currentValue}
         onChange={(e) => onUpdate(settingKey, e.target.value)}
         disabled={isPending}
-        className="text-sm border border-hl-med rounded-lg px-2 py-1 bg-surface text-on-base disabled:opacity-50"
+        className="text-sm border border-hl-med rounded-lg px-2 py-1 bg-surface text-on-base disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
       >
         <option value={meta.options[0]}>{meta.optionLabels[0]}</option>
         <option value={meta.options[1]}>{meta.optionLabels[1]}</option>
@@ -382,12 +382,12 @@ function UsersTab() {
               }}
               onKeyPress={handleEmailKeyPress}
               placeholder="user@example.com"
-              className="flex-1 max-w-sm px-3 py-2 text-sm border border-hl-med rounded-lg focus:ring-iris focus:border-iris bg-surface text-on-base"
+              className="flex-1 max-w-sm px-3 py-2 text-sm border border-hl-med rounded-lg focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris bg-surface text-on-base"
             />
             <button
               onClick={handleAddEmail}
               disabled={!newEmail.trim()}
-              className="px-4 py-2 text-sm text-base bg-iris hover:bg-iris/80 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 text-sm font-medium text-base bg-iris hover:bg-iris/80 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
             >
               Add
             </button>
@@ -409,7 +409,7 @@ function UsersTab() {
                   <span className="text-sm text-on-base">{email}</span>
                   <button
                     onClick={() => handleRemoveEmail(email)}
-                    className="p-1 text-muted hover:text-love hover:bg-love/10 rounded transition-colors"
+                    className="p-1 text-muted hover:text-love hover:bg-love/10 rounded transition-colors focus:outline-none focus:ring-2 focus:ring-love"
                     aria-label={`Remove ${email}`}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -438,7 +438,7 @@ function UsersTab() {
             value={emailDomain}
             onChange={(e) => setEmailDomain(e.target.value.trim())}
             placeholder="company.com"
-            className="w-full max-w-sm px-3 py-2 text-sm border border-hl-med rounded-lg focus:ring-iris focus:border-iris bg-surface text-on-base"
+            className="w-full max-w-sm px-3 py-2 text-sm border border-hl-med rounded-lg focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris bg-surface text-on-base"
           />
           <p className="text-xs text-subtle">
             Any email address ending in @{emailDomain || 'domain.com'} will be allowed access.
@@ -451,7 +451,7 @@ function UsersTab() {
         <button
           onClick={handleSave}
           disabled={updateAccessPolicy.isPending}
-          className="px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-4 py-2 bg-iris text-base rounded-lg text-sm font-medium hover:bg-iris/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
         >
           {updateAccessPolicy.isPending ? 'Saving...' : 'Save Changes'}
         </button>
@@ -735,7 +735,7 @@ export function Settings() {
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`whitespace-nowrap py-3 px-1 border-b-2 text-sm font-medium transition-colors ${
+                    className={`whitespace-nowrap py-3 px-1 border-b-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:ring-inset ${
                       isActive
                         ? 'border-iris text-pine'
                         : 'border-transparent text-subtle hover:text-on-base hover:border-hl-med'
@@ -800,7 +800,7 @@ export function Settings() {
                           min={1}
                           max={3650}
                           disabled={updatePolicy.isPending}
-                          className="w-20 text-sm border border-hl-med rounded-lg px-2 py-1 bg-surface text-on-base disabled:opacity-50"
+                          className="w-20 text-sm border border-hl-med rounded-lg px-2 py-1 bg-surface text-on-base disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
                         />
                         <span className="text-sm text-subtle">days</span>
                       </div>
@@ -830,7 +830,7 @@ export function Settings() {
                           min={10}
                           max={10000}
                           disabled={updatePolicy.isPending}
-                          className="w-24 text-sm border border-hl-med rounded-lg px-2 py-1 bg-surface text-on-base disabled:opacity-50"
+                          className="w-24 text-sm border border-hl-med rounded-lg px-2 py-1 bg-surface text-on-base disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
                         />
                         <span className="text-sm text-subtle">req/min</span>
                       </div>
@@ -870,7 +870,7 @@ export function Settings() {
                     <button
                       onClick={handleSyncAll}
                       disabled={syncModules.isPending || updateModules.isPending}
-                      className="text-sm px-3 py-1 text-pine hover:text-pine/80 border border-iris/50 rounded-lg disabled:opacity-50"
+                      className="text-sm px-3 py-1 text-pine hover:text-pine/80 border border-iris/50 rounded-lg disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
                       title="Reinstall all third-party packages"
                     >
                       {syncModules.isPending ? 'Syncing...' : 'Sync Packages'}
@@ -879,7 +879,7 @@ export function Settings() {
                       <button
                         onClick={handleResetModules}
                         disabled={updateModules.isPending}
-                        className="text-sm text-pine hover:text-pine/80 disabled:opacity-50"
+                        className="text-sm text-pine hover:text-pine/80 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-iris rounded-lg px-2 py-1 transition-colors"
                       >
                         Reset to defaults
                       </button>
@@ -927,12 +927,12 @@ export function Settings() {
                           onChange={(e) => setNewModule(e.target.value)}
                           onKeyPress={handleModuleKeyPress}
                           placeholder="Add module (e.g., requests, numpy)"
-                          className="flex-1 max-w-sm px-3 py-2 text-sm border border-hl-med rounded-lg focus:ring-iris focus:border-iris bg-surface text-on-base"
+                          className="flex-1 max-w-sm px-3 py-2 text-sm border border-hl-med rounded-lg focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris bg-surface text-on-base"
                         />
                         <button
                           onClick={handleAddModule}
                           disabled={!newModule.trim() || updateModules.isPending}
-                          className="px-4 py-2 text-sm text-base bg-iris hover:bg-iris/80 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="px-4 py-2 text-sm font-medium text-base bg-iris hover:bg-iris/80 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
                         >
                           {updateModules.isPending ? 'Adding...' : 'Add'}
                         </button>
@@ -1020,8 +1020,8 @@ export function Settings() {
                                   <button
                                     onClick={() => handleRetryInstall(module.module_name)}
                                     disabled={installModule.isPending}
-                                    className="p-1 text-pine hover:text-pine/80 hover:bg-pine/10 rounded transition-colors disabled:opacity-50"
-                                    title="Retry installation"
+                                    className="p-1 text-pine hover:text-pine/80 hover:bg-pine/10 rounded transition-colors disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-iris"
+                                    aria-label="Retry installation"
                                   >
                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -1032,7 +1032,7 @@ export function Settings() {
                                 <button
                                   onClick={() => handleRemoveModule(module.module_name)}
                                   disabled={updateModules.isPending}
-                                  className="p-1 text-muted hover:text-love hover:bg-love/10 rounded transition-colors disabled:opacity-50"
+                                  className="p-1 text-muted hover:text-love hover:bg-love/10 rounded transition-colors disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-love"
                                   aria-label={`Remove ${module.module_name}`}
                                 >
                                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1071,7 +1071,7 @@ export function Settings() {
                         value={currentPassword}
                         onChange={e => setCurrentPassword(e.target.value)}
                         disabled={isChangingPassword}
-                        className="w-full max-w-sm px-3 py-2 border border-hl-med rounded-lg focus:ring-iris focus:border-iris bg-surface text-on-base"
+                        className="w-full max-w-sm px-3 py-2 border border-hl-med rounded-lg focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris bg-surface text-on-base"
                       />
                     </div>
                     <div>
@@ -1085,7 +1085,7 @@ export function Settings() {
                         value={newPassword}
                         onChange={e => setNewPassword(e.target.value)}
                         disabled={isChangingPassword}
-                        className="w-full max-w-sm px-3 py-2 border border-hl-med rounded-lg focus:ring-iris focus:border-iris bg-surface text-on-base"
+                        className="w-full max-w-sm px-3 py-2 border border-hl-med rounded-lg focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris bg-surface text-on-base"
                       />
                       <p className="mt-1 text-xs text-subtle">
                         Minimum 12 characters
@@ -1102,7 +1102,7 @@ export function Settings() {
                         value={confirmPassword}
                         onChange={e => setConfirmPassword(e.target.value)}
                         disabled={isChangingPassword}
-                        className="w-full max-w-sm px-3 py-2 border border-hl-med rounded-lg focus:ring-iris focus:border-iris bg-surface text-on-base"
+                        className="w-full max-w-sm px-3 py-2 border border-hl-med rounded-lg focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris bg-surface text-on-base"
                       />
                     </div>
 
@@ -1121,7 +1121,7 @@ export function Settings() {
                     <button
                       type="submit"
                       disabled={isChangingPassword || !currentPassword || !newPassword || !confirmPassword}
-                      className="px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-4 py-2 bg-iris text-base rounded-lg text-sm font-medium hover:bg-iris/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
                     >
                       {isChangingPassword ? 'Changing...' : 'Change Password'}
                     </button>
@@ -1141,7 +1141,7 @@ export function Settings() {
                       <button
                         onClick={handleExportAll}
                         disabled={exportAll.isPending}
-                        className="px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 disabled:opacity-50 flex items-center gap-2"
+                        className="px-4 py-2 bg-iris text-base rounded-lg text-sm font-medium hover:bg-iris/80 disabled:opacity-50 flex items-center gap-2 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -1178,7 +1178,7 @@ export function Settings() {
                         <button
                           onClick={handleImportClick}
                           disabled={importServers.isPending}
-                          className="px-4 py-2 bg-hl-low text-on-base border border-hl-med rounded-lg hover:bg-hl-med disabled:opacity-50 flex items-center gap-2"
+                          className="px-4 py-2 bg-hl-low text-on-base border border-hl-med rounded-lg text-sm font-medium hover:bg-hl-med disabled:opacity-50 flex items-center gap-2 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />

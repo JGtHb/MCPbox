@@ -90,7 +90,7 @@ export function ConfigurationForm({ editConfig, onClose, onSuccess }: Configurat
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g., Production, Development"
               required
-              className="w-full px-3 py-2 border border-hl-med rounded-lg text-sm bg-surface text-on-base"
+              className="w-full px-3 py-2 border border-hl-med rounded-lg text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
             />
           </div>
 
@@ -104,7 +104,7 @@ export function ConfigurationForm({ editConfig, onClose, onSuccess }: Configurat
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Optional description"
-              className="w-full px-3 py-2 border border-hl-med rounded-lg text-sm bg-surface text-on-base"
+              className="w-full px-3 py-2 border border-hl-med rounded-lg text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
             />
           </div>
 
@@ -118,7 +118,7 @@ export function ConfigurationForm({ editConfig, onClose, onSuccess }: Configurat
               value={publicUrl}
               onChange={(e) => setPublicUrl(e.target.value)}
               placeholder="e.g., mcpbox.example.com"
-              className="w-full px-3 py-2 border border-hl-med rounded-lg text-sm bg-surface text-on-base"
+              className="w-full px-3 py-2 border border-hl-med rounded-lg text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
             />
             <p className="mt-1 text-xs text-muted">
               The hostname you configured in Cloudflare for this tunnel
@@ -137,12 +137,13 @@ export function ConfigurationForm({ editConfig, onClose, onSuccess }: Configurat
                 onChange={(e) => setTunnelToken(e.target.value)}
                 placeholder={isEditing ? 'Enter new token to update' : 'Paste your tunnel token'}
                 required={!isEditing}
-                className="w-full px-3 py-2 pr-16 border border-hl-med rounded-lg text-sm bg-surface text-on-base"
+                className="w-full px-3 py-2 pr-16 border border-hl-med rounded-lg text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
               />
               <button
                 type="button"
                 onClick={() => setShowToken(!showToken)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted hover:text-on-base"
+                aria-label="Toggle password visibility"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted hover:text-on-base rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
               >
                 {showToken ? 'Hide' : 'Show'}
               </button>
@@ -173,14 +174,14 @@ export function ConfigurationForm({ editConfig, onClose, onSuccess }: Configurat
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2 border border-hl-med rounded-lg text-subtle hover:bg-hl-low transition-colors"
+              className="flex-1 px-4 py-2 border border-hl-med rounded-lg text-subtle hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isPending || !name}
-              className="flex-1 px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="flex-1 px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
             >
               {isPending ? 'Saving...' : isEditing ? 'Update' : 'Create'}
             </button>

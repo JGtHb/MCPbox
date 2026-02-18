@@ -38,7 +38,8 @@ export function SettingsTab({ server }: SettingsTabProps) {
               {server.id}
               <button
                 onClick={() => copyId(server.id)}
-                className="text-xs text-pine hover:text-pine/80 transition-colors"
+                className="text-xs text-pine hover:text-pine/80 transition-colors rounded-md focus:outline-none focus:ring-2 focus:ring-iris"
+                aria-label="Copy server ID"
               >
                 {idCopied ? 'Copied' : 'Copy'}
               </button>
@@ -93,7 +94,7 @@ export function SettingsTab({ server }: SettingsTabProps) {
           <button
             onClick={() => setShowDeleteConfirm(true)}
             disabled={isRunning || deleteMutation.isPending}
-            className="px-4 py-2 text-sm font-medium text-love bg-surface border border-love/40 rounded-md hover:bg-love/10 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-love"
+            className="px-4 py-2 text-sm font-medium text-love bg-surface border border-love/40 rounded-lg hover:bg-love/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-love"
           >
             {deleteMutation.isPending ? 'Deleting...' : 'Delete Server'}
           </button>

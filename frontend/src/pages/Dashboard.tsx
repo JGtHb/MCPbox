@@ -59,7 +59,7 @@ export function Dashboard() {
               <button
                 key={p}
                 onClick={() => setPeriod(p)}
-                className={`px-3 py-1.5 text-sm font-medium first:rounded-l-md last:rounded-r-md border ${
+                className={`px-3 py-1.5 text-sm font-medium first:rounded-l-md last:rounded-r-md border transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:z-10 ${
                   period === p
                     ? 'bg-iris text-base border-iris'
                     : 'bg-overlay text-muted border-hl-med hover:bg-hl-low'

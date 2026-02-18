@@ -5,6 +5,7 @@ import {
   useDeleteTunnelConfiguration,
   TunnelConfigurationListItem,
 } from '../../api/tunnel'
+import { ConfirmModal } from '../ui'
 
 interface ConfigurationListProps {
   onEdit: (config: TunnelConfigurationListItem) => void
@@ -16,15 +17,20 @@ export function ConfigurationList({ onEdit, onCreateNew }: ConfigurationListProp
   const { data, isLoading } = useTunnelConfigurations(page)
   const activateMutation = useActivateTunnelConfiguration()
   const deleteMutation = useDeleteTunnelConfiguration()
+  const [deleteTarget, setDeleteTarget] = useState<TunnelConfigurationListItem | null>(null)
 
   const handleActivate = async (id: string) => {
     await activateMutation.mutateAsync(id)
   }
 
-  const handleDelete = async (config: TunnelConfigurationListItem) => {
-    if (confirm(`Are you sure you want to delete "${config.name}"?`)) {
-      await deleteMutation.mutateAsync(config.id)
-    }
+  const handleDelete = (config: TunnelConfigurationListItem) => {
+    setDeleteTarget(config)
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
+    setDeleteTarget(null)
+    await deleteMutation.mutateAsync(deleteTarget.id)
   }
 
   if (isLoading) {
@@ -79,14 +85,14 @@ export function ConfigurationList({ onEdit, onCreateNew }: ConfigurationListProp
                     <button
                       onClick={() => handleActivate(config.id)}
                       disabled={activateMutation.isPending}
-                      className="px-3 py-1.5 text-sm bg-iris/10 hover:bg-iris/20 text-iris rounded-lg transition-colors disabled:opacity-50"
+                      className="px-3 py-1.5 text-sm font-medium bg-iris/10 hover:bg-iris/20 text-iris rounded-lg transition-colors disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-iris"
                     >
                       Activate
                     </button>
                   )}
                   <button
                     onClick={() => onEdit(config)}
-                    className="px-3 py-1.5 text-sm bg-hl-low hover:bg-hl-med text-subtle rounded-lg transition-colors"
+                    className="px-3 py-1.5 text-sm font-medium bg-hl-low hover:bg-hl-med text-subtle rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
                   >
                     Edit
                   </button>
@@ -94,7 +100,7 @@ export function ConfigurationList({ onEdit, onCreateNew }: ConfigurationListProp
                     <button
                       onClick={() => handleDelete(config)}
                       disabled={deleteMutation.isPending}
-                      className="px-3 py-1.5 text-sm text-love hover:bg-love/10 rounded-lg transition-colors disabled:opacity-50"
+                      className="px-3 py-1.5 text-sm font-medium text-love hover:bg-love/10 rounded-lg transition-colors disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-love"
                     >
                       Delete
                     </button>
@@ -105,19 +111,33 @@ export function ConfigurationList({ onEdit, onCreateNew }: ConfigurationListProp
           ))}
         </div>
       ) : (
-        <div className="text-center py-8 text-subtle">
-          <p>No saved configurations yet.</p>
-          <p className="text-sm mt-1">
+        <div className="text-center py-8">
+          <svg className="w-12 h-12 text-muted mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+          </svg>
+          <p className="text-subtle mb-1">No saved configurations yet</p>
+          <p className="text-xs text-muted">
             Create a configuration to connect to Claude via Cloudflare MCP Server Portals.
           </p>
           <button
             onClick={onCreateNew}
-            className="mt-4 px-4 py-2 bg-iris hover:bg-iris/80 text-base rounded-lg transition-colors"
+            className="mt-4 px-4 py-2 bg-iris hover:bg-iris/80 text-base rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
           >
             Create Configuration
           </button>
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={deleteTarget !== null}
+        title="Delete Configuration"
+        message={`Are you sure you want to delete "${deleteTarget?.name}"?`}
+        confirmLabel="Delete"
+        destructive
+        isLoading={deleteMutation.isPending}
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
 
       {/* Pagination */}
       {data && data.pages > 1 && (
@@ -125,7 +145,7 @@ export function ConfigurationList({ onEdit, onCreateNew }: ConfigurationListProp
           <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page === 1}
-            className="px-3 py-1 text-sm border border-hl-med rounded disabled:opacity-50"
+            className="px-3 py-1 text-sm border border-hl-med rounded-lg text-on-base disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
           >
             Previous
           </button>
@@ -135,7 +155,7 @@ export function ConfigurationList({ onEdit, onCreateNew }: ConfigurationListProp
           <button
             onClick={() => setPage((p) => Math.min(data.pages, p + 1))}
             disabled={page === data.pages}
-            className="px-3 py-1 text-sm border border-hl-med rounded disabled:opacity-50"
+            className="px-3 py-1 text-sm border border-hl-med rounded-lg text-on-base disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
           >
             Next
           </button>

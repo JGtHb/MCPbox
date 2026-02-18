@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { Header } from '../components/Layout'
+import { ConfirmModal } from '../components/ui'
 import { ApiError } from '../api/client'
 import {
   useCloudflareStatus,
@@ -132,7 +133,7 @@ function StepCard({
             {isComplete && !isActive && onEdit && (
               <button
                 onClick={onEdit}
-                className="px-3 py-1.5 text-sm bg-hl-low hover:bg-hl-med text-subtle rounded transition-colors"
+                className="px-3 py-1.5 text-sm bg-hl-low hover:bg-hl-med text-subtle rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
               >
                 Edit
               </button>
@@ -162,7 +163,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="px-3 py-1.5 bg-hl-low hover:bg-hl-med text-subtle rounded text-sm transition-colors"
+      className="px-3 py-1.5 bg-hl-low hover:bg-hl-med text-subtle rounded-md text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
     >
       {copied ? 'Copied!' : label}
     </button>
@@ -219,14 +220,14 @@ function ConflictWarning({
         <button
           onClick={onConfirm}
           disabled={isPending}
-          className="px-4 py-2 bg-gold text-base rounded-lg hover:bg-gold/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+          className="px-4 py-2 bg-gold text-base rounded-lg hover:bg-gold/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium focus:outline-none focus:ring-2 focus:ring-gold"
         >
           {isPending ? 'Replacing...' : 'Replace Existing'}
         </button>
         <button
           onClick={onCancel}
           disabled={isPending}
-          className="px-4 py-2 bg-hl-low text-subtle rounded-lg hover:bg-hl-med disabled:opacity-50 transition-colors text-sm"
+          className="px-4 py-2 bg-hl-low text-subtle rounded-lg hover:bg-hl-med disabled:opacity-50 transition-colors text-sm focus:outline-none focus:ring-2 focus:ring-iris"
         >
           Cancel
         </button>
@@ -247,6 +248,9 @@ export function CloudflareWizard() {
   const [vpcServiceName, setVpcServiceName] = useState('mcpbox-service')
   const [workerName, setWorkerName] = useState('mcpbox-proxy')
   const [configId, setConfigId] = useState<string | null>(null)
+
+  // Teardown confirm modal
+  const [showTeardownConfirm, setShowTeardownConfirm] = useState(false)
 
   // Access policy state
   const [policyType, setPolicyType] = useState<AccessPolicyType>('everyone')
@@ -422,11 +426,14 @@ export function CloudflareWizard() {
     }
   }
 
-  const handleTeardown = async () => {
+  const handleTeardown = () => {
     if (!configId) return
-    if (!confirm('Are you sure you want to delete all Cloudflare resources? This cannot be undone.')) {
-      return
-    }
+    setShowTeardownConfirm(true)
+  }
+
+  const confirmTeardown = async () => {
+    if (!configId) return
+    setShowTeardownConfirm(false)
     try {
       await teardownMutation.mutateAsync(configId)
       navigate('/tunnel')
@@ -507,7 +514,7 @@ export function CloudflareWizard() {
                   value={apiToken}
                   onChange={(e) => setApiToken(e.target.value)}
                   placeholder={configId ? 'Enter new API token' : 'Enter your Cloudflare API token'}
-                  className="w-full px-3 py-2 border border-hl-med rounded-lg bg-surface text-on-base"
+                  className="w-full px-3 py-2 border border-hl-med rounded-lg bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
                 />
               </div>
 
@@ -515,7 +522,7 @@ export function CloudflareWizard() {
                 {configId && (
                   <button
                     onClick={() => setCurrentStep(2)}
-                    className="flex-1 px-4 py-2 bg-hl-low text-subtle rounded-lg hover:bg-hl-med transition-colors"
+                    className="flex-1 px-4 py-2 bg-hl-low text-subtle rounded-lg hover:bg-hl-med transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
                   >
                     Cancel
                   </button>
@@ -523,7 +530,7 @@ export function CloudflareWizard() {
                 <button
                   onClick={configId ? handleUpdateApiToken : handleStartWithApiToken}
                   disabled={!apiToken || startWithApiTokenMutation.isPending || setApiTokenMutation.isPending}
-                  className={`${configId ? 'flex-1' : 'w-full'} px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors`}
+                  className={`${configId ? 'flex-1' : 'w-full'} px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-iris`}
                 >
                   {startWithApiTokenMutation.isPending || setApiTokenMutation.isPending
                     ? 'Verifying...'
@@ -572,7 +579,7 @@ export function CloudflareWizard() {
                   type="text"
                   value={tunnelName}
                   onChange={(e) => setTunnelName(e.target.value)}
-                  className="w-full px-3 py-2 border border-hl-med rounded-lg bg-surface text-on-base"
+                  className="w-full px-3 py-2 border border-hl-med rounded-lg bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
                 />
               </div>
 
@@ -612,7 +619,7 @@ export function CloudflareWizard() {
               <button
                 onClick={handleCreateTunnel}
                 disabled={!tunnelName || createTunnelMutation.isPending}
-                className="w-full px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="w-full px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
               >
                 {createTunnelMutation.isPending ? 'Creating...' : 'Create Tunnel'}
               </button>
@@ -644,7 +651,7 @@ export function CloudflareWizard() {
                   type="text"
                   value={vpcServiceName}
                   onChange={(e) => setVpcServiceName(e.target.value)}
-                  className="w-full px-3 py-2 border border-hl-med rounded-lg bg-surface text-on-base"
+                  className="w-full px-3 py-2 border border-hl-med rounded-lg bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
                 />
               </div>
 
@@ -684,7 +691,7 @@ export function CloudflareWizard() {
               <button
                 onClick={handleCreateVpcService}
                 disabled={!vpcServiceName || createVpcServiceMutation.isPending}
-                className="w-full px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="w-full px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
               >
                 {createVpcServiceMutation.isPending ? 'Creating...' : 'Create VPC Service'}
               </button>
@@ -714,7 +721,7 @@ export function CloudflareWizard() {
                   type="text"
                   value={workerName}
                   onChange={(e) => setWorkerName(e.target.value)}
-                  className="w-full px-3 py-2 border border-hl-med rounded-lg bg-surface text-on-base"
+                  className="w-full px-3 py-2 border border-hl-med rounded-lg bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
                 />
               </div>
 
@@ -731,7 +738,7 @@ export function CloudflareWizard() {
               <button
                 onClick={handleDeployWorker}
                 disabled={!workerName || deployWorkerMutation.isPending}
-                className="w-full px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="w-full px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
               >
                 {deployWorkerMutation.isPending ? 'Deploying...' : 'Deploy Worker'}
               </button>
@@ -788,7 +795,7 @@ export function CloudflareWizard() {
                       value="everyone"
                       checked={policyType === 'everyone'}
                       onChange={() => setPolicyType('everyone')}
-                      className="mt-1"
+                      className="mt-1 focus:outline-none focus:ring-2 focus:ring-iris"
                     />
                     <div>
                       <span className="text-sm font-medium text-on-base">Everyone</span>
@@ -805,7 +812,7 @@ export function CloudflareWizard() {
                       value="email_domain"
                       checked={policyType === 'email_domain'}
                       onChange={() => setPolicyType('email_domain')}
-                      className="mt-1"
+                      className="mt-1 focus:outline-none focus:ring-2 focus:ring-iris"
                     />
                     <div className="flex-1">
                       <span className="text-sm font-medium text-on-base">Email Domain</span>
@@ -818,7 +825,7 @@ export function CloudflareWizard() {
                           value={policyEmailDomain}
                           onChange={(e) => setPolicyEmailDomain(e.target.value)}
                           placeholder="company.com"
-                          className="mt-2 w-full px-3 py-1.5 text-sm border border-hl-med rounded-lg bg-surface text-on-base"
+                          className="mt-2 w-full px-3 py-1.5 text-sm border border-hl-med rounded-lg bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
                         />
                       )}
                     </div>
@@ -831,7 +838,7 @@ export function CloudflareWizard() {
                       value="emails"
                       checked={policyType === 'emails'}
                       onChange={() => setPolicyType('emails')}
-                      className="mt-1"
+                      className="mt-1 focus:outline-none focus:ring-2 focus:ring-iris"
                     />
                     <div className="flex-1">
                       <span className="text-sm font-medium text-on-base">Specific Emails</span>
@@ -857,7 +864,7 @@ export function CloudflareWizard() {
                             <button
                               type="button"
                               onClick={handleAddPolicyEmail}
-                              className="px-3 py-1.5 text-sm bg-iris text-base rounded-lg hover:bg-iris/80 transition-colors"
+                              className="px-3 py-1.5 text-sm bg-iris text-base rounded-md hover:bg-iris/80 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
                             >
                               Add
                             </button>
@@ -873,7 +880,8 @@ export function CloudflareWizard() {
                                   <button
                                     type="button"
                                     onClick={() => handleRemovePolicyEmail(email)}
-                                    className="text-iris hover:text-iris"
+                                    aria-label={`Remove ${email}`}
+                                    className="text-iris hover:text-love rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-love"
                                   >
                                     &times;
                                   </button>
@@ -918,7 +926,7 @@ export function CloudflareWizard() {
                   (policyType === 'emails' && policyEmails.length === 0) ||
                   (policyType === 'email_domain' && !policyEmailDomain)
                 }
-                className="w-full px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="w-full px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
               >
                 {configureJwtMutation.isPending ? 'Configuring...' : 'Configure Access & OIDC'}
               </button>
@@ -966,7 +974,7 @@ export function CloudflareWizard() {
 
               <button
                 onClick={() => navigate('/tunnel')}
-                className="w-full px-4 py-2.5 bg-foam text-base rounded-lg hover:bg-foam/80 transition-colors font-medium"
+                className="w-full px-4 py-2.5 bg-foam text-base rounded-lg hover:bg-foam/80 transition-colors font-medium focus:outline-none focus:ring-2 focus:ring-foam"
               >
                 Complete Setup
               </button>
@@ -983,7 +991,7 @@ export function CloudflareWizard() {
         <div className="mt-6 flex flex-col sm:flex-row gap-3">
           <button
             onClick={() => navigate('/tunnel')}
-            className="px-4 py-2 bg-hl-low text-subtle rounded-lg hover:bg-hl-med transition-colors"
+            className="px-4 py-2 bg-hl-low text-subtle rounded-lg hover:bg-hl-med transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
           >
             Back to Tunnel
           </button>
@@ -992,13 +1000,24 @@ export function CloudflareWizard() {
             <button
               onClick={handleTeardown}
               disabled={teardownMutation.isPending}
-              className="px-4 py-2 bg-love/10 text-love rounded-lg hover:bg-love/20 transition-colors"
+              className="px-4 py-2 bg-love/10 text-love rounded-lg hover:bg-love/20 transition-colors focus:outline-none focus:ring-2 focus:ring-love"
             >
               {teardownMutation.isPending ? 'Removing...' : 'Remove All Resources'}
             </button>
           )}
         </div>
       </div>
+
+      <ConfirmModal
+        isOpen={showTeardownConfirm}
+        title="Remove All Resources"
+        message="Are you sure you want to delete all Cloudflare resources? This cannot be undone."
+        confirmLabel="Remove All"
+        destructive
+        isLoading={teardownMutation.isPending}
+        onConfirm={confirmTeardown}
+        onCancel={() => setShowTeardownConfirm(false)}
+      />
     </div>
   )
 }

@@ -25,7 +25,7 @@ export function LogDetail({ log }: { log: ExecutionLog }) {
     <div className="border border-hl-med rounded-lg overflow-hidden">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-hl-low text-left"
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-hl-low text-left transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:ring-inset"
       >
         <div className="flex items-center gap-3 min-w-0">
           <span
@@ -200,7 +200,7 @@ export function ExecutionLogsTab({ serverId }: ExecutionLogsTabProps) {
           <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page <= 1}
-            className="px-3 py-1 border border-hl-med rounded text-on-base disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low"
+            className="px-3 py-1 border border-hl-med rounded-lg text-on-base disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
           >
             Previous
           </button>
@@ -210,7 +210,7 @@ export function ExecutionLogsTab({ serverId }: ExecutionLogsTabProps) {
           <button
             onClick={() => setPage((p) => Math.min(data.pages, p + 1))}
             disabled={page >= data.pages}
-            className="px-3 py-1 border border-hl-med rounded text-on-base disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low"
+            className="px-3 py-1 border border-hl-med rounded-lg text-on-base disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
           >
             Next
           </button>

@@ -57,7 +57,7 @@ export function LogViewer({ serverId, enabled = true }: LogViewerProps) {
         <p>Failed to load logs</p>
         <button
           onClick={() => refetch()}
-          className="mt-2 text-sm text-pine hover:text-pine/80"
+          className="mt-2 text-sm text-pine hover:text-pine/80 transition-colors rounded-md focus:outline-none focus:ring-2 focus:ring-iris"
         >
           Retry
         </button>
@@ -81,7 +81,7 @@ export function LogViewer({ serverId, enabled = true }: LogViewerProps) {
           </label>
           <button
             onClick={() => refetch()}
-            className="text-sm text-muted hover:text-subtle"
+            className="text-sm text-muted hover:text-subtle transition-colors rounded-md focus:outline-none focus:ring-2 focus:ring-iris"
           >
             Refresh
           </button>

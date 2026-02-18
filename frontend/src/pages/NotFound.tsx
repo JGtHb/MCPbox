@@ -18,7 +18,7 @@ export function NotFound() {
           </p>
           <Link
             to="/"
-            className="inline-flex px-4 py-2 text-sm font-medium text-base bg-iris rounded-md hover:bg-iris/80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-iris"
+            className="inline-flex px-4 py-2 text-sm font-medium text-base bg-iris rounded-lg hover:bg-iris/80 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-iris"
           >
             Go to Dashboard
           </Link>

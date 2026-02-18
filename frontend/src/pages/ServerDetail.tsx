@@ -78,7 +78,7 @@ export function ServerDetail() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => copy(server.id)}
-              className="text-xs text-muted hover:text-on-base font-mono flex items-center gap-1 transition-colors"
+              className="text-xs text-muted hover:text-on-base font-mono flex items-center gap-1 transition-colors rounded-md focus:outline-none focus:ring-2 focus:ring-iris"
               title="Copy server ID"
             >
               {server.id.slice(0, 8)}...
@@ -108,7 +108,8 @@ export function ServerDetail() {
             </div>
             <button
               onClick={() => setImportToast(null)}
-              className="text-foam hover:text-foam/80"
+              className="text-foam hover:text-foam/80 transition-colors rounded-md focus:outline-none focus:ring-2 focus:ring-foam"
+              aria-label="Dismiss notification"
             >
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

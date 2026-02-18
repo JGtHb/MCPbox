@@ -171,7 +171,7 @@ export function Activity() {
             <nav className="flex -mb-px">
               <button
                 onClick={() => setActiveTab('executions')}
-                className={`px-4 sm:px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                className={`px-4 sm:px-6 py-3 text-sm font-medium border-b-2 transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:ring-inset ${
                   activeTab === 'executions'
                     ? 'border-iris text-pine'
                     : 'border-transparent text-subtle hover:text-on-base hover:border-hl-high'
@@ -186,7 +186,7 @@ export function Activity() {
               </button>
               <button
                 onClick={() => setActiveTab('protocol')}
-                className={`px-4 sm:px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                className={`px-4 sm:px-6 py-3 text-sm font-medium border-b-2 transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:ring-inset ${
                   activeTab === 'protocol'
                     ? 'border-iris text-pine'
                     : 'border-transparent text-subtle hover:text-on-base hover:border-hl-high'
@@ -231,7 +231,7 @@ export function Activity() {
                       value={toolNameFilter}
                       onChange={(e) => handleToolNameChange(e.target.value)}
                       placeholder="Filter by tool name..."
-                      className="px-3 py-1 text-sm border border-hl-med rounded-lg bg-surface text-on-base w-48"
+                      className="px-3 py-1 text-sm border border-hl-med rounded-lg bg-surface text-on-base w-48 focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
                     />
                   </div>
 
@@ -263,7 +263,7 @@ export function Activity() {
                     <select
                       value={execPageSize}
                       onChange={(e) => handleExecPageSizeChange(Number(e.target.value))}
-                      className="px-2 py-1 text-sm border border-hl-med rounded-lg bg-surface text-on-base"
+                      className="px-2 py-1 text-sm border border-hl-med rounded-lg bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
                     >
                       {PAGE_SIZE_OPTIONS.map((size) => (
                         <option key={size} value={size}>
@@ -316,7 +316,7 @@ export function Activity() {
                       <button
                         onClick={() => setExecPage((p) => Math.max(1, p - 1))}
                         disabled={execPage <= 1}
-                        className="px-3 py-1 border border-hl-med rounded text-on-base disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low"
+                        className="px-3 py-1 border border-hl-med rounded-lg text-on-base disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
                       >
                         Previous
                       </button>
@@ -326,7 +326,7 @@ export function Activity() {
                       <button
                         onClick={() => setExecPage((p) => Math.min(logsData.pages, p + 1))}
                         disabled={execPage >= logsData.pages}
-                        className="px-3 py-1 border border-hl-med rounded text-on-base disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low"
+                        className="px-3 py-1 border border-hl-med rounded-lg text-on-base disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
                       >
                         Next
                       </button>
@@ -350,7 +350,7 @@ export function Activity() {
                     <select
                       value={logTypeFilter}
                       onChange={(e) => handleLogTypeChange(e.target.value)}
-                      className="px-2 py-1 text-sm border border-hl-med rounded-lg bg-surface text-on-base"
+                      className="px-2 py-1 text-sm border border-hl-med rounded-lg bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
                     >
                       <option value="">All</option>
                       <option value="mcp_request">MCP Request</option>
@@ -370,7 +370,7 @@ export function Activity() {
                     <select
                       value={levelFilter}
                       onChange={(e) => handleLevelChange(e.target.value)}
-                      className="px-2 py-1 text-sm border border-hl-med rounded-lg bg-surface text-on-base"
+                      className="px-2 py-1 text-sm border border-hl-med rounded-lg bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
                     >
                       <option value="">All</option>
                       <option value="debug">Debug</option>
@@ -386,7 +386,7 @@ export function Activity() {
                       value={searchFilter}
                       onChange={(e) => handleSearchChange(e.target.value)}
                       placeholder="Search logs..."
-                      className="px-3 py-1 text-sm border border-hl-med rounded-lg bg-surface text-on-base w-full max-w-xs"
+                      className="px-3 py-1 text-sm border border-hl-med rounded-lg bg-surface text-on-base w-full max-w-xs focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
                     />
                   </div>
 
@@ -397,7 +397,7 @@ export function Activity() {
                     <select
                       value={protoPageSize}
                       onChange={(e) => handleProtoPageSizeChange(Number(e.target.value))}
-                      className="px-2 py-1 text-sm border border-hl-med rounded-lg bg-surface text-on-base"
+                      className="px-2 py-1 text-sm border border-hl-med rounded-lg bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
                     >
                       {PAGE_SIZE_OPTIONS.map((size) => (
                         <option key={size} value={size}>
@@ -450,7 +450,7 @@ export function Activity() {
                       <button
                         onClick={() => setProtoPage((p) => Math.max(1, p - 1))}
                         disabled={protoPage <= 1}
-                        className="px-3 py-1 border border-hl-med rounded text-on-base disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low"
+                        className="px-3 py-1 border border-hl-med rounded-lg text-on-base disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
                       >
                         Previous
                       </button>
@@ -460,7 +460,7 @@ export function Activity() {
                       <button
                         onClick={() => setProtoPage((p) => Math.min(protoData.pages, p + 1))}
                         disabled={protoPage >= protoData.pages}
-                        className="px-3 py-1 border border-hl-med rounded text-on-base disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low"
+                        className="px-3 py-1 border border-hl-med rounded-lg text-on-base disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
                       >
                         Next
                       </button>
@@ -530,12 +530,13 @@ function ProtocolLogEntry({ log }: { log: ActivityLog }) {
 
   return (
     <div
-      className={`px-4 py-2.5 border-l-4 cursor-pointer hover:bg-hl-low transition-colors ${
+      className={`px-4 py-2.5 border-l-4 cursor-pointer hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-iris ${
         typeStyles[log.log_type] || 'border-l-muted'
       }`}
       onClick={() => setExpanded(!expanded)}
       role="button"
       tabIndex={0}
+      aria-expanded={expanded}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()
