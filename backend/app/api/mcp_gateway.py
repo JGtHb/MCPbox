@@ -28,6 +28,7 @@ from app.services.activity_logger import ActivityLoggerService, get_activity_log
 from app.services.execution_log import ExecutionLogService
 from app.services.mcp_management import MCPManagementService, get_management_tools_list
 from app.services.sandbox_client import SandboxClient, get_sandbox_client
+from app.services.setting import SettingService
 
 logger = logging.getLogger(__name__)
 
@@ -660,22 +661,28 @@ async def _handle_management_tool_call(
     user: AuthenticatedUser | None = None,
 ) -> dict[str, Any]:
     """Handle a management tool call locally."""
-    # Block destructive tools from remote (tunnel) access
+    # Block management tools from remote (tunnel) access unless admin has enabled it
     if tool_name in LOCAL_ONLY_TOOLS and user and user.source == "worker":
-        logger.warning(
-            "Blocked remote call to local-only tool %s from %s",
-            tool_name,
-            user.email or "unknown",
+        setting_service = SettingService(db)
+        remote_editing = await setting_service.get_value(
+            "remote_tool_editing", default="disabled"
         )
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": f"Error: {tool_name} is restricted to local access only",
-                }
-            ],
-            "isError": True,
-        }
+        if remote_editing != "enabled":
+            logger.warning(
+                "Blocked remote call to local-only tool %s from %s",
+                tool_name,
+                user.email or "unknown",
+            )
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"Error: {tool_name} is restricted to local access only. "
+                        "An admin can enable remote tool editing in Settings > Security Policy.",
+                    }
+                ],
+                "isError": True,
+            }
 
     management_service = MCPManagementService(db)
 

@@ -6,6 +6,7 @@ errors, stdout, duration, and success status for each tool call.
 
 import logging
 import math
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -137,6 +138,109 @@ class ExecutionLogService:
         logs = list(result.scalars().all())
 
         return logs, total
+
+    async def list_all(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        tool_name: str | None = None,
+        server_id: UUID | None = None,
+        success: bool | None = None,
+        executed_by: str | None = None,
+    ) -> tuple[list[ToolExecutionLog], int]:
+        """List all execution logs across all tools, newest first.
+
+        Supports filtering by tool_name (contains), server_id, success, executed_by.
+        Returns (logs, total_count).
+        """
+        base = select(ToolExecutionLog)
+        count_base = select(func.count(ToolExecutionLog.id))
+
+        # Apply filters
+        if tool_name:
+            base = base.where(ToolExecutionLog.tool_name.ilike(f"%{tool_name}%"))
+            count_base = count_base.where(ToolExecutionLog.tool_name.ilike(f"%{tool_name}%"))
+        if server_id is not None:
+            base = base.where(ToolExecutionLog.server_id == server_id)
+            count_base = count_base.where(ToolExecutionLog.server_id == server_id)
+        if success is not None:
+            base = base.where(ToolExecutionLog.success == success)
+            count_base = count_base.where(ToolExecutionLog.success == success)
+        if executed_by:
+            base = base.where(ToolExecutionLog.executed_by == executed_by)
+            count_base = count_base.where(ToolExecutionLog.executed_by == executed_by)
+
+        # Count
+        count_result = await self.db.execute(count_base)
+        total = count_result.scalar() or 0
+
+        # Fetch page
+        offset = (page - 1) * page_size
+        result = await self.db.execute(
+            base.order_by(desc(ToolExecutionLog.created_at)).offset(offset).limit(page_size)
+        )
+        logs = list(result.scalars().all())
+
+        return logs, total
+
+    async def get_stats(self, period_hours: int = 24) -> dict:
+        """Get aggregate execution statistics.
+
+        Returns total/successful/failed counts, average duration,
+        period-scoped count, unique tools, and unique users.
+        """
+        # Total counts
+        total_result = await self.db.execute(select(func.count(ToolExecutionLog.id)))
+        total = total_result.scalar() or 0
+
+        successful_result = await self.db.execute(
+            select(func.count(ToolExecutionLog.id)).where(ToolExecutionLog.success.is_(True))
+        )
+        successful = successful_result.scalar() or 0
+
+        failed = total - successful
+
+        # Average duration
+        avg_result = await self.db.execute(
+            select(func.avg(ToolExecutionLog.duration_ms)).where(
+                ToolExecutionLog.duration_ms.isnot(None)
+            )
+        )
+        avg_duration_ms = avg_result.scalar()
+        if avg_duration_ms is not None:
+            avg_duration_ms = round(float(avg_duration_ms), 1)
+
+        # Period count
+        cutoff = datetime.now(UTC) - timedelta(hours=period_hours)
+        period_result = await self.db.execute(
+            select(func.count(ToolExecutionLog.id)).where(ToolExecutionLog.created_at >= cutoff)
+        )
+        period_executions = period_result.scalar() or 0
+
+        # Unique tools
+        tools_result = await self.db.execute(
+            select(func.count(func.distinct(ToolExecutionLog.tool_id)))
+        )
+        unique_tools = tools_result.scalar() or 0
+
+        # Unique users
+        users_result = await self.db.execute(
+            select(func.count(func.distinct(ToolExecutionLog.executed_by))).where(
+                ToolExecutionLog.executed_by.isnot(None)
+            )
+        )
+        unique_users = users_result.scalar() or 0
+
+        return {
+            "total_executions": total,
+            "successful": successful,
+            "failed": failed,
+            "avg_duration_ms": avg_duration_ms,
+            "period_executions": period_executions,
+            "period_hours": period_hours,
+            "unique_tools": unique_tools,
+            "unique_users": unique_users,
+        }
 
     async def get_log(self, log_id: UUID) -> ToolExecutionLog | None:
         """Get a single execution log by ID."""

@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { useServerExecutionLogs, type ExecutionLog } from '../../api/executionLogs'
 
-function formatDuration(ms: number | null): string {
+export function formatDuration(ms: number | null): string {
   if (ms === null) return '-'
   if (ms < 1000) return `${ms}ms`
   return `${(ms / 1000).toFixed(1)}s`
 }
 
-function formatTime(iso: string): string {
+export function formatTime(iso: string): string {
   const date = new Date(iso)
   return date.toLocaleString(undefined, {
     month: 'short',
@@ -18,7 +18,7 @@ function formatTime(iso: string): string {
   })
 }
 
-function LogDetail({ log }: { log: ExecutionLog }) {
+export function LogDetail({ log }: { log: ExecutionLog }) {
   const [expanded, setExpanded] = useState(false)
 
   return (

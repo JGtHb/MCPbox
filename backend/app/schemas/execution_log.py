@@ -36,6 +36,19 @@ class ExecutionLogListResponse(BaseModel):
     pages: int
 
 
+class ExecutionStatsResponse(BaseModel):
+    """Aggregate execution statistics."""
+
+    total_executions: int
+    successful: int
+    failed: int
+    avg_duration_ms: float | None
+    period_executions: int
+    period_hours: int
+    unique_tools: int
+    unique_users: int
+
+
 class ExecutionLogSummary(BaseModel):
     """Abbreviated log entry for list views."""
 

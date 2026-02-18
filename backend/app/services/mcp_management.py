@@ -1264,13 +1264,23 @@ class MCPManagementService:
                 notes=notes,
                 requested_by=None,  # Will be set from JWT in gateway if available
             )
+
+            if tool.approval_status == "approved":
+                message = (
+                    f"Tool '{tool.name}' has been auto-approved and is now active."
+                )
+            else:
+                message = (
+                    f"Tool '{tool.name}' has been submitted for admin review. "
+                    "You will be notified when the admin approves or rejects it."
+                )
+
             return {
                 "success": True,
                 "tool_id": str(tool.id),
                 "name": tool.name,
                 "status": tool.approval_status,
-                "message": f"Tool '{tool.name}' has been submitted for admin review. "
-                "You will be notified when the admin approves or rejects it.",
+                "message": message,
             }
         except ValueError as e:
             return {"error": str(e)}

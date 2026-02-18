@@ -13,10 +13,58 @@ from app.core import get_db
 from app.schemas.execution_log import (
     ExecutionLogListResponse,
     ExecutionLogResponse,
+    ExecutionStatsResponse,
 )
 from app.services.execution_log import ExecutionLogService
 
 router = APIRouter(tags=["execution-logs"])
+
+
+@router.get(
+    "/execution-logs",
+    response_model=ExecutionLogListResponse,
+)
+async def list_all_logs(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    tool_name: str | None = Query(None, description="Filter by tool name (contains)"),
+    server_id: UUID | None = Query(None, description="Filter by server ID"),
+    success: bool | None = Query(None, description="Filter by success status"),
+    executed_by: str | None = Query(None, description="Filter by user"),
+    db: AsyncSession = Depends(get_db),
+) -> ExecutionLogListResponse:
+    """List all execution logs across all tools and servers."""
+    service = ExecutionLogService(db)
+    logs, total = await service.list_all(
+        page=page,
+        page_size=page_size,
+        tool_name=tool_name,
+        server_id=server_id,
+        success=success,
+        executed_by=executed_by,
+    )
+
+    return ExecutionLogListResponse(
+        items=[ExecutionLogResponse.model_validate(log) for log in logs],
+        total=total,
+        page=page,
+        page_size=page_size,
+        pages=max(1, math.ceil(total / page_size)),
+    )
+
+
+@router.get(
+    "/execution-logs/stats",
+    response_model=ExecutionStatsResponse,
+)
+async def get_execution_stats(
+    period_hours: int = Query(24, ge=1, le=8760, description="Stats period in hours"),
+    db: AsyncSession = Depends(get_db),
+) -> ExecutionStatsResponse:
+    """Get aggregate execution statistics."""
+    service = ExecutionLogService(db)
+    stats = await service.get_stats(period_hours=period_hours)
+    return ExecutionStatsResponse(**stats)
 
 
 @router.get(
