@@ -3,6 +3,8 @@
 import pytest
 from httpx import AsyncClient
 
+from app.middleware.rate_limit import RateLimiter
+
 
 class TestListSettings:
     """Tests for GET /settings endpoint."""
@@ -148,3 +150,61 @@ class TestListSettings:
         assert "encrypted" in struct_setting
         assert "description" in struct_setting
         assert "updated_at" in struct_setting
+
+
+class TestSecurityPolicy:
+    """Tests for security policy endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_get_security_policy_defaults(self, async_client: AsyncClient, admin_headers):
+        """Test getting security policy returns defaults."""
+        response = await async_client.get("/api/settings/security-policy", headers=admin_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["mcp_rate_limit_rpm"] == 300
+        assert data["log_retention_days"] == 30
+
+    @pytest.mark.asyncio
+    async def test_update_mcp_rate_limit(self, async_client: AsyncClient, admin_headers):
+        """Test updating MCP rate limit via security policy."""
+        response = await async_client.patch(
+            "/api/settings/security-policy",
+            json={"mcp_rate_limit_rpm": 500},
+            headers=admin_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["mcp_rate_limit_rpm"] == 500
+
+    @pytest.mark.asyncio
+    async def test_mcp_rate_limit_bounds_low(self, async_client: AsyncClient, admin_headers):
+        """Test that MCP rate limit rejects values below 10."""
+        response = await async_client.patch(
+            "/api/settings/security-policy",
+            json={"mcp_rate_limit_rpm": 5},
+            headers=admin_headers,
+        )
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_mcp_rate_limit_bounds_high(self, async_client: AsyncClient, admin_headers):
+        """Test that MCP rate limit rejects values above 10000."""
+        response = await async_client.patch(
+            "/api/settings/security-policy",
+            json={"mcp_rate_limit_rpm": 20000},
+            headers=admin_headers,
+        )
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_mcp_rate_limit_updates_singleton(self, async_client: AsyncClient, admin_headers):
+        """Test that updating MCP rate limit updates the in-memory RateLimiter."""
+        response = await async_client.patch(
+            "/api/settings/security-policy",
+            json={"mcp_rate_limit_rpm": 750},
+            headers=admin_headers,
+        )
+        assert response.status_code == 200
+
+        config = RateLimiter.get_instance().get_config_for_path("/mcp")
+        assert config.requests_per_minute == 750

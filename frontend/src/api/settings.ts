@@ -75,6 +75,7 @@ export interface SecurityPolicy {
   module_approval_mode: string
   redact_secrets_in_output: string
   log_retention_days: number
+  mcp_rate_limit_rpm: number
 }
 
 export interface SecurityPolicyUpdate {
@@ -84,6 +85,7 @@ export interface SecurityPolicyUpdate {
   module_approval_mode?: string
   redact_secrets_in_output?: string
   log_retention_days?: number
+  mcp_rate_limit_rpm?: number
 }
 
 // Query keys

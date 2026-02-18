@@ -24,6 +24,8 @@ def upgrade() -> None:
     op.execute(
         "UPDATE servers SET status = 'imported' WHERE status = 'building'"
     )
+    # Drop the column default first (it depends on the enum type)
+    op.execute("ALTER TABLE servers ALTER COLUMN status DROP DEFAULT")
     # Alter column to text temporarily
     op.execute("ALTER TABLE servers ALTER COLUMN status TYPE text")
     # Drop the old enum
@@ -33,10 +35,13 @@ def upgrade() -> None:
         "CREATE TYPE server_status AS ENUM "
         "('imported', 'ready', 'running', 'stopped', 'error')"
     )
-    # Convert column back to enum
+    # Convert column back to enum and restore default
     op.execute(
         "ALTER TABLE servers ALTER COLUMN status TYPE server_status "
         "USING status::server_status"
+    )
+    op.execute(
+        "ALTER TABLE servers ALTER COLUMN status SET DEFAULT 'imported'"
     )
 
     # --- network_mode: remove 'monitored' and 'learning' ---
@@ -45,6 +50,8 @@ def upgrade() -> None:
         "UPDATE servers SET network_mode = 'isolated' "
         "WHERE network_mode IN ('monitored', 'learning')"
     )
+    # Drop the column default first (it depends on the enum type)
+    op.execute("ALTER TABLE servers ALTER COLUMN network_mode DROP DEFAULT")
     # Alter column to text temporarily
     op.execute("ALTER TABLE servers ALTER COLUMN network_mode TYPE text")
     # Drop the old enum
@@ -53,10 +60,13 @@ def upgrade() -> None:
     op.execute(
         "CREATE TYPE network_mode AS ENUM ('isolated', 'allowlist')"
     )
-    # Convert column back to enum
+    # Convert column back to enum and restore default
     op.execute(
         "ALTER TABLE servers ALTER COLUMN network_mode TYPE network_mode "
         "USING network_mode::network_mode"
+    )
+    op.execute(
+        "ALTER TABLE servers ALTER COLUMN network_mode SET DEFAULT 'isolated'"
     )
 
 

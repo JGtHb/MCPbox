@@ -59,7 +59,6 @@ class ApprovalService:
                 f"Current status: {tool.approval_status}"
             )
 
-        tool.approval_status = "pending_review"
         tool.approval_requested_at = datetime.now(UTC)
         tool.publish_notes = notes
         tool.rejection_reason = None  # Clear any previous rejection reason
@@ -67,10 +66,28 @@ class ApprovalService:
         if requested_by and not tool.created_by:
             tool.created_by = requested_by
 
+        # Check if auto-approve is enabled
+        from app.services.setting import SettingService
+
+        setting_service = SettingService(self.db)
+        approval_mode = await setting_service.get_value(
+            "tool_approval_mode", default="require_approval"
+        )
+
+        if approval_mode == "auto_approve":
+            tool.approval_status = "approved"
+            tool.approved_at = datetime.now(UTC)
+            tool.approved_by = "auto_approve"
+            logger.info(
+                f"Tool {tool.name} ({tool_id}) auto-approved (tool_approval_mode=auto_approve)"
+            )
+        else:
+            tool.approval_status = "pending_review"
+            logger.info(f"Tool {tool.name} ({tool_id}) requested publish by {requested_by}")
+
         await self.db.commit()
         await self.db.refresh(tool)
 
-        logger.info(f"Tool {tool.name} ({tool_id}) requested publish by {requested_by}")
         return tool
 
     async def approve_tool(

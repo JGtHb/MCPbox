@@ -1,220 +1,268 @@
 import { useState, useMemo } from 'react'
-import { useSearchParams } from 'react-router-dom'
 import { Header } from '../components/Layout'
 import {
-  useActivityStats,
+  useAllExecutionLogs,
+  useExecutionStats,
+  type AllExecutionLogsParams,
+} from '../api/executionLogs'
+import { LogDetail, formatDuration } from '../components/Server/ExecutionLogsTab'
+import {
   useActivityStream,
   ActivityLog,
   getLogTypeLabel,
   getLogTypeBadgeClasses,
 } from '../api/activity'
 
-type Period = '1h' | '6h' | '24h' | '7d'
-type LogType = 'all' | 'mcp_request' | 'mcp_response' | 'error' | 'alert' | 'audit'
-type Level = 'all' | 'debug' | 'info' | 'warning' | 'error'
-
-const VALID_TYPES: LogType[] = ['all', 'mcp_request', 'mcp_response', 'error', 'alert', 'audit']
-const VALID_LEVELS: Level[] = ['all', 'debug', 'info', 'warning', 'error']
+type SuccessFilter = 'all' | 'success' | 'failure'
 
 export function Activity() {
-  const [searchParams] = useSearchParams()
+  const [page, setPage] = useState(1)
+  const [toolNameFilter, setToolNameFilter] = useState('')
+  const [successFilter, setSuccessFilter] = useState<SuccessFilter>('all')
+  const [protocolExpanded, setProtocolExpanded] = useState(false)
 
-  const [period, setPeriod] = useState<Period>('1h')
-  const [selectedType, setSelectedType] = useState<LogType>(() => {
-    const param = searchParams.get('type')
-    return VALID_TYPES.includes(param as LogType) ? (param as LogType) : 'all'
-  })
-  const [selectedLevel, setSelectedLevel] = useState<Level>(() => {
-    const param = searchParams.get('level')
-    return VALID_LEVELS.includes(param as Level) ? (param as Level) : 'all'
-  })
-  const [paused, setPaused] = useState(false)
+  // Execution stats
+  const { data: stats, isLoading: statsLoading } = useExecutionStats(24)
 
-  const { data: stats, isLoading: statsLoading } = useActivityStats(period)
+  // Build query params
+  const params: AllExecutionLogsParams = useMemo(
+    () => ({
+      page,
+      pageSize: 20,
+      toolName: toolNameFilter || undefined,
+      success: successFilter === 'all' ? undefined : successFilter === 'success',
+    }),
+    [page, toolNameFilter, successFilter]
+  )
 
+  const { data: logsData, isLoading: logsLoading } = useAllExecutionLogs(params)
+
+  // Protocol log stream (always connected, displayed when expanded)
   const {
-    logs,
+    logs: protocolLogs,
     connected,
     error: wsError,
     clearLogs,
   } = useActivityStream({
-    log_types: selectedType !== 'all' ? [selectedType] : undefined,
-    levels: selectedLevel !== 'all' ? [selectedLevel] : undefined,
-    maxLogs: 500,
-    enabled: !paused,
+    maxLogs: 200,
   })
 
-  // Filter logs based on current selection
-  const filteredLogs = useMemo(() => {
-    return logs.filter((log) => {
-      if (selectedType !== 'all' && log.log_type !== selectedType) return false
-      if (selectedLevel !== 'all' && log.level !== selectedLevel) return false
-      return true
-    })
-  }, [logs, selectedType, selectedLevel])
+  // Reset page when filters change
+  const handleToolNameChange = (value: string) => {
+    setToolNameFilter(value)
+    setPage(1)
+  }
+
+  const handleSuccessFilterChange = (value: SuccessFilter) => {
+    setSuccessFilter(value)
+    setPage(1)
+  }
+
+  const successRate =
+    stats && stats.total_executions > 0
+      ? ((stats.successful / stats.total_executions) * 100).toFixed(1)
+      : '0'
 
   return (
     <div className="dark:bg-gray-900 min-h-full">
-      <Header title="Activity Monitor" />
+      <Header title="Activity" />
       <div className="p-4 sm:p-6">
         {/* Stats Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6">
           <StatCard
-            title="Total Requests"
-            value={stats?.total ?? 0}
-            subtitle={`${stats?.requests_per_minute?.toFixed(1) ?? '0'}/min`}
+            title="Total Executions"
+            value={stats?.total_executions ?? 0}
+            subtitle={`${stats?.period_executions ?? 0} in last 24h`}
             loading={statsLoading}
           />
           <StatCard
-            title="Errors"
-            value={stats?.errors ?? 0}
-            subtitle={stats?.total ? `${((stats.errors / stats.total) * 100).toFixed(1)}%` : '0%'}
+            title="Success Rate"
+            value={`${successRate}%`}
+            subtitle={`${stats?.failed ?? 0} failed`}
             loading={statsLoading}
-            color="red"
+            color={stats && stats.failed > 0 ? 'red' : 'green'}
           />
           <StatCard
             title="Avg Duration"
-            value={`${stats?.avg_duration_ms?.toFixed(0) ?? 0}ms`}
+            value={stats?.avg_duration_ms != null ? formatDuration(Math.round(stats.avg_duration_ms)) : '-'}
             loading={statsLoading}
           />
           <StatCard
-            title="Connection"
-            value={connected ? 'Live' : 'Disconnected'}
-            subtitle={`${filteredLogs.length} logs`}
-            color={connected ? 'green' : 'gray'}
+            title="Active Tools"
+            value={stats?.unique_tools ?? 0}
+            subtitle={`${stats?.unique_users ?? 0} users`}
+            loading={statsLoading}
           />
         </div>
 
-        {/* Period Selector */}
+        {/* Filters */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 mb-6">
           <div className="flex flex-wrap items-center gap-3 sm:gap-4">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300 hidden sm:inline">Stats Period:</span>
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300 hidden sm:inline">
+                Tool:
+              </span>
+              <input
+                type="text"
+                value={toolNameFilter}
+                onChange={(e) => handleToolNameChange(e.target.value)}
+                placeholder="Filter by tool name..."
+                className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 w-48"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300 hidden sm:inline">
+                Status:
+              </span>
               <div className="flex rounded-lg overflow-hidden border border-gray-300 dark:border-gray-600">
-                {(['1h', '6h', '24h', '7d'] as Period[]).map((p) => (
+                {(['all', 'success', 'failure'] as SuccessFilter[]).map((f) => (
                   <button
-                    key={p}
-                    onClick={() => setPeriod(p)}
+                    key={f}
+                    onClick={() => handleSuccessFilterChange(f)}
                     className={`px-3 py-1 text-sm ${
-                      period === p
+                      successFilter === f
                         ? 'bg-blue-600 text-white'
                         : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600'
                     }`}
                   >
-                    {p}
+                    {f === 'all' ? 'All' : f === 'success' ? 'Success' : 'Failed'}
                   </button>
                 ))}
               </div>
             </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300 hidden sm:inline">Type:</span>
-              <select
-                value={selectedType}
-                onChange={(e) => setSelectedType(e.target.value as LogType)}
-                className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-              >
-                <option value="all">All Types</option>
-                <option value="mcp_request">MCP Request</option>
-                <option value="mcp_response">MCP Response</option>
-                <option value="error">Error</option>
-                <option value="alert">Alert</option>
-                <option value="audit">Audit</option>
-              </select>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300 hidden sm:inline">Level:</span>
-              <select
-                value={selectedLevel}
-                onChange={(e) => setSelectedLevel(e.target.value as Level)}
-                className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-              >
-                <option value="all">All Levels</option>
-                <option value="debug">Debug</option>
-                <option value="info">Info</option>
-                <option value="warning">Warning</option>
-                <option value="error">Error</option>
-              </select>
-            </div>
-
-            <div className="flex-1" />
-
-            <button
-              onClick={() => setPaused(!paused)}
-              className={`px-3 py-1 text-sm rounded-lg transition-colors ${
-                paused
-                  ? 'bg-green-600 text-white hover:bg-green-700'
-                  : 'bg-yellow-500 text-white hover:bg-yellow-600'
-              }`}
-            >
-              {paused ? 'Resume' : 'Pause'}
-            </button>
-
-            <button
-              onClick={clearLogs}
-              className="px-3 py-1 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-            >
-              Clear
-            </button>
           </div>
         </div>
 
-        {/* WebSocket Error */}
-        {wsError && (
-          <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg">
-            <p className="text-sm text-red-800 dark:text-red-300">{wsError}</p>
-          </div>
-        )}
-
-        {/* Activity Type Breakdown */}
-        {stats && (
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 mb-6">
-            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Activity by Type</h3>
-            <div className="flex gap-4 flex-wrap">
-              {Object.entries(stats.by_type).map(([type, count]) => (
-                <div key={type} className="flex items-center gap-2">
-                  <span
-                    className={`px-2 py-1 text-xs rounded-full ${getLogTypeBadgeClasses(type)}`}
-                  >
-                    {getLogTypeLabel(type)}
-                  </span>
-                  <span className="text-sm font-medium text-gray-900 dark:text-white">{count}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Live Log Stream */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+        {/* Execution History */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow mb-6">
           <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <h3 className="font-medium text-gray-900 dark:text-white">
+              Execution History
+              {logsData && (
+                <span className="text-sm font-normal text-gray-500 dark:text-gray-400 ml-2">
+                  ({logsData.total})
+                </span>
+              )}
+            </h3>
+          </div>
+
+          {logsLoading ? (
+            <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+              Loading execution logs...
+            </div>
+          ) : !logsData || logsData.items.length === 0 ? (
+            <div className="p-8 text-center">
+              <svg
+                className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.5}
+                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                />
+              </svg>
+              <p className="text-gray-500 dark:text-gray-400 mb-1">No executions yet</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">
+                Tool executions will appear here when tools are called
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="p-4 space-y-2">
+                {logsData.items.map((log) => (
+                  <LogDetail key={log.id} log={log} />
+                ))}
+              </div>
+
+              {logsData.pages > 1 && (
+                <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700 text-sm">
+                  <button
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page <= 1}
+                    className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-700"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-gray-500 dark:text-gray-400">
+                    Page {page} of {logsData.pages}
+                  </span>
+                  <button
+                    onClick={() => setPage((p) => Math.min(logsData.pages, p + 1))}
+                    disabled={page >= logsData.pages}
+                    className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-700"
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Protocol Logs (collapsible) */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+          <button
+            onClick={() => setProtocolExpanded(!protocolExpanded)}
+            className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors rounded-lg"
+          >
             <div className="flex items-center gap-2">
-              <h3 className="font-medium text-gray-900 dark:text-white">Live Activity Stream</h3>
-              {connected && !paused && (
+              <h3 className="font-medium text-gray-900 dark:text-white">Protocol Logs</h3>
+              <span className="text-xs text-gray-400 dark:text-gray-500">(Advanced)</span>
+              {protocolExpanded && connected && (
                 <span className="flex items-center gap-1">
                   <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
                   <span className="text-xs text-gray-500 dark:text-gray-400">Live</span>
                 </span>
               )}
-              {paused && (
-                <span className="text-xs text-yellow-600 bg-yellow-100 dark:bg-yellow-900/50 dark:text-yellow-300 px-2 py-0.5 rounded">
-                  Paused
-                </span>
-              )}
             </div>
-            <span className="text-sm text-gray-500 dark:text-gray-400">{filteredLogs.length} entries</span>
-          </div>
+            <svg
+              className={`w-4 h-4 text-gray-400 dark:text-gray-500 transition-transform ${
+                protocolExpanded ? 'rotate-180' : ''
+              }`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
 
-          <div className="divide-y divide-gray-100 dark:divide-gray-700 max-h-[600px] overflow-y-auto">
-            {filteredLogs.length === 0 ? (
-              <div className="p-8 text-center text-gray-500 dark:text-gray-400">
-                {connected ? 'Waiting for activity...' : 'Connect to see live activity'}
+          {protocolExpanded && (
+            <div className="border-t border-gray-200 dark:border-gray-700">
+              {wsError && (
+                <div className="mx-4 mt-3 p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg">
+                  <p className="text-sm text-red-800 dark:text-red-300">{wsError}</p>
+                </div>
+              )}
+
+              <div className="px-4 py-2 flex items-center justify-between">
+                <span className="text-sm text-gray-500 dark:text-gray-400">
+                  {protocolLogs.length} entries
+                </span>
+                <button
+                  onClick={clearLogs}
+                  className="px-3 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                >
+                  Clear
+                </button>
               </div>
-            ) : (
-              filteredLogs.map((log) => <LogEntry key={log.id} log={log} />)
-            )}
-          </div>
+
+              <div className="divide-y divide-gray-100 dark:divide-gray-700 max-h-[400px] overflow-y-auto">
+                {protocolLogs.length === 0 ? (
+                  <div className="p-6 text-center text-gray-500 dark:text-gray-400 text-sm">
+                    {connected ? 'Waiting for protocol activity...' : 'Connecting...'}
+                  </div>
+                ) : (
+                  protocolLogs.map((log) => <ProtocolLogEntry key={log.id} log={log} />)
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -252,78 +300,56 @@ function StatCard({ title, value, subtitle, loading, color = 'blue' }: StatCardP
   )
 }
 
-interface LogEntryProps {
-  log: ActivityLog
-}
-
-function LogEntry({ log }: LogEntryProps) {
+function ProtocolLogEntry({ log }: { log: ActivityLog }) {
   const [expanded, setExpanded] = useState(false)
 
-  const levelStyles = {
-    debug: 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300',
-    info: 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300',
-    warning: 'bg-yellow-100 dark:bg-yellow-900/50 text-yellow-700 dark:text-yellow-300',
-    error: 'bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300',
-  }
-
   const typeStyles: Record<string, string> = {
-    mcp_request: 'bg-blue-50 dark:bg-blue-900/20 border-l-blue-400',
-    mcp_response: 'bg-green-50 dark:bg-green-900/20 border-l-green-400',
-    error: 'bg-red-50 dark:bg-red-900/20 border-l-red-400',
-    alert: 'bg-yellow-50 dark:bg-yellow-900/20 border-l-yellow-400',
-    network: 'bg-purple-50 dark:bg-purple-900/20 border-l-purple-400',
-    system: 'bg-gray-50 dark:bg-gray-900/20 border-l-gray-400',
-    audit: 'bg-indigo-50 dark:bg-indigo-900/20 border-l-indigo-400',
+    mcp_request: 'border-l-blue-400',
+    mcp_response: 'border-l-green-400',
+    error: 'border-l-red-400',
+    alert: 'border-l-yellow-400',
+    audit: 'border-l-indigo-400',
   }
 
   const timestamp = new Date(log.created_at).toLocaleTimeString()
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault()
-      setExpanded(!expanded)
-    }
-  }
-
   return (
     <div
-      className={`px-4 py-3 border-l-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
-        typeStyles[log.log_type] || 'bg-white dark:bg-gray-800 border-l-gray-300'
+      className={`px-4 py-2 border-l-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
+        typeStyles[log.log_type] || 'border-l-gray-300'
       }`}
       onClick={() => setExpanded(!expanded)}
-      onKeyDown={handleKeyDown}
       role="button"
       tabIndex={0}
-      aria-expanded={expanded}
-      aria-label={`${log.level} log: ${log.message.substring(0, 50)}${log.message.length > 50 ? '...' : ''}`}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          setExpanded(!expanded)
+        }
+      }}
     >
-      <div className="flex items-start gap-2 sm:gap-3 flex-wrap sm:flex-nowrap">
-        <span className="text-xs text-gray-400 dark:text-gray-500 font-mono w-16 sm:w-20 flex-shrink-0">{timestamp}</span>
-
-        <span
-          className={`px-2 py-0.5 text-xs rounded-full font-medium ${levelStyles[log.level] || 'bg-gray-100 dark:bg-gray-700'}`}
-        >
-          {log.level}
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-gray-400 dark:text-gray-500 font-mono w-16 flex-shrink-0">
+          {timestamp}
         </span>
-
-        <span className="text-xs text-gray-500 dark:text-gray-400 px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded hidden sm:inline">
+        <span
+          className={`px-1.5 py-0.5 text-xs rounded ${getLogTypeBadgeClasses(log.log_type)}`}
+        >
           {getLogTypeLabel(log.log_type)}
         </span>
-
-        <span className="flex-1 text-sm text-gray-900 dark:text-gray-100 truncate w-full sm:w-auto">{log.message}</span>
-
-        {log.duration_ms && (
-          <span className="text-xs text-gray-500 dark:text-gray-400 font-mono hidden sm:inline">{log.duration_ms}ms</span>
-        )}
-
-        {log.request_id && (
-          <span className="text-xs text-gray-400 dark:text-gray-500 font-mono hidden sm:inline">[{log.request_id}]</span>
+        <span className="flex-1 text-xs text-gray-700 dark:text-gray-300 truncate">
+          {log.message}
+        </span>
+        {log.duration_ms != null && (
+          <span className="text-xs text-gray-400 dark:text-gray-500 font-mono">
+            {log.duration_ms}ms
+          </span>
         )}
       </div>
 
       {expanded && log.details && (
-        <div className="mt-3 sm:ml-20">
-          <pre className="text-xs bg-gray-800 text-gray-100 p-3 rounded-lg overflow-x-auto">
+        <div className="mt-2 ml-16">
+          <pre className="text-xs bg-gray-800 text-gray-100 p-2 rounded overflow-x-auto max-h-32">
             {JSON.stringify(log.details, null, 2)}
           </pre>
         </div>

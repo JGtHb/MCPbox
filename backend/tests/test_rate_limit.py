@@ -44,8 +44,8 @@ class TestRateLimiter:
         """Test that /mcp path has specific rate limits."""
         config = rate_limiter.get_config_for_path("/mcp")
 
-        assert config.requests_per_minute == 60
-        assert config.requests_per_hour == 1000
+        assert config.requests_per_minute == 300
+        assert config.requests_per_hour == 5000
 
     @pytest.mark.asyncio
     async def test_default_config_for_unknown_path(self, rate_limiter):
@@ -108,6 +108,25 @@ class TestRateLimiter:
 
         # Should allow up to the minute limit
         assert allowed_count <= 5
+
+    @pytest.mark.asyncio
+    async def test_update_mcp_config(self, rate_limiter):
+        """Test that update_mcp_config changes the /mcp path limits."""
+        rate_limiter.update_mcp_config(500)
+
+        config = rate_limiter.get_config_for_path("/mcp")
+        assert config.requests_per_minute == 500
+        assert config.requests_per_hour == 500 * 17
+        assert config.burst_size == 50  # 500 // 10
+
+    @pytest.mark.asyncio
+    async def test_update_mcp_config_minimum_burst(self, rate_limiter):
+        """Test that burst size has a minimum of 5."""
+        rate_limiter.update_mcp_config(10)
+
+        config = rate_limiter.get_config_for_path("/mcp")
+        assert config.requests_per_minute == 10
+        assert config.burst_size == 5  # max(5, 10 // 10) = max(5, 1) = 5
 
     @pytest.mark.asyncio
     async def test_reset_clears_buckets(self, rate_limiter):

@@ -58,6 +58,11 @@ SECURITY_POLICY_SETTINGS: dict[str, dict[str, Any]] = {
         "allowed": None,  # Numeric, validated separately
         "description": "How long execution logs are kept before cleanup (days)",
     },
+    "mcp_rate_limit_rpm": {
+        "default": "300",
+        "allowed": None,  # Numeric, validated separately
+        "description": "MCP gateway requests per minute (all remote users share one IP via cloudflared)",
+    },
 }
 
 
@@ -70,6 +75,7 @@ class SecurityPolicyResponse(BaseModel):
     module_approval_mode: str
     redact_secrets_in_output: str
     log_retention_days: int
+    mcp_rate_limit_rpm: int
 
 
 class SecurityPolicyUpdate(BaseModel):
@@ -81,6 +87,7 @@ class SecurityPolicyUpdate(BaseModel):
     module_approval_mode: str | None = None
     redact_secrets_in_output: str | None = None
     log_retention_days: int | None = Field(None, ge=1, le=3650)
+    mcp_rate_limit_rpm: int | None = Field(None, ge=10, le=10000)
 
 
 # --- Module Config Schemas ---
@@ -152,6 +159,7 @@ async def get_security_policy(
         module_approval_mode=values["module_approval_mode"],
         redact_secrets_in_output=values["redact_secrets_in_output"],
         log_retention_days=int(values["log_retention_days"]),
+        mcp_rate_limit_rpm=int(values["mcp_rate_limit_rpm"]),
     )
 
 
@@ -190,6 +198,12 @@ async def update_security_policy(
         )
 
     await db.commit()
+
+    # If MCP rate limit was changed, update the in-memory rate limiter
+    if "mcp_rate_limit_rpm" in updates:
+        from app.middleware.rate_limit import RateLimiter
+
+        RateLimiter.get_instance().update_mcp_config(int(updates["mcp_rate_limit_rpm"]))
 
     # Return the full current state
     return await get_security_policy(setting_service=setting_service)

@@ -66,6 +66,19 @@ async def common_startup(logger: logging.Logger) -> list[asyncio.Task]:
     service_token_cache = ServiceTokenCache.get_instance()
     await service_token_cache.load()
 
+    # Load MCP rate limit from database (falls back to default 300 if not set)
+    async with async_session_maker() as db:
+        from app.services.setting import SettingService
+
+        setting_service = SettingService(db)
+        mcp_rpm_str = await setting_service.get_value("mcp_rate_limit_rpm", default="300")
+        mcp_rpm = int(mcp_rpm_str)  # type: ignore[arg-type]
+
+        from app.middleware.rate_limit import RateLimiter
+
+        RateLimiter.get_instance().update_mcp_config(mcp_rpm)
+        _logger.info(f"MCP rate limit loaded from settings: {mcp_rpm} rpm")
+
     # Check security configuration
     security_warnings = settings.check_security_configuration()
     for warning in security_warnings:

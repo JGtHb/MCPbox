@@ -1,5 +1,7 @@
 """Tool service - business logic for tool management."""
 
+import logging
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -13,6 +15,9 @@ from app.schemas.tool import (
     ToolVersionDiff,
     extract_input_schema_from_python,
 )
+from app.services.setting import SettingService
+
+logger = logging.getLogger(__name__)
 
 
 class ToolService:
@@ -123,8 +128,18 @@ class ToolService:
             )
             # SECURITY: Reset approval when code changes to prevent TOCTOU bypass
             # (SEC-001) — approved tool having its code silently replaced
+            # Exception: auto-approve mode skips review for all code changes
             if tool.python_code != update_data["python_code"]:
-                update_data["approval_status"] = "pending_review"
+                setting_service = SettingService(self.db)
+                approval_mode = await setting_service.get_value(
+                    "tool_approval_mode", default="require_approval"
+                )
+                if approval_mode == "auto_approve":
+                    update_data["approval_status"] = "approved"
+                    update_data["approved_at"] = datetime.now(UTC)
+                    update_data["approved_by"] = "auto_approve"
+                else:
+                    update_data["approval_status"] = "pending_review"
 
         # Apply updates
         for field, value in update_data.items():
@@ -272,9 +287,22 @@ class ToolService:
         tool.timeout_ms = target_version.timeout_ms
         tool.python_code = target_version.python_code
         tool.input_schema = target_version.input_schema
-        # SECURITY: Always reset approval on rollback — rolled-back code needs re-review
+        # SECURITY: Reset approval on rollback — rolled-back code needs re-review
         # (SEC-002) — rolling back to different code while keeping "approved" status
-        tool.approval_status = "pending_review"
+        # Exception: auto-approve mode skips review for all code changes
+        setting_service = SettingService(self.db)
+        approval_mode = await setting_service.get_value(
+            "tool_approval_mode", default="require_approval"
+        )
+        if approval_mode == "auto_approve":
+            tool.approval_status = "approved"
+            tool.approved_at = datetime.now(UTC)
+            tool.approved_by = "auto_approve"
+            logger.info(
+                f"Tool {tool.name} rollback auto-approved (tool_approval_mode=auto_approve)"
+            )
+        else:
+            tool.approval_status = "pending_review"
 
         # Increment version number atomically to prevent race conditions
         # Using SQL expression ensures database-level atomicity

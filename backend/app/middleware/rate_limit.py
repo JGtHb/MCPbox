@@ -79,12 +79,14 @@ class RateLimiter:
                 requests_per_hour=1000,
                 burst_size=15,
             ),
-            # MCP gateway - moderate limits to balance usability and DoS prevention
-            # Management tools (mcpbox_*) also use this endpoint
+            # MCP gateway - higher limits because all tunnel traffic arrives from
+            # a single IP (cloudflared), so per-IP limiting effectively limits all
+            # MCP users combined. Each MCP session sends bursts of requests
+            # (initialize, notification, SSE, tools/list, tools/call).
             "/mcp": PathRateLimitConfig(
-                requests_per_minute=60,
-                requests_per_hour=1000,
-                burst_size=15,
+                requests_per_minute=300,
+                requests_per_hour=5000,
+                burst_size=30,
             ),
         }
 
@@ -111,6 +113,26 @@ class RateLimiter:
             if path.startswith(prefix):
                 return config
         return self._default_config
+
+    def update_mcp_config(self, requests_per_minute: int) -> None:
+        """Update the /mcp path rate limit configuration.
+
+        Called at startup (from shared_lifespan) and when the admin
+        changes the mcp_rate_limit_rpm security policy setting.
+
+        Hour limit and burst size are derived proportionally:
+        - requests_per_hour = rpm * 17
+        - burst_size = max(5, rpm // 10)
+        """
+        self._path_configs["/mcp"] = PathRateLimitConfig(
+            requests_per_minute=requests_per_minute,
+            requests_per_hour=requests_per_minute * 17,
+            burst_size=max(5, requests_per_minute // 10),
+        )
+        logger.info(
+            f"MCP rate limit updated: {requests_per_minute} rpm, "
+            f"{requests_per_minute * 17} rph, burst {max(5, requests_per_minute // 10)}"
+        )
 
     def _get_bucket_key(self, client_ip: str, path: str) -> str:
         """Get bucket key for client and path combination."""

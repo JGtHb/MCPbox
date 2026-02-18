@@ -507,6 +507,36 @@ export function Settings() {
                   </div>
                 </div>
 
+                {/* MCP rate limit (numeric input) */}
+                <div className="flex items-start justify-between py-3">
+                  <div className="flex-1 pr-4">
+                    <span className="text-sm font-medium text-gray-900 dark:text-white">MCP Rate Limit</span>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      Requests per minute for the MCP gateway. All remote users share a single IP via cloudflared.
+                    </p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                      The MCP gateway process requires a restart for changes to take effect.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      value={securityPolicy.mcp_rate_limit_rpm}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value)
+                        if (val >= 10 && val <= 10000) {
+                          handlePolicyUpdate('mcp_rate_limit_rpm', e.target.value)
+                        }
+                      }}
+                      min={10}
+                      max={10000}
+                      disabled={updatePolicy.isPending}
+                      className="w-24 text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:opacity-50"
+                    />
+                    <span className="text-sm text-gray-500 dark:text-gray-400">req/min</span>
+                  </div>
+                </div>
+
                 {policyWarning && (
                   <div className="pt-3">
                     <div className="text-sm text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg px-3 py-2">
