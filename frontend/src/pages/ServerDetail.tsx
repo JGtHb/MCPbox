@@ -7,6 +7,7 @@ import {
   ToolsTab,
   ExecutionLogsTab,
   ExternalSourcesTab,
+  ApprovedResourcesTab,
   SecretsManager,
   SettingsTab,
   type TabId,
@@ -20,7 +21,7 @@ import { STATUS_COLORS, STATUS_LABELS, type ServerStatus } from '../lib/constant
 // Read initial tab from URL hash
 function getTabFromHash(): TabId {
   const hash = window.location.hash.replace('#', '')
-  const validTabs: TabId[] = ['overview', 'tools', 'external', 'logs', 'secrets', 'settings']
+  const validTabs: TabId[] = ['overview', 'tools', 'external', 'resources', 'logs', 'secrets', 'settings']
   return validTabs.includes(hash as TabId) ? (hash as TabId) : 'overview'
 }
 
@@ -128,6 +129,9 @@ export function ServerDetail() {
         )}
         {activeTab === 'external' && (
           <ExternalSourcesTab serverId={server.id} onImportSuccess={handleImportSuccess} />
+        )}
+        {activeTab === 'resources' && (
+          <ApprovedResourcesTab serverId={server.id} />
         )}
         {activeTab === 'logs' && (
           <ExecutionLogsTab serverId={server.id} />

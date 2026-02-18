@@ -18,6 +18,69 @@ import {
 
 type TabType = 'tools' | 'modules' | 'network'
 
+// Status badge component for approval items
+function StatusBadge({ status }: { status: string }) {
+  switch (status) {
+    case 'approved':
+      return (
+        <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+          Approved
+        </span>
+      )
+    case 'rejected':
+      return (
+        <span className="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800">
+          Rejected
+        </span>
+      )
+    case 'pending_review':
+    case 'pending':
+      return (
+        <span className="inline-flex items-center rounded-full bg-yellow-100 px-2.5 py-0.5 text-xs font-medium text-yellow-800">
+          Pending
+        </span>
+      )
+    default:
+      return (
+        <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">
+          {status}
+        </span>
+      )
+  }
+}
+
+// Format a date string for display
+function formatDate(dateStr: string): string {
+  const date = new Date(dateStr)
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+// Check if a status is pending (actionable)
+function isPendingStatus(status?: string): boolean {
+  return !status || status === 'pending_review' || status === 'pending'
+}
+
+// Show History toggle component
+function ShowHistoryToggle({
+  showHistory,
+  onChange,
+}: {
+  showHistory: boolean
+  onChange: (value: boolean) => void
+}) {
+  return (
+    <label className="inline-flex cursor-pointer items-center gap-2">
+      <input
+        type="checkbox"
+        checked={showHistory}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+      />
+      <span className="text-sm text-gray-600">Show history</span>
+    </label>
+  )
+}
+
 export function Approvals() {
   const [activeTab, setActiveTab] = useState<TabType>('tools')
   const { data: stats, isLoading: statsLoading } = useApprovalStats()
@@ -162,7 +225,9 @@ function TabButton({
 function ToolsQueue() {
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  const { data, isLoading, error } = usePendingTools(1, 20, debouncedSearch || undefined)
+  const [showHistory, setShowHistory] = useState(false)
+  const statusFilter = showHistory ? 'all' : undefined
+  const { data, isLoading, error } = usePendingTools(1, 20, debouncedSearch || undefined, statusFilter)
   const toolAction = useToolAction()
   const bulkAction = useBulkToolAction()
   const [selectedTool, setSelectedTool] = useState<ToolApprovalQueueItem | null>(null)
@@ -211,12 +276,15 @@ function ToolsQueue() {
     setSelectedIds(newSet)
   }
 
+  const pendingItems = data?.items.filter((t) => isPendingStatus(t.approval_status)) ?? []
+
   const toggleSelectAll = () => {
     if (!data?.items) return
-    if (selectedIds.size === data.items.length) {
+    const selectableItems = pendingItems
+    if (selectedIds.size === selectableItems.length) {
       setSelectedIds(new Set())
     } else {
-      setSelectedIds(new Set(data.items.map((t) => t.id)))
+      setSelectedIds(new Set(selectableItems.map((t) => t.id)))
     }
   }
 
@@ -248,7 +316,7 @@ function ToolsQueue() {
 
   return (
     <div className="space-y-4">
-      {/* Search Input */}
+      {/* Search Input and Show History Toggle */}
       <div className="flex items-center gap-2">
         <input
           type="text"
@@ -265,6 +333,7 @@ function ToolsQueue() {
             Clear
           </button>
         )}
+        <ShowHistoryToggle showHistory={showHistory} onChange={(v) => { setShowHistory(v); setSelectedIds(new Set()) }} />
       </div>
 
       {/* Bulk Action Toolbar */}
@@ -300,32 +369,50 @@ function ToolsQueue() {
         <div className="text-center py-8 text-gray-500">Loading...</div>
       ) : !data?.items.length ? (
         <div className="text-center py-8 text-gray-500">
-          {debouncedSearch ? 'No tools match your search' : 'No tools pending approval'}
+          {debouncedSearch
+            ? 'No tools match your search'
+            : showHistory
+              ? 'No approval history found'
+              : 'No tools pending approval'}
         </div>
       ) : (
         <>
-        {/* Select All */}
+        {/* Select All (only count pending items) */}
+        {pendingItems.length > 0 && (
         <div className="flex items-center gap-2 py-2">
           <input
             type="checkbox"
-            checked={selectedIds.size === data.items.length && data.items.length > 0}
+            checked={selectedIds.size === pendingItems.length && pendingItems.length > 0}
             onChange={toggleSelectAll}
             className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
           />
-          <span className="text-sm text-gray-600">Select all ({data.items.length})</span>
+          <span className="text-sm text-gray-600">Select all pending ({pendingItems.length})</span>
         </div>
-        {data.items.map((tool) => (
+        )}
+        {data.items.map((tool) => {
+          const toolIsPending = isPendingStatus(tool.approval_status)
+          return (
         <div
           key={tool.id}
-          className={`rounded-lg border bg-white p-4 shadow-sm ${selectedIds.has(tool.id) ? 'border-purple-400 ring-1 ring-purple-200' : 'border-gray-200'}`}
+          className={`rounded-lg border p-4 shadow-sm ${
+            !toolIsPending
+              ? 'border-gray-200 bg-gray-50'
+              : selectedIds.has(tool.id)
+                ? 'border-purple-400 bg-white ring-1 ring-purple-200'
+                : 'border-gray-200 bg-white'
+          }`}
         >
           <div className="flex items-start gap-3">
+            {toolIsPending ? (
             <input
               type="checkbox"
               checked={selectedIds.has(tool.id)}
               onChange={() => toggleSelection(tool.id)}
               className="mt-1 h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
             />
+            ) : (
+            <div className="mt-1 h-4 w-4" />
+            )}
             <div className="flex-1">
               <div className="flex items-center gap-2">
                 <h3 className="text-lg font-medium text-gray-900">{tool.name}</h3>
@@ -335,6 +422,9 @@ function ToolsQueue() {
                 <span className="rounded px-2 py-0.5 text-xs bg-purple-100 text-purple-700">
                   Python
                 </span>
+                {tool.approval_status && (
+                  <StatusBadge status={tool.approval_status} />
+                )}
               </div>
               {tool.description && (
                 <p className="mt-1 text-sm text-gray-600">{tool.description}</p>
@@ -343,6 +433,17 @@ function ToolsQueue() {
                 <p className="mt-1 text-xs text-gray-400">
                   Created by: {tool.created_by}
                 </p>
+              )}
+              {/* Show approval/rejection details for historical items */}
+              {tool.approval_status === 'approved' && tool.approved_at && (
+                <p className="mt-1 text-xs text-green-600">
+                  Approved{tool.approved_by ? ` by ${tool.approved_by}` : ''} on {formatDate(tool.approved_at)}
+                </p>
+              )}
+              {tool.approval_status === 'rejected' && tool.rejection_reason && (
+                <div className="mt-2 rounded bg-red-50 p-2 text-sm text-red-700">
+                  <strong>Rejection reason:</strong> {tool.rejection_reason}
+                </div>
               )}
               {tool.publish_notes && (
                 <div className="mt-2 rounded bg-yellow-50 p-2 text-sm text-yellow-800">
@@ -360,6 +461,7 @@ function ToolsQueue() {
                 </details>
               )}
             </div>
+            {toolIsPending && (
             <div className="ml-4 flex gap-2">
               <button
                 onClick={() => handleApprove(tool.id)}
@@ -379,9 +481,11 @@ function ToolsQueue() {
                 Request Revision
               </button>
             </div>
+            )}
           </div>
         </div>
-      ))}
+          )
+      })}
         </>
       )}
 
@@ -663,7 +767,9 @@ function PyPIInfoDisplay({ info, moduleName }: { info: PyPIPackageInfo | null; m
 function ModuleRequestsQueue() {
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  const { data, isLoading, error } = usePendingModuleRequests(1, 20, debouncedSearch || undefined)
+  const [showHistory, setShowHistory] = useState(false)
+  const statusFilter = showHistory ? 'all' : undefined
+  const { data, isLoading, error } = usePendingModuleRequests(1, 20, debouncedSearch || undefined, statusFilter)
   const moduleAction = useModuleRequestAction()
   const bulkAction = useBulkModuleRequestAction()
   const [selectedRequest, setSelectedRequest] = useState<ModuleRequestQueueItem | null>(null)
@@ -691,12 +797,15 @@ function ModuleRequestsQueue() {
     setSelectedIds(newSet)
   }
 
+  const pendingItems = data?.items.filter((r) => isPendingStatus(r.status)) ?? []
+
   const toggleSelectAll = () => {
     if (!data?.items) return
-    if (selectedIds.size === data.items.length) {
+    const selectableItems = pendingItems
+    if (selectedIds.size === selectableItems.length) {
       setSelectedIds(new Set())
     } else {
-      setSelectedIds(new Set(data.items.map((r) => r.id)))
+      setSelectedIds(new Set(selectableItems.map((r) => r.id)))
     }
   }
 
@@ -749,7 +858,7 @@ function ModuleRequestsQueue() {
 
   return (
     <div className="space-y-4">
-      {/* Search Input */}
+      {/* Search Input and Show History Toggle */}
       <div className="flex items-center gap-2">
         <input
           type="text"
@@ -766,6 +875,7 @@ function ModuleRequestsQueue() {
             Clear
           </button>
         )}
+        <ShowHistoryToggle showHistory={showHistory} onChange={(v) => { setShowHistory(v); setSelectedIds(new Set()) }} />
       </div>
 
       {/* Bulk Action Toolbar */}
@@ -801,32 +911,50 @@ function ModuleRequestsQueue() {
         <div className="text-center py-8 text-gray-500">Loading...</div>
       ) : !data?.items.length ? (
         <div className="text-center py-8 text-gray-500">
-          {debouncedSearch ? 'No module requests match your search' : 'No module requests pending approval'}
+          {debouncedSearch
+            ? 'No module requests match your search'
+            : showHistory
+              ? 'No module request history found'
+              : 'No module requests pending approval'}
         </div>
       ) : (
         <>
-        {/* Select All */}
+        {/* Select All (only count pending items) */}
+        {pendingItems.length > 0 && (
         <div className="flex items-center gap-2 py-2">
           <input
             type="checkbox"
-            checked={selectedIds.size === data.items.length && data.items.length > 0}
+            checked={selectedIds.size === pendingItems.length && pendingItems.length > 0}
             onChange={toggleSelectAll}
             className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
           />
-          <span className="text-sm text-gray-600">Select all ({data.items.length})</span>
+          <span className="text-sm text-gray-600">Select all pending ({pendingItems.length})</span>
         </div>
-        {data.items.map((req) => (
+        )}
+        {data.items.map((req) => {
+          const reqIsPending = isPendingStatus(req.status)
+          return (
         <div
           key={req.id}
-          className={`rounded-lg border bg-white p-4 shadow-sm ${selectedIds.has(req.id) ? 'border-purple-400 ring-1 ring-purple-200' : 'border-gray-200'}`}
+          className={`rounded-lg border p-4 shadow-sm ${
+            !reqIsPending
+              ? 'border-gray-200 bg-gray-50'
+              : selectedIds.has(req.id)
+                ? 'border-purple-400 bg-white ring-1 ring-purple-200'
+                : 'border-gray-200 bg-white'
+          }`}
         >
           <div className="flex items-start gap-3">
+            {reqIsPending ? (
             <input
               type="checkbox"
               checked={selectedIds.has(req.id)}
               onChange={() => toggleSelection(req.id)}
               className="mt-1 h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
             />
+            ) : (
+            <div className="mt-1 h-4 w-4" />
+            )}
             <div className="flex-1">
               <div className="flex items-center gap-2">
                 <code className="rounded bg-purple-100 px-2 py-0.5 text-sm font-medium text-purple-800">
@@ -836,6 +964,7 @@ function ModuleRequestsQueue() {
                 <span className="text-sm font-medium text-gray-700">
                   {req.server_name}.{req.tool_name}
                 </span>
+                <StatusBadge status={req.status} />
               </div>
               <p className="mt-2 text-sm text-gray-600">{req.justification}</p>
               {req.requested_by && (
@@ -843,10 +972,22 @@ function ModuleRequestsQueue() {
                   Requested by: {req.requested_by}
                 </p>
               )}
+              {/* Show approval/rejection details for historical items */}
+              {req.status === 'approved' && req.reviewed_at && (
+                <p className="mt-1 text-xs text-green-600">
+                  Approved{req.reviewed_by ? ` by ${req.reviewed_by}` : ''} on {formatDate(req.reviewed_at)}
+                </p>
+              )}
+              {req.status === 'rejected' && req.rejection_reason && (
+                <div className="mt-2 rounded bg-red-50 p-2 text-sm text-red-700">
+                  <strong>Rejection reason:</strong> {req.rejection_reason}
+                </div>
+              )}
 
               {/* PyPI Info Section */}
               <PyPIInfoDisplay info={req.pypi_info} moduleName={req.module_name} />
             </div>
+            {reqIsPending && (
             <div className="ml-4 flex gap-2">
               <button
                 onClick={() => handleApprove(req.id)}
@@ -866,9 +1007,11 @@ function ModuleRequestsQueue() {
                 Request Revision
               </button>
             </div>
+            )}
           </div>
         </div>
-      ))}
+          )
+      })}
         </>
       )}
 
@@ -958,7 +1101,9 @@ function ModuleRequestsQueue() {
 function NetworkRequestsQueue() {
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  const { data, isLoading, error } = usePendingNetworkRequests(1, 20, debouncedSearch || undefined)
+  const [showHistory, setShowHistory] = useState(false)
+  const statusFilter = showHistory ? 'all' : undefined
+  const { data, isLoading, error } = usePendingNetworkRequests(1, 20, debouncedSearch || undefined, statusFilter)
   const networkAction = useNetworkRequestAction()
   const [selectedRequest, setSelectedRequest] =
     useState<NetworkAccessRequestQueueItem | null>(null)
@@ -977,6 +1122,8 @@ function NetworkRequestsQueue() {
     return () => clearTimeout(timer)
   }, [searchQuery])
 
+  const pendingItems = data?.items.filter((r) => isPendingStatus(r.status)) ?? []
+
   const toggleSelection = (id: string) => {
     const newSet = new Set(selectedIds)
     if (newSet.has(id)) {
@@ -989,10 +1136,11 @@ function NetworkRequestsQueue() {
 
   const toggleSelectAll = () => {
     if (!data?.items) return
-    if (selectedIds.size === data.items.length) {
+    const selectableItems = pendingItems
+    if (selectedIds.size === selectableItems.length) {
       setSelectedIds(new Set())
     } else {
-      setSelectedIds(new Set(data.items.map((r) => r.id)))
+      setSelectedIds(new Set(selectableItems.map((r) => r.id)))
     }
   }
 
@@ -1050,28 +1198,31 @@ function NetworkRequestsQueue() {
 
   return (
     <div className="space-y-4">
-      {/* Search Input */}
-      <div className="relative">
-        <input
-          type="text"
-          placeholder="Search by host, justification, or server/tool name..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full rounded-lg border border-gray-300 px-4 py-2 pl-10 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-        />
-        <svg
-          className="absolute left-3 top-2.5 h-4 w-4 text-gray-400"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+      {/* Search Input and Show History Toggle */}
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <input
+            type="text"
+            placeholder="Search by host, justification, or server/tool name..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-4 py-2 pl-10 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
-        </svg>
+          <svg
+            className="absolute left-3 top-2.5 h-4 w-4 text-gray-400"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            />
+          </svg>
+        </div>
+        <ShowHistoryToggle showHistory={showHistory} onChange={(v) => { setShowHistory(v); setSelectedIds(new Set()) }} />
       </div>
 
       {/* Bulk Action Toolbar */}
@@ -1107,32 +1258,48 @@ function NetworkRequestsQueue() {
         <div className="text-center py-8 text-gray-500">
           {debouncedSearch
             ? `No network access requests matching "${debouncedSearch}"`
-            : 'No network access requests pending approval'}
+            : showHistory
+              ? 'No network request history found'
+              : 'No network access requests pending approval'}
         </div>
       ) : (
         <>
-        {/* Select All */}
+        {/* Select All (only count pending items) */}
+        {pendingItems.length > 0 && (
         <div className="flex items-center gap-2 py-2">
           <input
             type="checkbox"
-            checked={selectedIds.size === data.items.length && data.items.length > 0}
+            checked={selectedIds.size === pendingItems.length && pendingItems.length > 0}
             onChange={toggleSelectAll}
             className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
           />
-          <span className="text-sm text-gray-600">Select all ({data.items.length})</span>
+          <span className="text-sm text-gray-600">Select all pending ({pendingItems.length})</span>
         </div>
-        {data.items.map((req) => (
+        )}
+        {data.items.map((req) => {
+          const reqIsPending = isPendingStatus(req.status)
+          return (
         <div
           key={req.id}
-          className={`rounded-lg border bg-white p-4 shadow-sm ${selectedIds.has(req.id) ? 'border-blue-400 ring-1 ring-blue-200' : 'border-gray-200'}`}
+          className={`rounded-lg border p-4 shadow-sm ${
+            !reqIsPending
+              ? 'border-gray-200 bg-gray-50'
+              : selectedIds.has(req.id)
+                ? 'border-blue-400 bg-white ring-1 ring-blue-200'
+                : 'border-gray-200 bg-white'
+          }`}
         >
           <div className="flex items-start gap-3">
+            {reqIsPending ? (
             <input
               type="checkbox"
               checked={selectedIds.has(req.id)}
               onChange={() => toggleSelection(req.id)}
               className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
             />
+            ) : (
+            <div className="mt-1 h-4 w-4" />
+            )}
             <div className="flex-1">
               <div className="flex items-center gap-2">
                 <code className="rounded bg-blue-100 px-2 py-0.5 text-sm font-medium text-blue-800">
@@ -1143,6 +1310,7 @@ function NetworkRequestsQueue() {
                 <span className="text-sm font-medium text-gray-700">
                   {req.server_name}.{req.tool_name}
                 </span>
+                <StatusBadge status={req.status} />
               </div>
               <p className="mt-2 text-sm text-gray-600">{req.justification}</p>
               {req.requested_by && (
@@ -1150,7 +1318,19 @@ function NetworkRequestsQueue() {
                   Requested by: {req.requested_by}
                 </p>
               )}
+              {/* Show approval/rejection details for historical items */}
+              {req.status === 'approved' && req.reviewed_at && (
+                <p className="mt-1 text-xs text-green-600">
+                  Approved{req.reviewed_by ? ` by ${req.reviewed_by}` : ''} on {formatDate(req.reviewed_at)}
+                </p>
+              )}
+              {req.status === 'rejected' && req.rejection_reason && (
+                <div className="mt-2 rounded bg-red-50 p-2 text-sm text-red-700">
+                  <strong>Rejection reason:</strong> {req.rejection_reason}
+                </div>
+              )}
             </div>
+            {reqIsPending && (
             <div className="ml-4 flex gap-2">
               <button
                 onClick={() => handleApprove(req.id)}
@@ -1170,9 +1350,11 @@ function NetworkRequestsQueue() {
                 Request Revision
               </button>
             </div>
+            )}
           </div>
         </div>
-      ))}
+          )
+      })}
         </>
       )}
 

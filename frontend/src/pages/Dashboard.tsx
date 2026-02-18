@@ -277,13 +277,14 @@ export function Dashboard() {
             {dashboard?.top_tools && dashboard.top_tools.length > 0 ? (
               <div className="space-y-3">
                 {dashboard.top_tools.map((tool, i) => (
-                  <div key={tool.tool_name} className="flex items-center gap-3">
+                  <div key={`${tool.tool_name}-${tool.server_name}`} className="flex items-center gap-3">
                     <span className="text-xs font-medium text-gray-400 dark:text-gray-500 w-4">{i + 1}</span>
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium text-gray-900 dark:text-white truncate">
                         {tool.tool_name}
                       </div>
                       <div className="text-xs text-gray-500 dark:text-gray-400">
+                        {tool.server_name && <span>{tool.server_name} · </span>}
                         {tool.invocations} calls · {formatDuration(tool.avg_duration_ms)}
                       </div>
                     </div>

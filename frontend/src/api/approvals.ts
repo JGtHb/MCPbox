@@ -13,6 +13,10 @@ export interface ToolApprovalQueueItem {
   publish_notes: string | null
   approval_requested_at: string | null
   current_version: number
+  approval_status?: string
+  approved_at?: string
+  approved_by?: string
+  rejection_reason?: string
 }
 
 export interface VulnerabilityInfo {
@@ -55,6 +59,9 @@ export interface ModuleRequestQueueItem {
   status: string
   created_at: string
   pypi_info: PyPIPackageInfo | null
+  reviewed_by?: string
+  reviewed_at?: string
+  rejection_reason?: string
 }
 
 export interface NetworkAccessRequestQueueItem {
@@ -69,6 +76,9 @@ export interface NetworkAccessRequestQueueItem {
   requested_by: string | null
   status: string
   created_at: string
+  reviewed_by?: string
+  reviewed_at?: string
+  rejection_reason?: string
 }
 
 export interface ApprovalDashboardStats {
@@ -95,13 +105,15 @@ export async function getApprovalStats(): Promise<ApprovalDashboardStats> {
 export async function getPendingTools(
   page = 1,
   pageSize = 20,
-  search?: string
+  search?: string,
+  status?: string
 ): Promise<PaginatedResponse<ToolApprovalQueueItem>> {
   const params = new URLSearchParams({
     page: page.toString(),
     page_size: pageSize.toString(),
   })
   if (search) params.set('search', search)
+  if (status) params.set('status', status)
   return api.get<PaginatedResponse<ToolApprovalQueueItem>>(
     `/api/approvals/tools?${params.toString()}`
   )
@@ -110,13 +122,15 @@ export async function getPendingTools(
 export async function getPendingModuleRequests(
   page = 1,
   pageSize = 20,
-  search?: string
+  search?: string,
+  status?: string
 ): Promise<PaginatedResponse<ModuleRequestQueueItem>> {
   const params = new URLSearchParams({
     page: page.toString(),
     page_size: pageSize.toString(),
   })
   if (search) params.set('search', search)
+  if (status) params.set('status', status)
   return api.get<PaginatedResponse<ModuleRequestQueueItem>>(
     `/api/approvals/modules?${params.toString()}`
   )
@@ -125,13 +139,15 @@ export async function getPendingModuleRequests(
 export async function getPendingNetworkRequests(
   page = 1,
   pageSize = 20,
-  search?: string
+  search?: string,
+  status?: string
 ): Promise<PaginatedResponse<NetworkAccessRequestQueueItem>> {
   const params = new URLSearchParams({
     page: page.toString(),
     page_size: pageSize.toString(),
   })
   if (search) params.set('search', search)
+  if (status) params.set('status', status)
   return api.get<PaginatedResponse<NetworkAccessRequestQueueItem>>(
     `/api/approvals/network?${params.toString()}`
   )
@@ -213,6 +229,31 @@ export async function bulkNetworkRequestAction(
   })
 }
 
+// Server-specific approval API functions
+export async function getServerModuleRequests(serverId: string, status = 'approved'): Promise<{ items: ModuleRequestQueueItem[]; total: number }> {
+  return api.get(`/api/approvals/server/${serverId}/modules?status=${status}`)
+}
+
+export async function getServerNetworkRequests(serverId: string, status = 'approved'): Promise<{ items: NetworkAccessRequestQueueItem[]; total: number }> {
+  return api.get(`/api/approvals/server/${serverId}/network?status=${status}`)
+}
+
+export function useServerModuleRequests(serverId: string, status = 'approved') {
+  return useQuery({
+    queryKey: ['approvals', 'server', serverId, 'modules', status],
+    queryFn: () => getServerModuleRequests(serverId, status),
+    enabled: !!serverId,
+  })
+}
+
+export function useServerNetworkRequests(serverId: string, status = 'approved') {
+  return useQuery({
+    queryKey: ['approvals', 'server', serverId, 'network', status],
+    queryFn: () => getServerNetworkRequests(serverId, status),
+    enabled: !!serverId,
+  })
+}
+
 // React Query hooks
 export function useApprovalStats() {
   return useQuery({
@@ -222,24 +263,24 @@ export function useApprovalStats() {
   })
 }
 
-export function usePendingTools(page = 1, pageSize = 20, search?: string) {
+export function usePendingTools(page = 1, pageSize = 20, search?: string, status?: string) {
   return useQuery({
-    queryKey: ['approvals', 'tools', page, pageSize, search],
-    queryFn: () => getPendingTools(page, pageSize, search),
+    queryKey: ['approvals', 'tools', page, pageSize, search, status],
+    queryFn: () => getPendingTools(page, pageSize, search, status),
   })
 }
 
-export function usePendingModuleRequests(page = 1, pageSize = 20, search?: string) {
+export function usePendingModuleRequests(page = 1, pageSize = 20, search?: string, status?: string) {
   return useQuery({
-    queryKey: ['approvals', 'modules', page, pageSize, search],
-    queryFn: () => getPendingModuleRequests(page, pageSize, search),
+    queryKey: ['approvals', 'modules', page, pageSize, search, status],
+    queryFn: () => getPendingModuleRequests(page, pageSize, search, status),
   })
 }
 
-export function usePendingNetworkRequests(page = 1, pageSize = 20, search?: string) {
+export function usePendingNetworkRequests(page = 1, pageSize = 20, search?: string, status?: string) {
   return useQuery({
-    queryKey: ['approvals', 'network', page, pageSize, search],
-    queryFn: () => getPendingNetworkRequests(page, pageSize, search),
+    queryKey: ['approvals', 'network', page, pageSize, search, status],
+    queryFn: () => getPendingNetworkRequests(page, pageSize, search, status),
   })
 }
 

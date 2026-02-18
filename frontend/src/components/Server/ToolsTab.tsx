@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useTools, useUpdateToolEnabled, useRenameTool, useDeleteTool, useUpdateToolDescription, type ToolListItem } from '../../api/tools'
 import { ToolExecutionLogs } from './ToolExecutionLogs'
 
@@ -260,6 +260,10 @@ function ToolRow({ tool, isExpanded, onToggle, onToggleEnabled, onRename, onDele
           <div className="ml-2 pl-4 border-l-2 border-gray-200 dark:border-gray-700 space-y-4">
             {/* Editable Description */}
             <ToolDescription toolId={tool.id} description={tool.description} />
+            {/* Code Viewer */}
+            {tool.python_code && (
+              <ToolCodeViewer code={tool.python_code} />
+            )}
             {/* Execution Logs */}
             <ToolExecutionLogs
               toolId={tool.id}
@@ -457,6 +461,69 @@ function RenameToolModal({ tool, onClose }: RenameToolModalProps) {
           </div>
         </form>
       </div>
+    </div>
+  )
+}
+
+
+// --- Tool Code Viewer ---
+
+interface ToolCodeViewerProps {
+  code: string
+}
+
+function ToolCodeViewer({ code }: ToolCodeViewerProps) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(code)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Fallback for older browsers
+      const textarea = document.createElement('textarea')
+      textarea.value = code
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
+  }, [code])
+
+  return (
+    <div>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
+      >
+        <svg
+          className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-90' : ''}`}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+        Code
+      </button>
+      {isOpen && (
+        <div className="mt-2 relative">
+          <button
+            onClick={handleCopy}
+            className="absolute top-2 right-2 px-2 py-1 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded shadow-sm"
+            title="Copy code"
+          >
+            {copied ? 'Copied!' : 'Copy'}
+          </button>
+          <pre className="font-mono text-sm bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md p-4 overflow-x-auto whitespace-pre-wrap text-gray-800 dark:text-gray-200">
+            {code}
+          </pre>
+        </div>
+      )}
     </div>
   )
 }

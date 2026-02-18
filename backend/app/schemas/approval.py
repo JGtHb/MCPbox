@@ -44,7 +44,11 @@ class ToolApprovalQueueItem(BaseModel):
     python_code: str | None
     created_by: str | None
     publish_notes: str | None
+    approval_status: str | None = None
     approval_requested_at: datetime | None
+    approved_at: datetime | None = None
+    approved_by: str | None = None
+    rejection_reason: str | None = None
     current_version: int
 
 
@@ -145,6 +149,9 @@ class ModuleRequestQueueItem(BaseModel):
     justification: str
     requested_by: str | None
     status: str
+    reviewed_by: str | None = None
+    reviewed_at: datetime | None = None
+    rejection_reason: str | None = None
     created_at: datetime
     # PyPI info (populated separately, not from DB)
     pypi_info: PyPIPackageInfo | None = None
@@ -234,6 +241,9 @@ class NetworkAccessRequestQueueItem(BaseModel):
     justification: str
     requested_by: str | None
     status: str
+    reviewed_by: str | None = None
+    reviewed_at: datetime | None = None
+    rejection_reason: str | None = None
     created_at: datetime
 
 

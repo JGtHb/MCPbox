@@ -25,7 +25,38 @@ export interface ActivityStats {
   requests_per_minute: number
 }
 
+export interface ActivityLogsListResponse {
+  items: ActivityLog[]
+  total: number
+  page: number
+  page_size: number
+  pages: number
+}
+
+export interface ActivityLogsParams {
+  page?: number
+  pageSize?: number
+  serverId?: string
+  logType?: string
+  level?: string
+  search?: string
+}
+
 // API functions
+export async function fetchActivityLogs(
+  params: ActivityLogsParams = {}
+): Promise<ActivityLogsListResponse> {
+  const searchParams = new URLSearchParams()
+  if (params.page) searchParams.set('page', String(params.page))
+  if (params.pageSize) searchParams.set('page_size', String(params.pageSize))
+  if (params.serverId) searchParams.set('server_id', params.serverId)
+  if (params.logType) searchParams.set('log_type', params.logType)
+  if (params.level) searchParams.set('level', params.level)
+  if (params.search) searchParams.set('search', params.search)
+  const qs = searchParams.toString()
+  return api.get<ActivityLogsListResponse>(`/api/activity/logs${qs ? `?${qs}` : ''}`)
+}
+
 export async function getActivityStats(
   period: '1h' | '6h' | '24h' | '7d' = '1h',
   serverId?: string
@@ -41,6 +72,14 @@ export function useActivityStats(period: '1h' | '6h' | '24h' | '7d' = '1h', serv
     queryKey: ['activity', 'stats', period, serverId],
     queryFn: () => getActivityStats(period, serverId),
     refetchInterval: 10000, // Refresh every 10 seconds
+  })
+}
+
+export function useActivityLogs(params: ActivityLogsParams = {}) {
+  return useQuery({
+    queryKey: ['activity', 'logs', params],
+    queryFn: () => fetchActivityLogs(params),
+    refetchInterval: 15000,
   })
 }
 

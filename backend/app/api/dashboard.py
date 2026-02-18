@@ -12,7 +12,7 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import get_db
-from app.models import ActivityLog, Server, Tool
+from app.models import ActivityLog, Server, Tool, ToolExecutionLog
 
 router = APIRouter(
     prefix="/dashboard",
@@ -240,21 +240,17 @@ async def get_dashboard(
         error_series_points.append(TimeSeriesPoint(timestamp=current, value=errors))
         current = current + timedelta(minutes=bucket_minutes)
 
-    # Get top tools by invocation count
-    # Use a labeled expression for consistent GROUP BY handling in PostgreSQL
-    tool_name_expr = ActivityLog.details["tool_name"].astext
+    # Get top tools by invocation count from ToolExecutionLog (actual execution data)
     top_tools_query = (
         select(
-            tool_name_expr.label("tool_name"),
-            func.count(ActivityLog.id).label("invocations"),
-            func.avg(ActivityLog.duration_ms).label("avg_duration"),
+            ToolExecutionLog.tool_name.label("tool_name"),
+            Server.name.label("server_name"),
+            func.count(ToolExecutionLog.id).label("invocations"),
+            func.avg(ToolExecutionLog.duration_ms).label("avg_duration"),
         )
-        .where(
-            ActivityLog.created_at >= since,
-            ActivityLog.log_type == "mcp_response",
-            tool_name_expr.isnot(None),
-        )
-        .group_by(tool_name_expr)
+        .join(Server, ToolExecutionLog.server_id == Server.id)
+        .where(ToolExecutionLog.created_at >= since)
+        .group_by(ToolExecutionLog.tool_name, Server.name)
         .order_by(desc("invocations"))
         .limit(5)
     )
@@ -266,7 +262,7 @@ async def get_dashboard(
             top_tools.append(
                 TopTool(
                     tool_name=row.tool_name,
-                    server_name="",  # Would need join to get server name
+                    server_name=row.server_name or "",
                     invocations=row.invocations,
                     avg_duration_ms=round(row.avg_duration or 0, 2),
                 )
