@@ -65,7 +65,7 @@ function AppContent() {
 
   if (authState === 'loading') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+      <div className="min-h-screen flex items-center justify-center bg-base">
         <LoadingSpinner size="lg" />
       </div>
     )
@@ -73,19 +73,19 @@ function AppContent() {
 
   if (authState === 'error') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
+      <div className="min-h-screen flex items-center justify-center bg-base px-4">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
+          <h1 className="text-2xl font-bold text-on-base mb-4">
             Connection Error
           </h1>
-          <p className="text-gray-600 dark:text-gray-400 mb-6">{error}</p>
+          <p className="text-subtle mb-6">{error}</p>
           <button
             onClick={() => {
               setError(null)
               setAuthState('loading')
               checkAuthStatus()
             }}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            className="px-4 py-2 bg-iris text-base rounded-lg text-sm font-medium hover:bg-iris/80 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
           >
             Retry
           </button>

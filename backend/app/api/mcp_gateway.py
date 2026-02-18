@@ -664,9 +664,7 @@ async def _handle_management_tool_call(
     # Block management tools from remote (tunnel) access unless admin has enabled it
     if tool_name in LOCAL_ONLY_TOOLS and user and user.source == "worker":
         setting_service = SettingService(db)
-        remote_editing = await setting_service.get_value(
-            "remote_tool_editing", default="disabled"
-        )
+        remote_editing = await setting_service.get_value("remote_tool_editing", default="disabled")
         if remote_editing != "enabled":
             logger.warning(
                 "Blocked remote call to local-only tool %s from %s",

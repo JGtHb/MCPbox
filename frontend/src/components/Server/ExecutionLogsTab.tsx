@@ -22,43 +22,43 @@ export function LogDetail({ log }: { log: ExecutionLog }) {
   const [expanded, setExpanded] = useState(false)
 
   return (
-    <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+    <div className="border border-hl-med rounded-lg overflow-hidden">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/50 text-left"
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-hl-low text-left transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:ring-inset"
       >
         <div className="flex items-center gap-3 min-w-0">
           <span
             className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
               log.success
-                ? 'bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300'
-                : 'bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300'
+                ? 'bg-foam/10 text-foam'
+                : 'bg-love/10 text-love'
             }`}
           >
             {log.success ? '\u2713' : '\u2717'}
           </span>
-          <span className="px-2 py-0.5 text-xs font-medium rounded bg-purple-100 dark:bg-purple-900/50 text-purple-800 dark:text-purple-300 whitespace-nowrap">
+          <span className="px-2 py-0.5 text-xs font-medium rounded bg-iris/10 text-iris whitespace-nowrap">
             {log.tool_name}
           </span>
-          <span className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">
+          <span className="text-sm text-subtle whitespace-nowrap">
             {formatTime(log.created_at)}
           </span>
-          <span className="text-sm text-gray-700 dark:text-gray-300 font-mono">
+          <span className="text-sm text-on-base font-mono">
             {formatDuration(log.duration_ms)}
           </span>
           {log.executed_by && (
-            <span className="text-xs text-gray-400 dark:text-gray-500 truncate hidden sm:inline">
+            <span className="text-xs text-muted truncate hidden sm:inline">
               by {log.executed_by}
             </span>
           )}
           {log.error && (
-            <span className="text-xs text-red-600 dark:text-red-400 truncate ml-2 hidden md:inline">
+            <span className="text-xs text-love truncate ml-2 hidden md:inline">
               {log.error.slice(0, 60)}
             </span>
           )}
         </div>
         <svg
-          className={`w-4 h-4 text-gray-400 dark:text-gray-500 transition-transform flex-shrink-0 ${
+          className={`w-4 h-4 text-muted transition-transform flex-shrink-0 ${
             expanded ? 'rotate-180' : ''
           }`}
           fill="none"
@@ -75,13 +75,13 @@ export function LogDetail({ log }: { log: ExecutionLog }) {
       </button>
 
       {expanded && (
-        <div className="px-4 pb-4 space-y-3 border-t border-gray-100 dark:border-gray-700">
+        <div className="px-4 pb-4 space-y-3 border-t border-hl-med">
           {log.input_args && Object.keys(log.input_args).length > 0 && (
             <div>
-              <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-1">
+              <h4 className="text-xs font-semibold text-subtle uppercase mb-1">
                 Input Arguments
               </h4>
-              <pre className="text-xs bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 p-2 rounded overflow-x-auto max-h-40">
+              <pre className="text-xs bg-hl-low text-on-base p-2 rounded overflow-x-auto max-h-40">
                 {JSON.stringify(log.input_args, null, 2)}
               </pre>
             </div>
@@ -89,10 +89,10 @@ export function LogDetail({ log }: { log: ExecutionLog }) {
 
           {log.error && (
             <div>
-              <h4 className="text-xs font-semibold text-red-500 dark:text-red-400 uppercase mb-1">
+              <h4 className="text-xs font-semibold text-love uppercase mb-1">
                 Error
               </h4>
-              <pre className="text-xs bg-red-50 dark:bg-red-900/30 text-red-800 dark:text-red-300 p-2 rounded overflow-x-auto max-h-40 whitespace-pre-wrap">
+              <pre className="text-xs bg-love/10 text-love p-2 rounded overflow-x-auto max-h-40 whitespace-pre-wrap">
                 {log.error}
               </pre>
             </div>
@@ -100,10 +100,10 @@ export function LogDetail({ log }: { log: ExecutionLog }) {
 
           {log.result !== null && log.result !== undefined && (
             <div>
-              <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-1">
+              <h4 className="text-xs font-semibold text-subtle uppercase mb-1">
                 Result
               </h4>
-              <pre className="text-xs bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 p-2 rounded overflow-x-auto max-h-40">
+              <pre className="text-xs bg-hl-low text-on-base p-2 rounded overflow-x-auto max-h-40">
                 {typeof log.result === 'string'
                   ? log.result
                   : JSON.stringify(log.result, null, 2)}
@@ -113,10 +113,10 @@ export function LogDetail({ log }: { log: ExecutionLog }) {
 
           {log.stdout && (
             <div>
-              <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-1">
+              <h4 className="text-xs font-semibold text-subtle uppercase mb-1">
                 Stdout
               </h4>
-              <pre className="text-xs bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 p-2 rounded overflow-x-auto max-h-40 whitespace-pre-wrap">
+              <pre className="text-xs bg-hl-low text-on-base p-2 rounded overflow-x-auto max-h-40 whitespace-pre-wrap">
                 {log.stdout}
               </pre>
             </div>
@@ -137,8 +137,8 @@ export function ExecutionLogsTab({ serverId }: ExecutionLogsTabProps) {
 
   if (isLoading) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-        <div className="text-sm text-gray-500 dark:text-gray-400 py-4 text-center">
+      <div className="bg-surface rounded-lg shadow p-6">
+        <div className="text-sm text-subtle py-4 text-center">
           Loading execution logs...
         </div>
       </div>
@@ -147,8 +147,8 @@ export function ExecutionLogsTab({ serverId }: ExecutionLogsTabProps) {
 
   if (error) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-        <div className="text-sm text-red-500 dark:text-red-400 py-4 text-center">
+      <div className="bg-surface rounded-lg shadow p-6">
+        <div className="text-sm text-love py-4 text-center">
           Failed to load execution logs
         </div>
       </div>
@@ -157,10 +157,10 @@ export function ExecutionLogsTab({ serverId }: ExecutionLogsTabProps) {
 
   if (!data || data.items.length === 0) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+      <div className="bg-surface rounded-lg shadow p-6">
         <div className="text-center py-8">
           <svg
-            className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3"
+            className="w-12 h-12 text-subtle mx-auto mb-3"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -172,8 +172,8 @@ export function ExecutionLogsTab({ serverId }: ExecutionLogsTabProps) {
               d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
             />
           </svg>
-          <p className="text-gray-500 dark:text-gray-400 mb-1">No execution logs yet</p>
-          <p className="text-xs text-gray-400 dark:text-gray-500">
+          <p className="text-subtle mb-1">No execution logs yet</p>
+          <p className="text-xs text-muted">
             Logs will appear here when tools are executed
           </p>
         </div>
@@ -182,9 +182,9 @@ export function ExecutionLogsTab({ serverId }: ExecutionLogsTabProps) {
   }
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+    <div className="bg-surface rounded-lg shadow p-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-medium text-gray-900 dark:text-white">
+        <h3 className="text-lg font-medium text-on-base">
           Execution Logs ({data.total})
         </h3>
       </div>
@@ -200,17 +200,17 @@ export function ExecutionLogsTab({ serverId }: ExecutionLogsTabProps) {
           <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page <= 1}
-            className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-700"
+            className="px-3 py-1 border border-hl-med rounded-lg text-on-base disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
           >
             Previous
           </button>
-          <span className="text-gray-500 dark:text-gray-400">
+          <span className="text-subtle">
             Page {page} of {data.pages}
           </span>
           <button
             onClick={() => setPage((p) => Math.min(data.pages, p + 1))}
             disabled={page >= data.pages}
-            className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-700"
+            className="px-3 py-1 border border-hl-med rounded-lg text-on-base disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
           >
             Next
           </button>

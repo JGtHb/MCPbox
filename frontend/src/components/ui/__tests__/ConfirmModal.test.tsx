@@ -87,13 +87,13 @@ describe('ConfirmModal', () => {
   it('applies destructive styling', () => {
     render(<ConfirmModal {...defaultProps} destructive />)
     const confirmButton = screen.getByRole('button', { name: 'Confirm' })
-    expect(confirmButton).toHaveClass('bg-red-600')
+    expect(confirmButton).toHaveClass('bg-love')
   })
 
   it('applies non-destructive styling by default', () => {
     render(<ConfirmModal {...defaultProps} />)
     const confirmButton = screen.getByRole('button', { name: 'Confirm' })
-    expect(confirmButton).toHaveClass('bg-blue-600')
+    expect(confirmButton).toHaveClass('bg-iris')
   })
 })
 

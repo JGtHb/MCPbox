@@ -25,7 +25,38 @@ export interface ActivityStats {
   requests_per_minute: number
 }
 
+export interface ActivityLogsListResponse {
+  items: ActivityLog[]
+  total: number
+  page: number
+  page_size: number
+  pages: number
+}
+
+export interface ActivityLogsParams {
+  page?: number
+  pageSize?: number
+  serverId?: string
+  logType?: string
+  level?: string
+  search?: string
+}
+
 // API functions
+export async function fetchActivityLogs(
+  params: ActivityLogsParams = {}
+): Promise<ActivityLogsListResponse> {
+  const searchParams = new URLSearchParams()
+  if (params.page) searchParams.set('page', String(params.page))
+  if (params.pageSize) searchParams.set('page_size', String(params.pageSize))
+  if (params.serverId) searchParams.set('server_id', params.serverId)
+  if (params.logType) searchParams.set('log_type', params.logType)
+  if (params.level) searchParams.set('level', params.level)
+  if (params.search) searchParams.set('search', params.search)
+  const qs = searchParams.toString()
+  return api.get<ActivityLogsListResponse>(`/api/activity/logs${qs ? `?${qs}` : ''}`)
+}
+
 export async function getActivityStats(
   period: '1h' | '6h' | '24h' | '7d' = '1h',
   serverId?: string
@@ -41,6 +72,14 @@ export function useActivityStats(period: '1h' | '6h' | '24h' | '7d' = '1h', serv
     queryKey: ['activity', 'stats', period, serverId],
     queryFn: () => getActivityStats(period, serverId),
     refetchInterval: 10000, // Refresh every 10 seconds
+  })
+}
+
+export function useActivityLogs(params: ActivityLogsParams = {}) {
+  return useQuery({
+    queryKey: ['activity', 'logs', params],
+    queryFn: () => fetchActivityLogs(params),
+    refetchInterval: 15000,
   })
 }
 
@@ -209,13 +248,13 @@ export function getLogTypeLabel(type: string): string {
  */
 export function getLogTypeBadgeClasses(type: string): string {
   const classes: Record<string, string> = {
-    mcp_request: 'bg-blue-100 text-blue-800',
-    mcp_response: 'bg-green-100 text-green-800',
-    network: 'bg-purple-100 text-purple-800',
-    alert: 'bg-yellow-100 text-yellow-800',
-    error: 'bg-red-100 text-red-800',
-    system: 'bg-gray-100 text-gray-800',
-    audit: 'bg-indigo-100 text-indigo-800',
+    mcp_request: 'bg-pine/10 text-pine',
+    mcp_response: 'bg-foam/10 text-foam',
+    network: 'bg-iris/10 text-iris',
+    alert: 'bg-gold/10 text-gold',
+    error: 'bg-love/10 text-love',
+    system: 'bg-overlay text-subtle',
+    audit: 'bg-iris/10 text-iris',
   }
-  return classes[type] || 'bg-gray-100 text-gray-800'
+  return classes[type] || 'bg-overlay text-subtle'
 }

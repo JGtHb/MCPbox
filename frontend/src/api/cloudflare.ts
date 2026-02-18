@@ -116,6 +116,10 @@ export interface WizardStatusResponse {
   worker_name: string | null
   worker_url: string | null
 
+  access_policy_type: string | null
+  access_policy_emails: string[] | null
+  access_policy_email_domain: string | null
+
   created_at: string | null
   updated_at: string | null
 }
@@ -171,6 +175,16 @@ export async function teardown(configId: string): Promise<TeardownResponse> {
 
 export async function getZones(configId: string): Promise<Zone[]> {
   return api.get<Zone[]>(`/api/cloudflare/zones/${configId}`)
+}
+
+export async function updateAccessPolicy(
+  configId: string,
+  accessPolicy: AccessPolicyConfig
+): Promise<{ success: boolean; message: string }> {
+  return api.put<{ success: boolean; message: string }>('/api/cloudflare/access-policy', {
+    config_id: configId,
+    access_policy: accessPolicy,
+  })
 }
 
 // =============================================================================
@@ -264,6 +278,18 @@ export function useTeardown() {
 
   return useMutation({
     mutationFn: teardown,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: cloudflareKeys.status() })
+    },
+  })
+}
+
+export function useUpdateAccessPolicy() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ configId, accessPolicy }: { configId: string; accessPolicy: AccessPolicyConfig }) =>
+      updateAccessPolicy(configId, accessPolicy),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: cloudflareKeys.status() })
     },

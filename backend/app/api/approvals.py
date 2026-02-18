@@ -163,14 +163,20 @@ async def get_pending_tools(
     search: str | None = Query(
         None, description="Search by tool name, description, or server name"
     ),
+    status: str | None = Query(
+        None,
+        description="Filter by status: pending_review, approved, rejected, or all",
+    ),
     service: ApprovalService = Depends(get_approval_service),
 ) -> ToolApprovalQueueResponse:
-    """Get tools pending approval.
+    """Get tools by approval status.
 
-    Returns tools that have been submitted for review and need admin action.
-    Supports filtering by search term across tool name, description, and server name.
+    Returns tools filtered by approval status. Defaults to pending_review only.
+    Pass status=all to include approved and rejected tools.
     """
-    items, total = await service.get_pending_tools(page=page, page_size=page_size, search=search)
+    items, total = await service.get_pending_tools(
+        page=page, page_size=page_size, search=search, status=status
+    )
     pages = (total + page_size - 1) // page_size if total > 0 else 0
 
     return ToolApprovalQueueResponse(
@@ -313,16 +319,19 @@ async def get_pending_module_requests(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     search: str | None = Query(None, description="Search by module name or justification"),
+    status: str | None = Query(
+        None, description="Filter by status: pending, approved, rejected, or all"
+    ),
     service: ApprovalService = Depends(get_approval_service),
     sandbox_client: SandboxClient = Depends(get_sandbox_client),
 ) -> ModuleRequestQueueResponse:
-    """Get pending module whitelist requests.
+    """Get module whitelist requests filtered by status.
 
-    Returns module requests that need admin review, enriched with PyPI information
-    to help admins make informed decisions. Supports filtering by search term.
+    Returns module requests enriched with PyPI information.
+    Defaults to pending only. Pass status=all to include all statuses.
     """
     items, total = await service.get_pending_module_requests(
-        page=page, page_size=page_size, search=search
+        page=page, page_size=page_size, search=search, status=status
     )
     pages = (total + page_size - 1) // page_size if total > 0 else 0
 
@@ -469,15 +478,18 @@ async def get_pending_network_requests(
     search: str | None = Query(
         None, description="Search by host, justification, or server/tool name"
     ),
+    status: str | None = Query(
+        None, description="Filter by status: pending, approved, rejected, or all"
+    ),
     service: ApprovalService = Depends(get_approval_service),
 ) -> NetworkAccessRequestQueueResponse:
-    """Get pending network access requests.
+    """Get network access requests filtered by status.
 
-    Returns network access requests that need admin review.
-    Supports filtering by search term.
+    Returns network access requests. Defaults to pending only.
+    Pass status=all to include all statuses.
     """
     items, total = await service.get_pending_network_access_requests(
-        page=page, page_size=page_size, search=search
+        page=page, page_size=page_size, search=search, status=status
     )
     pages = (total + page_size - 1) // page_size if total > 0 else 0
 
@@ -568,3 +580,34 @@ async def bulk_network_request_action(
         )
 
     return BulkActionResponse(**result)
+
+
+# =============================================================================
+# Server-scoped Approval History
+# =============================================================================
+
+
+@router.get("/server/{server_id}/modules")
+async def get_server_module_requests(
+    server_id: UUID,
+    status: str | None = Query(
+        "approved", description="Filter by status: pending, approved, rejected, or all"
+    ),
+    service: ApprovalService = Depends(get_approval_service),
+) -> dict:
+    """Get module requests for tools belonging to a specific server."""
+    items, total = await service.get_module_requests_for_server(server_id=server_id, status=status)
+    return {"items": items, "total": total}
+
+
+@router.get("/server/{server_id}/network")
+async def get_server_network_requests(
+    server_id: UUID,
+    status: str | None = Query(
+        "approved", description="Filter by status: pending, approved, rejected, or all"
+    ),
+    service: ApprovalService = Depends(get_approval_service),
+) -> dict:
+    """Get network access requests for tools belonging to a specific server."""
+    items, total = await service.get_network_requests_for_server(server_id=server_id, status=status)
+    return {"items": items, "total": total}

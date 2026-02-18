@@ -1266,9 +1266,7 @@ class MCPManagementService:
             )
 
             if tool.approval_status == "approved":
-                message = (
-                    f"Tool '{tool.name}' has been auto-approved and is now active."
-                )
+                message = f"Tool '{tool.name}' has been auto-approved and is now active."
             else:
                 message = (
                     f"Tool '{tool.name}' has been submitted for admin review. "

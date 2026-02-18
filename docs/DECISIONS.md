@@ -125,3 +125,12 @@
 - **Rationale**: Kernel-level sandboxing adds significant complexity and resource overhead for homelab. Multiple application-level layers provide defense-in-depth. Combined with approval workflow, the attack window is limited to admin-reviewed code.
 - **Consequences**: Potential for sandbox escape via Python internals (mitigated by multiple layers). No filesystem isolation between tools. stdout race condition with concurrent execution. Requires ongoing security review as Python evolves.
 - **Affected modules**: `sandbox/app/executor.py`, `sandbox/app/ssrf.py`
+
+## ADR-015: Frontend Standards — Rosé Pine, ConfirmModal, ARIA
+- **Date**: 2026-02-18
+- **Status**: Active
+- **Context**: Frontend UI had inconsistent focus states, hardcoded non-theme colors, native `confirm()` dialogs, missing ARIA attributes, and no documented style standards. A comprehensive audit identified ~50 buttons missing focus rings, 2 native `confirm()` calls, inconsistent border-radius, and missing `aria-label` on icon-only buttons.
+- **Decision**: Establish documented frontend standards in `docs/FRONTEND-STANDARDS.md`. Mandate: (1) Rosé Pine tokens only (no generic Tailwind colors), (2) three-tier button sizing (xs/sm/md), (3) visible focus indicators on all interactive elements, (4) `ConfirmModal` component for all destructive confirmations, (5) `aria-label` on all icon-only buttons, (6) `aria-expanded` on collapsible triggers, (7) consistent border-radius (`rounded-lg` cards, `rounded-md` inline, `rounded-full` badges).
+- **Rationale**: Accessibility compliance (WCAG 2.1 AA requires visible focus indicators). Consistent theming via Rosé Pine tokens ensures light/dark mode works. ConfirmModal provides focus trap, keyboard handling, and ARIA support that native `confirm()` lacks. Documented standards prevent regression.
+- **Consequences**: All new frontend work must follow `docs/FRONTEND-STANDARDS.md`. Existing code updated across ~20 component files. Slightly longer class strings on buttons. No runtime cost (all compile-time Tailwind).
+- **Affected modules**: All `frontend/src/` components and pages. See `docs/FRONTEND-STANDARDS.md` for full specification.

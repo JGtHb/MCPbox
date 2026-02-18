@@ -18,6 +18,69 @@ import {
 
 type TabType = 'tools' | 'modules' | 'network'
 
+// Status badge component for approval items
+function StatusBadge({ status }: { status: string }) {
+  switch (status) {
+    case 'approved':
+      return (
+        <span className="inline-flex items-center rounded-full bg-foam/10 px-2.5 py-0.5 text-xs font-medium text-foam">
+          Approved
+        </span>
+      )
+    case 'rejected':
+      return (
+        <span className="inline-flex items-center rounded-full bg-love/10 px-2.5 py-0.5 text-xs font-medium text-love">
+          Rejected
+        </span>
+      )
+    case 'pending_review':
+    case 'pending':
+      return (
+        <span className="inline-flex items-center rounded-full bg-gold/10 px-2.5 py-0.5 text-xs font-medium text-gold">
+          Pending
+        </span>
+      )
+    default:
+      return (
+        <span className="inline-flex items-center rounded-full bg-overlay px-2.5 py-0.5 text-xs font-medium text-subtle">
+          {status}
+        </span>
+      )
+  }
+}
+
+// Format a date string for display
+function formatDate(dateStr: string): string {
+  const date = new Date(dateStr)
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+// Check if a status is pending (actionable)
+function isPendingStatus(status?: string): boolean {
+  return !status || status === 'pending_review' || status === 'pending'
+}
+
+// Show History toggle component
+function ShowHistoryToggle({
+  showHistory,
+  onChange,
+}: {
+  showHistory: boolean
+  onChange: (value: boolean) => void
+}) {
+  return (
+    <label className="inline-flex cursor-pointer items-center gap-2">
+      <input
+        type="checkbox"
+        checked={showHistory}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-4 w-4 rounded border-hl-med text-iris focus:ring-iris"
+      />
+      <span className="text-sm text-subtle">Show history</span>
+    </label>
+  )
+}
+
 export function Approvals() {
   const [activeTab, setActiveTab] = useState<TabType>('tools')
   const { data: stats, isLoading: statsLoading } = useApprovalStats()
@@ -26,8 +89,8 @@ export function Approvals() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-semibold text-gray-900">Approval Queue</h1>
-        <p className="mt-1 text-sm text-gray-500">
+        <h1 className="text-2xl font-semibold text-on-base">Approval Queue</h1>
+        <p className="mt-1 text-sm text-subtle">
           Review and approve tool publishing requests, module whitelist requests, and network
           access requests.
         </p>
@@ -59,7 +122,7 @@ export function Approvals() {
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200">
+      <div className="border-b border-hl-med">
         <nav className="-mb-px flex space-x-8">
           <TabButton
             label="Tools"
@@ -111,12 +174,12 @@ function StatCard({
       onClick={onClick}
       className={`rounded-lg border p-4 text-left transition-colors ${
         active
-          ? 'border-blue-500 bg-blue-50'
-          : 'border-gray-200 bg-white hover:border-gray-300'
+          ? 'border-iris bg-iris/10'
+          : 'border-hl-med bg-surface hover:border-hl-high'
       }`}
     >
-      <p className="text-sm font-medium text-gray-500">{label}</p>
-      <p className="mt-1 text-2xl font-semibold text-gray-900">
+      <p className="text-sm font-medium text-subtle">{label}</p>
+      <p className="mt-1 text-2xl font-semibold text-on-base">
         {loading ? '...' : value}
       </p>
     </button>
@@ -138,17 +201,17 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className={`whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium ${
+      className={`whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:ring-inset ${
         active
-          ? 'border-blue-500 text-blue-600'
-          : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+          ? 'border-iris text-iris'
+          : 'border-transparent text-subtle hover:border-hl-high hover:text-on-base'
       }`}
     >
       {label}
       {count > 0 && (
         <span
           className={`ml-2 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-            active ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'
+            active ? 'bg-iris/10 text-iris' : 'bg-hl-low text-subtle'
           }`}
         >
           {count}
@@ -162,7 +225,9 @@ function TabButton({
 function ToolsQueue() {
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  const { data, isLoading, error } = usePendingTools(1, 20, debouncedSearch || undefined)
+  const [showHistory, setShowHistory] = useState(false)
+  const statusFilter = showHistory ? 'all' : undefined
+  const { data, isLoading, error } = usePendingTools(1, 20, debouncedSearch || undefined, statusFilter)
   const toolAction = useToolAction()
   const bulkAction = useBulkToolAction()
   const [selectedTool, setSelectedTool] = useState<ToolApprovalQueueItem | null>(null)
@@ -211,12 +276,15 @@ function ToolsQueue() {
     setSelectedIds(newSet)
   }
 
+  const pendingItems = data?.items.filter((t) => isPendingStatus(t.approval_status)) ?? []
+
   const toggleSelectAll = () => {
     if (!data?.items) return
-    if (selectedIds.size === data.items.length) {
+    const selectableItems = pendingItems
+    if (selectedIds.size === selectableItems.length) {
       setSelectedIds(new Set())
     } else {
-      setSelectedIds(new Set(data.items.map((t) => t.id)))
+      setSelectedIds(new Set(selectableItems.map((t) => t.id)))
     }
   }
 
@@ -240,7 +308,7 @@ function ToolsQueue() {
 
   if (error) {
     return (
-      <div className="text-center py-8 text-red-600">
+      <div className="text-center py-8 text-love">
         Error loading pending tools: {error instanceof Error ? error.message : 'Unknown error'}
       </div>
     )
@@ -248,48 +316,49 @@ function ToolsQueue() {
 
   return (
     <div className="space-y-4">
-      {/* Search Input */}
+      {/* Search Input and Show History Toggle */}
       <div className="flex items-center gap-2">
         <input
           type="text"
           placeholder="Search by tool name, description, or server..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm placeholder-gray-400 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+          className="flex-1 rounded-lg border border-hl-med px-3 py-2 text-sm placeholder-muted bg-surface text-on-base focus:border-iris focus:outline-none focus:ring-2 focus:ring-iris"
         />
         {searchQuery && (
           <button
             onClick={() => setSearchQuery('')}
-            className="text-sm text-gray-500 hover:text-gray-700"
+            className="text-sm text-subtle hover:text-on-base"
           >
             Clear
           </button>
         )}
+        <ShowHistoryToggle showHistory={showHistory} onChange={(v) => { setShowHistory(v); setSelectedIds(new Set()) }} />
       </div>
 
       {/* Bulk Action Toolbar */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 rounded-lg border border-purple-200 bg-purple-50 px-4 py-2">
-          <span className="text-sm font-medium text-purple-700">
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-iris/30 bg-iris/10 px-4 py-2">
+          <span className="text-sm font-medium text-iris">
             {selectedIds.size} selected
           </span>
           <button
             onClick={handleBulkApprove}
             disabled={bulkAction.isPending}
-            className="rounded bg-green-600 px-3 py-1 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+            className="rounded-lg bg-foam px-3 py-1 text-sm font-medium text-base hover:bg-foam/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-foam"
           >
             Approve All
           </button>
           <button
             onClick={() => setShowBulkRejectModal(true)}
             disabled={bulkAction.isPending}
-            className="rounded bg-amber-600 px-3 py-1 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+            className="rounded-lg bg-gold px-3 py-1 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
           >
             Request Revision All
           </button>
           <button
             onClick={() => setSelectedIds(new Set())}
-            className="text-sm text-purple-600 hover:text-purple-800"
+            className="text-sm text-iris hover:text-iris/80"
           >
             Clear
           </button>
@@ -297,74 +366,117 @@ function ToolsQueue() {
       )}
 
       {isLoading ? (
-        <div className="text-center py-8 text-gray-500">Loading...</div>
+        <div className="text-center py-8 text-subtle">Loading...</div>
       ) : !data?.items.length ? (
-        <div className="text-center py-8 text-gray-500">
-          {debouncedSearch ? 'No tools match your search' : 'No tools pending approval'}
+        <div className="text-center py-8">
+          <svg className="w-12 h-12 text-muted mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <p className="text-subtle mb-1">
+            {debouncedSearch
+              ? 'No tools match your search'
+              : showHistory
+                ? 'No approval history found'
+                : 'No tools pending approval'}
+          </p>
+          <p className="text-xs text-muted">
+            {debouncedSearch
+              ? 'Try a different search term'
+              : 'Tool approval requests will appear here'}
+          </p>
         </div>
       ) : (
         <>
-        {/* Select All */}
+        {/* Select All (only count pending items) */}
+        {pendingItems.length > 0 && (
         <div className="flex items-center gap-2 py-2">
           <input
             type="checkbox"
-            checked={selectedIds.size === data.items.length && data.items.length > 0}
+            checked={selectedIds.size === pendingItems.length && pendingItems.length > 0}
             onChange={toggleSelectAll}
-            className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+            className="h-4 w-4 rounded border-hl-med text-iris focus:ring-iris"
           />
-          <span className="text-sm text-gray-600">Select all ({data.items.length})</span>
+          <span className="text-sm text-subtle">Select all pending ({pendingItems.length})</span>
         </div>
-        {data.items.map((tool) => (
+        )}
+        {data.items.map((tool) => {
+          const toolIsPending = isPendingStatus(tool.approval_status)
+          return (
         <div
           key={tool.id}
-          className={`rounded-lg border bg-white p-4 shadow-sm ${selectedIds.has(tool.id) ? 'border-purple-400 ring-1 ring-purple-200' : 'border-gray-200'}`}
+          className={`rounded-lg border p-4 shadow-sm ${
+            !toolIsPending
+              ? 'border-hl-med bg-hl-low'
+              : selectedIds.has(tool.id)
+                ? 'border-iris bg-surface ring-1 ring-iris/30'
+                : 'border-hl-med bg-surface'
+          }`}
         >
           <div className="flex items-start gap-3">
+            {toolIsPending ? (
             <input
               type="checkbox"
               checked={selectedIds.has(tool.id)}
               onChange={() => toggleSelection(tool.id)}
-              className="mt-1 h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+              className="mt-1 h-4 w-4 rounded border-hl-med text-iris focus:ring-iris"
             />
+            ) : (
+            <div className="mt-1 h-4 w-4" />
+            )}
             <div className="flex-1">
               <div className="flex items-center gap-2">
-                <h3 className="text-lg font-medium text-gray-900">{tool.name}</h3>
-                <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                <h3 className="text-lg font-medium text-on-base">{tool.name}</h3>
+                <span className="rounded bg-overlay px-2 py-0.5 text-xs text-subtle">
                   {tool.server_name}
                 </span>
-                <span className="rounded px-2 py-0.5 text-xs bg-purple-100 text-purple-700">
+                <span className="rounded px-2 py-0.5 text-xs bg-iris/10 text-iris">
                   Python
                 </span>
+                {tool.approval_status && (
+                  <StatusBadge status={tool.approval_status} />
+                )}
               </div>
               {tool.description && (
-                <p className="mt-1 text-sm text-gray-600">{tool.description}</p>
+                <p className="mt-1 text-sm text-subtle">{tool.description}</p>
               )}
               {tool.created_by && (
-                <p className="mt-1 text-xs text-gray-400">
+                <p className="mt-1 text-xs text-muted">
                   Created by: {tool.created_by}
                 </p>
               )}
+              {/* Show approval/rejection details for historical items */}
+              {tool.approval_status === 'approved' && tool.approved_at && (
+                <p className="mt-1 text-xs text-foam">
+                  Approved{tool.approved_by ? ` by ${tool.approved_by}` : ''} on {formatDate(tool.approved_at)}
+                </p>
+              )}
+              {tool.approval_status === 'rejected' && tool.rejection_reason && (
+                <div className="mt-2 rounded bg-love/10 p-2 text-sm text-love">
+                  <strong>Rejection reason:</strong> {tool.rejection_reason}
+                </div>
+              )}
               {tool.publish_notes && (
-                <div className="mt-2 rounded bg-yellow-50 p-2 text-sm text-yellow-800">
+                <div className="mt-2 rounded bg-gold/10 p-2 text-sm text-gold">
                   <strong>Notes:</strong> {tool.publish_notes}
                 </div>
               )}
               {tool.python_code && (
                 <details className="mt-2">
-                  <summary className="cursor-pointer text-sm text-blue-600 hover:text-blue-800">
+                  <summary className="cursor-pointer text-sm text-pine hover:underline">
                     View Code
                   </summary>
-                  <pre className="mt-2 max-h-64 overflow-auto rounded bg-gray-900 p-3 text-xs text-gray-100">
+                  <pre className="mt-2 max-h-64 overflow-auto rounded bg-overlay p-3 text-xs text-on-base">
                     {tool.python_code}
                   </pre>
                 </details>
               )}
             </div>
+            {toolIsPending && (
             <div className="ml-4 flex gap-2">
               <button
                 onClick={() => handleApprove(tool.id)}
                 disabled={toolAction.isPending}
-                className="rounded bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+                className="rounded-lg bg-foam px-3 py-1.5 text-sm font-medium text-base hover:bg-foam/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-foam"
               >
                 Approve
               </button>
@@ -374,31 +486,33 @@ function ToolsQueue() {
                   setShowRejectModal(true)
                 }}
                 disabled={toolAction.isPending}
-                className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
               >
                 Request Revision
               </button>
             </div>
+            )}
           </div>
         </div>
-      ))}
+          )
+      })}
         </>
       )}
 
       {/* Revision Request Modal */}
       {showRejectModal && selectedTool && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
-            <h3 className="text-lg font-medium text-gray-900">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl">
+            <h3 className="text-lg font-medium text-on-base">
               Request Revision: {selectedTool.name}
             </h3>
-            <p className="mt-1 text-sm text-gray-500">
+            <p className="mt-1 text-sm text-subtle">
               Provide feedback to help the LLM improve this tool.
             </p>
             <textarea
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
-              className="mt-4 w-full rounded border border-gray-300 p-2 text-sm"
+              className="mt-4 w-full rounded-lg border border-hl-med p-2 text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
               rows={4}
               placeholder="What needs to be improved..."
             />
@@ -409,14 +523,14 @@ function ToolsQueue() {
                   setRejectReason('')
                   setSelectedTool(null)
                 }}
-                className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                className="rounded-lg border border-hl-med px-3 py-1.5 text-sm font-medium text-on-base hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
               >
                 Cancel
               </button>
               <button
                 onClick={handleReject}
                 disabled={!rejectReason.trim() || toolAction.isPending}
-                className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
               >
                 Request Revision
               </button>
@@ -427,18 +541,18 @@ function ToolsQueue() {
 
       {/* Bulk Revision Request Modal */}
       {showBulkRejectModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
-            <h3 className="text-lg font-medium text-gray-900">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl">
+            <h3 className="text-lg font-medium text-on-base">
               Request Revision for {selectedIds.size} Tools
             </h3>
-            <p className="mt-1 text-sm text-gray-500">
+            <p className="mt-1 text-sm text-subtle">
               Provide feedback that will be applied to all selected tools.
             </p>
             <textarea
               value={bulkRejectReason}
               onChange={(e) => setBulkRejectReason(e.target.value)}
-              className="mt-4 w-full rounded border border-gray-300 p-2 text-sm"
+              className="mt-4 w-full rounded-lg border border-hl-med p-2 text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
               rows={4}
               placeholder="What needs to be improved..."
             />
@@ -448,14 +562,14 @@ function ToolsQueue() {
                   setShowBulkRejectModal(false)
                   setBulkRejectReason('')
                 }}
-                className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                className="rounded-lg border border-hl-med px-3 py-1.5 text-sm font-medium text-on-base hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
               >
                 Cancel
               </button>
               <button
                 onClick={handleBulkReject}
                 disabled={!bulkRejectReason.trim() || bulkAction.isPending}
-                className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
               >
                 Request Revision All
               </button>
@@ -471,23 +585,23 @@ function ToolsQueue() {
 function severityColor(severity: string | null): string {
   switch (severity?.toUpperCase()) {
     case 'CRITICAL':
-      return 'bg-red-600 text-white'
+      return 'bg-love text-base'
     case 'HIGH':
-      return 'bg-red-100 text-red-800'
+      return 'bg-love/10 text-love'
     case 'MEDIUM':
-      return 'bg-yellow-100 text-yellow-800'
+      return 'bg-gold/10 text-gold'
     case 'LOW':
-      return 'bg-gray-100 text-gray-700'
+      return 'bg-hl-low text-on-base'
     default:
-      return 'bg-gray-100 text-gray-600'
+      return 'bg-hl-low text-subtle'
   }
 }
 
 // OpenSSF Scorecard color (0-10 scale)
 function scorecardColor(score: number): string {
-  if (score >= 7) return 'text-green-700'
-  if (score >= 4) return 'text-yellow-700'
-  return 'text-red-700'
+  if (score >= 7) return 'text-foam'
+  if (score >= 4) return 'text-gold'
+  return 'text-love'
 }
 
 // PyPI Info Display Component
@@ -496,7 +610,7 @@ function PyPIInfoDisplay({ info, moduleName }: { info: PyPIPackageInfo | null; m
 
   if (!info) {
     return (
-      <div className="mt-3 rounded border border-gray-200 bg-gray-50 p-3 text-sm text-gray-500">
+      <div className="mt-3 rounded border border-hl-med bg-hl-low p-3 text-sm text-subtle">
         Loading package info...
       </div>
     )
@@ -504,7 +618,7 @@ function PyPIInfoDisplay({ info, moduleName }: { info: PyPIPackageInfo | null; m
 
   if (info.error) {
     return (
-      <div className="mt-3 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-600">
+      <div className="mt-3 rounded border border-love/30 bg-love/10 p-3 text-sm text-love">
         Error loading package info: {info.error}
       </div>
     )
@@ -513,12 +627,12 @@ function PyPIInfoDisplay({ info, moduleName }: { info: PyPIPackageInfo | null; m
   // Stdlib module - safe, no install needed
   if (info.is_stdlib) {
     return (
-      <div className="mt-3 rounded border border-green-200 bg-green-50 p-3">
+      <div className="mt-3 rounded border border-foam/30 bg-foam/10 p-3">
         <div className="flex items-center gap-2">
-          <span className="rounded bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
+          <span className="rounded bg-foam/10 px-2 py-0.5 text-xs font-medium text-foam">
             Python Stdlib
           </span>
-          <span className="text-sm text-green-700">
+          <span className="text-sm text-foam">
             Built-in module - no installation required
           </span>
         </div>
@@ -527,42 +641,42 @@ function PyPIInfoDisplay({ info, moduleName }: { info: PyPIPackageInfo | null; m
   }
 
   const hasVulns = info.vulnerability_count > 0
-  const borderColor = hasVulns ? 'border-red-300' : 'border-blue-200'
-  const bgColor = hasVulns ? 'bg-red-50' : 'bg-blue-50'
+  const borderColor = hasVulns ? 'border-love/40' : 'border-pine/30'
+  const bgColor = hasVulns ? 'bg-love/10' : 'bg-pine/10'
 
   // Third-party package
   return (
     <div className={`mt-3 rounded border ${borderColor} ${bgColor} p-3`}>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="rounded bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">
+        <span className="rounded bg-pine/10 px-2 py-0.5 text-xs font-medium text-pine">
           PyPI Package
         </span>
         {moduleName !== info.package_name && info.package_name && (
-          <span className="text-xs text-gray-500">
+          <span className="text-xs text-subtle">
             installs as <code className="font-mono">{info.package_name}</code>
           </span>
         )}
         {info.is_installed ? (
-          <span className="rounded bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+          <span className="rounded bg-foam/10 px-2 py-0.5 text-xs font-medium text-foam">
             Installed v{info.installed_version}
           </span>
         ) : (
-          <span className="rounded bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-700">
+          <span className="rounded bg-gold/10 px-2 py-0.5 text-xs font-medium text-gold">
             Not installed
           </span>
         )}
         {info.latest_version && (
-          <span className="text-xs text-gray-500">
+          <span className="text-xs text-subtle">
             Latest: v{info.latest_version}
           </span>
         )}
       </div>
 
       {info.summary && (
-        <p className="mt-2 text-sm text-gray-700">{info.summary}</p>
+        <p className="mt-2 text-sm text-on-base">{info.summary}</p>
       )}
 
-      <div className="mt-2 flex flex-wrap gap-3 text-xs text-gray-500">
+      <div className="mt-2 flex flex-wrap gap-3 text-xs text-subtle">
         {info.author && <span>Author: {info.author}</span>}
         {info.license && <span>License: {info.license}</span>}
         {info.home_page && (
@@ -570,7 +684,7 @@ function PyPIInfoDisplay({ info, moduleName }: { info: PyPIPackageInfo | null; m
             href={info.home_page}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-blue-600 hover:underline"
+            className="text-pine hover:underline"
           >
             Project Homepage
           </a>
@@ -578,19 +692,19 @@ function PyPIInfoDisplay({ info, moduleName }: { info: PyPIPackageInfo | null; m
       </div>
 
       {/* Security section */}
-      <div className="mt-3 border-t border-gray-200 pt-3">
+      <div className="mt-3 border-t border-hl-med pt-3">
         <div className="flex flex-wrap items-center gap-3">
           {/* Vulnerability badge */}
           {hasVulns ? (
             <button
               onClick={() => setVulnsExpanded(!vulnsExpanded)}
-              className="flex items-center gap-1 rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 hover:bg-red-200"
+              className="flex items-center gap-1 rounded bg-love/10 px-2 py-0.5 text-xs font-medium text-love hover:bg-love/20"
             >
               {info.vulnerability_count} known {info.vulnerability_count === 1 ? 'vulnerability' : 'vulnerabilities'}
               <span className="ml-1">{vulnsExpanded ? '\u25B2' : '\u25BC'}</span>
             </button>
           ) : (
-            <span className="rounded bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+            <span className="rounded bg-foam/10 px-2 py-0.5 text-xs font-medium text-foam">
               No known vulnerabilities
             </span>
           )}
@@ -604,7 +718,7 @@ function PyPIInfoDisplay({ info, moduleName }: { info: PyPIPackageInfo | null; m
 
           {/* Dependency count */}
           {info.dependency_count !== null && (
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-subtle">
               {info.dependency_count} {info.dependency_count === 1 ? 'dependency' : 'dependencies'}
             </span>
           )}
@@ -615,7 +729,7 @@ function PyPIInfoDisplay({ info, moduleName }: { info: PyPIPackageInfo | null; m
               href={`https://${info.source_repo}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-xs text-blue-600 hover:underline"
+              className="text-xs text-pine hover:underline"
             >
               Source
             </a>
@@ -626,7 +740,7 @@ function PyPIInfoDisplay({ info, moduleName }: { info: PyPIPackageInfo | null; m
         {vulnsExpanded && info.vulnerabilities && info.vulnerabilities.length > 0 && (
           <div className="mt-2 space-y-2">
             {info.vulnerabilities.map((vuln) => (
-              <div key={vuln.id} className="rounded border border-red-200 bg-white p-2 text-xs">
+              <div key={vuln.id} className="rounded border border-love/30 bg-surface p-2 text-xs">
                 <div className="flex items-center gap-2">
                   <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${severityColor(vuln.severity)}`}>
                     {vuln.severity || 'UNKNOWN'}
@@ -636,7 +750,7 @@ function PyPIInfoDisplay({ info, moduleName }: { info: PyPIPackageInfo | null; m
                       href={vuln.link}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="font-mono text-blue-600 hover:underline"
+                      className="font-mono text-pine hover:underline"
                     >
                       {vuln.id}
                     </a>
@@ -644,12 +758,12 @@ function PyPIInfoDisplay({ info, moduleName }: { info: PyPIPackageInfo | null; m
                     <span className="font-mono">{vuln.id}</span>
                   )}
                   {vuln.fixed_version && (
-                    <span className="text-gray-500">
+                    <span className="text-subtle">
                       Fixed in v{vuln.fixed_version}
                     </span>
                   )}
                 </div>
-                <p className="mt-1 text-gray-600">{vuln.summary}</p>
+                <p className="mt-1 text-subtle">{vuln.summary}</p>
               </div>
             ))}
           </div>
@@ -663,7 +777,9 @@ function PyPIInfoDisplay({ info, moduleName }: { info: PyPIPackageInfo | null; m
 function ModuleRequestsQueue() {
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  const { data, isLoading, error } = usePendingModuleRequests(1, 20, debouncedSearch || undefined)
+  const [showHistory, setShowHistory] = useState(false)
+  const statusFilter = showHistory ? 'all' : undefined
+  const { data, isLoading, error } = usePendingModuleRequests(1, 20, debouncedSearch || undefined, statusFilter)
   const moduleAction = useModuleRequestAction()
   const bulkAction = useBulkModuleRequestAction()
   const [selectedRequest, setSelectedRequest] = useState<ModuleRequestQueueItem | null>(null)
@@ -691,12 +807,15 @@ function ModuleRequestsQueue() {
     setSelectedIds(newSet)
   }
 
+  const pendingItems = data?.items.filter((r) => isPendingStatus(r.status)) ?? []
+
   const toggleSelectAll = () => {
     if (!data?.items) return
-    if (selectedIds.size === data.items.length) {
+    const selectableItems = pendingItems
+    if (selectedIds.size === selectableItems.length) {
       setSelectedIds(new Set())
     } else {
-      setSelectedIds(new Set(data.items.map((r) => r.id)))
+      setSelectedIds(new Set(selectableItems.map((r) => r.id)))
     }
   }
 
@@ -741,7 +860,7 @@ function ModuleRequestsQueue() {
 
   if (error) {
     return (
-      <div className="text-center py-8 text-red-600">
+      <div className="text-center py-8 text-love">
         Error loading module requests: {error instanceof Error ? error.message : 'Unknown error'}
       </div>
     )
@@ -749,48 +868,49 @@ function ModuleRequestsQueue() {
 
   return (
     <div className="space-y-4">
-      {/* Search Input */}
+      {/* Search Input and Show History Toggle */}
       <div className="flex items-center gap-2">
         <input
           type="text"
           placeholder="Search by module name or justification..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm placeholder-gray-400 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+          className="flex-1 rounded-lg border border-hl-med px-3 py-2 text-sm placeholder-muted bg-surface text-on-base focus:border-iris focus:outline-none focus:ring-2 focus:ring-iris"
         />
         {searchQuery && (
           <button
             onClick={() => setSearchQuery('')}
-            className="text-sm text-gray-500 hover:text-gray-700"
+            className="text-sm text-subtle hover:text-on-base"
           >
             Clear
           </button>
         )}
+        <ShowHistoryToggle showHistory={showHistory} onChange={(v) => { setShowHistory(v); setSelectedIds(new Set()) }} />
       </div>
 
       {/* Bulk Action Toolbar */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 rounded-lg border border-purple-200 bg-purple-50 px-4 py-2">
-          <span className="text-sm font-medium text-purple-700">
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-iris/30 bg-iris/10 px-4 py-2">
+          <span className="text-sm font-medium text-iris">
             {selectedIds.size} selected
           </span>
           <button
             onClick={handleBulkApprove}
             disabled={bulkAction.isPending}
-            className="rounded bg-green-600 px-3 py-1 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+            className="rounded-lg bg-foam px-3 py-1 text-sm font-medium text-base hover:bg-foam/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-foam"
           >
             Approve All
           </button>
           <button
             onClick={() => setShowBulkRejectModal(true)}
             disabled={bulkAction.isPending}
-            className="rounded bg-amber-600 px-3 py-1 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+            className="rounded-lg bg-gold px-3 py-1 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
           >
             Request Revision All
           </button>
           <button
             onClick={() => setSelectedIds(new Set())}
-            className="text-sm text-purple-600 hover:text-purple-800"
+            className="text-sm text-iris hover:text-iris/80"
           >
             Clear
           </button>
@@ -798,60 +918,101 @@ function ModuleRequestsQueue() {
       )}
 
       {isLoading ? (
-        <div className="text-center py-8 text-gray-500">Loading...</div>
+        <div className="text-center py-8 text-subtle">Loading...</div>
       ) : !data?.items.length ? (
-        <div className="text-center py-8 text-gray-500">
-          {debouncedSearch ? 'No module requests match your search' : 'No module requests pending approval'}
+        <div className="text-center py-8">
+          <svg className="w-12 h-12 text-muted mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+          </svg>
+          <p className="text-subtle mb-1">
+            {debouncedSearch
+              ? 'No module requests match your search'
+              : showHistory
+                ? 'No module request history found'
+                : 'No module requests pending approval'}
+          </p>
+          <p className="text-xs text-muted">
+            {debouncedSearch
+              ? 'Try a different search term'
+              : 'Module import requests will appear here'}
+          </p>
         </div>
       ) : (
         <>
-        {/* Select All */}
+        {/* Select All (only count pending items) */}
+        {pendingItems.length > 0 && (
         <div className="flex items-center gap-2 py-2">
           <input
             type="checkbox"
-            checked={selectedIds.size === data.items.length && data.items.length > 0}
+            checked={selectedIds.size === pendingItems.length && pendingItems.length > 0}
             onChange={toggleSelectAll}
-            className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+            className="h-4 w-4 rounded border-hl-med text-iris focus:ring-iris"
           />
-          <span className="text-sm text-gray-600">Select all ({data.items.length})</span>
+          <span className="text-sm text-subtle">Select all pending ({pendingItems.length})</span>
         </div>
-        {data.items.map((req) => (
+        )}
+        {data.items.map((req) => {
+          const reqIsPending = isPendingStatus(req.status)
+          return (
         <div
           key={req.id}
-          className={`rounded-lg border bg-white p-4 shadow-sm ${selectedIds.has(req.id) ? 'border-purple-400 ring-1 ring-purple-200' : 'border-gray-200'}`}
+          className={`rounded-lg border p-4 shadow-sm ${
+            !reqIsPending
+              ? 'border-hl-med bg-hl-low'
+              : selectedIds.has(req.id)
+                ? 'border-iris bg-surface ring-1 ring-iris/30'
+                : 'border-hl-med bg-surface'
+          }`}
         >
           <div className="flex items-start gap-3">
+            {reqIsPending ? (
             <input
               type="checkbox"
               checked={selectedIds.has(req.id)}
               onChange={() => toggleSelection(req.id)}
-              className="mt-1 h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+              className="mt-1 h-4 w-4 rounded border-hl-med text-iris focus:ring-iris"
             />
+            ) : (
+            <div className="mt-1 h-4 w-4" />
+            )}
             <div className="flex-1">
               <div className="flex items-center gap-2">
-                <code className="rounded bg-purple-100 px-2 py-0.5 text-sm font-medium text-purple-800">
+                <code className="rounded bg-iris/10 px-2 py-0.5 text-sm font-medium text-iris">
                   {req.module_name}
                 </code>
-                <span className="text-sm text-gray-500">for</span>
-                <span className="text-sm font-medium text-gray-700">
+                <span className="text-sm text-subtle">for</span>
+                <span className="text-sm font-medium text-on-base">
                   {req.server_name}.{req.tool_name}
                 </span>
+                <StatusBadge status={req.status} />
               </div>
-              <p className="mt-2 text-sm text-gray-600">{req.justification}</p>
+              <p className="mt-2 text-sm text-subtle">{req.justification}</p>
               {req.requested_by && (
-                <p className="mt-1 text-xs text-gray-400">
+                <p className="mt-1 text-xs text-muted">
                   Requested by: {req.requested_by}
                 </p>
+              )}
+              {/* Show approval/rejection details for historical items */}
+              {req.status === 'approved' && req.reviewed_at && (
+                <p className="mt-1 text-xs text-foam">
+                  Approved{req.reviewed_by ? ` by ${req.reviewed_by}` : ''} on {formatDate(req.reviewed_at)}
+                </p>
+              )}
+              {req.status === 'rejected' && req.rejection_reason && (
+                <div className="mt-2 rounded bg-love/10 p-2 text-sm text-love">
+                  <strong>Rejection reason:</strong> {req.rejection_reason}
+                </div>
               )}
 
               {/* PyPI Info Section */}
               <PyPIInfoDisplay info={req.pypi_info} moduleName={req.module_name} />
             </div>
+            {reqIsPending && (
             <div className="ml-4 flex gap-2">
               <button
                 onClick={() => handleApprove(req.id)}
                 disabled={moduleAction.isPending}
-                className="rounded bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+                className="rounded-lg bg-foam px-3 py-1.5 text-sm font-medium text-base hover:bg-foam/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-foam"
               >
                 Approve
               </button>
@@ -861,31 +1022,33 @@ function ModuleRequestsQueue() {
                   setShowRejectModal(true)
                 }}
                 disabled={moduleAction.isPending}
-                className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
               >
                 Request Revision
               </button>
             </div>
+            )}
           </div>
         </div>
-      ))}
+          )
+      })}
         </>
       )}
 
       {/* Revision Request Modal */}
       {showRejectModal && selectedRequest && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
-            <h3 className="text-lg font-medium text-gray-900">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl">
+            <h3 className="text-lg font-medium text-on-base">
               Request Revision: {selectedRequest.module_name}
             </h3>
-            <p className="mt-1 text-sm text-gray-500">
+            <p className="mt-1 text-sm text-subtle">
               Provide feedback to help the LLM find a better alternative.
             </p>
             <textarea
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
-              className="mt-4 w-full rounded border border-gray-300 p-2 text-sm"
+              className="mt-4 w-full rounded-lg border border-hl-med p-2 text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
               rows={4}
               placeholder="What needs to be changed..."
             />
@@ -896,14 +1059,14 @@ function ModuleRequestsQueue() {
                   setRejectReason('')
                   setSelectedRequest(null)
                 }}
-                className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                className="rounded-lg border border-hl-med px-3 py-1.5 text-sm font-medium text-on-base hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
               >
                 Cancel
               </button>
               <button
                 onClick={handleReject}
                 disabled={!rejectReason.trim() || moduleAction.isPending}
-                className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
               >
                 Request Revision
               </button>
@@ -914,18 +1077,18 @@ function ModuleRequestsQueue() {
 
       {/* Bulk Revision Request Modal */}
       {showBulkRejectModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
-            <h3 className="text-lg font-medium text-gray-900">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl">
+            <h3 className="text-lg font-medium text-on-base">
               Request Revision for {selectedIds.size} Module Requests
             </h3>
-            <p className="mt-1 text-sm text-gray-500">
+            <p className="mt-1 text-sm text-subtle">
               Provide feedback that will be applied to all selected requests.
             </p>
             <textarea
               value={bulkRejectReason}
               onChange={(e) => setBulkRejectReason(e.target.value)}
-              className="mt-4 w-full rounded border border-gray-300 p-2 text-sm"
+              className="mt-4 w-full rounded-lg border border-hl-med p-2 text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
               rows={4}
               placeholder="What needs to be changed..."
             />
@@ -935,14 +1098,14 @@ function ModuleRequestsQueue() {
                   setShowBulkRejectModal(false)
                   setBulkRejectReason('')
                 }}
-                className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                className="rounded-lg border border-hl-med px-3 py-1.5 text-sm font-medium text-on-base hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
               >
                 Cancel
               </button>
               <button
                 onClick={handleBulkReject}
                 disabled={!bulkRejectReason.trim() || bulkAction.isPending}
-                className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
               >
                 Request Revision All
               </button>
@@ -958,7 +1121,9 @@ function ModuleRequestsQueue() {
 function NetworkRequestsQueue() {
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  const { data, isLoading, error } = usePendingNetworkRequests(1, 20, debouncedSearch || undefined)
+  const [showHistory, setShowHistory] = useState(false)
+  const statusFilter = showHistory ? 'all' : undefined
+  const { data, isLoading, error } = usePendingNetworkRequests(1, 20, debouncedSearch || undefined, statusFilter)
   const networkAction = useNetworkRequestAction()
   const [selectedRequest, setSelectedRequest] =
     useState<NetworkAccessRequestQueueItem | null>(null)
@@ -977,6 +1142,8 @@ function NetworkRequestsQueue() {
     return () => clearTimeout(timer)
   }, [searchQuery])
 
+  const pendingItems = data?.items.filter((r) => isPendingStatus(r.status)) ?? []
+
   const toggleSelection = (id: string) => {
     const newSet = new Set(selectedIds)
     if (newSet.has(id)) {
@@ -989,10 +1156,11 @@ function NetworkRequestsQueue() {
 
   const toggleSelectAll = () => {
     if (!data?.items) return
-    if (selectedIds.size === data.items.length) {
+    const selectableItems = pendingItems
+    if (selectedIds.size === selectableItems.length) {
       setSelectedIds(new Set())
     } else {
-      setSelectedIds(new Set(data.items.map((r) => r.id)))
+      setSelectedIds(new Set(selectableItems.map((r) => r.id)))
     }
   }
 
@@ -1036,12 +1204,12 @@ function NetworkRequestsQueue() {
   }
 
   if (isLoading) {
-    return <div className="text-center py-8 text-gray-500">Loading...</div>
+    return <div className="text-center py-8 text-subtle">Loading...</div>
   }
 
   if (error) {
     return (
-      <div className="text-center py-8 text-red-600">
+      <div className="text-center py-8 text-love">
         Error loading network requests:{' '}
         {error instanceof Error ? error.message : 'Unknown error'}
       </div>
@@ -1050,53 +1218,56 @@ function NetworkRequestsQueue() {
 
   return (
     <div className="space-y-4">
-      {/* Search Input */}
-      <div className="relative">
-        <input
-          type="text"
-          placeholder="Search by host, justification, or server/tool name..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full rounded-lg border border-gray-300 px-4 py-2 pl-10 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-        />
-        <svg
-          className="absolute left-3 top-2.5 h-4 w-4 text-gray-400"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+      {/* Search Input and Show History Toggle */}
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <input
+            type="text"
+            placeholder="Search by host, justification, or server/tool name..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full rounded-lg border border-hl-med px-4 py-2 pl-10 text-sm bg-surface text-on-base focus:border-iris focus:outline-none focus:ring-2 focus:ring-iris"
           />
-        </svg>
+          <svg
+            className="absolute left-3 top-2.5 h-4 w-4 text-muted"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            />
+          </svg>
+        </div>
+        <ShowHistoryToggle showHistory={showHistory} onChange={(v) => { setShowHistory(v); setSelectedIds(new Set()) }} />
       </div>
 
       {/* Bulk Action Toolbar */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2">
-          <span className="text-sm font-medium text-blue-700">
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-iris/30 bg-iris/10 px-4 py-2">
+          <span className="text-sm font-medium text-iris">
             {selectedIds.size} selected
           </span>
           <button
             onClick={handleBulkApprove}
             disabled={bulkAction.isPending}
-            className="rounded bg-green-600 px-3 py-1 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+            className="rounded-lg bg-foam px-3 py-1 text-sm font-medium text-base hover:bg-foam/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-foam"
           >
             Approve All
           </button>
           <button
             onClick={() => setShowBulkRejectModal(true)}
             disabled={bulkAction.isPending}
-            className="rounded bg-amber-600 px-3 py-1 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+            className="rounded-lg bg-gold px-3 py-1 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
           >
             Request Revision All
           </button>
           <button
             onClick={() => setSelectedIds(new Set())}
-            className="text-sm text-blue-600 hover:text-blue-800"
+            className="text-sm text-iris hover:text-iris/80"
           >
             Clear
           </button>
@@ -1104,58 +1275,97 @@ function NetworkRequestsQueue() {
       )}
 
       {!data?.items.length ? (
-        <div className="text-center py-8 text-gray-500">
-          {debouncedSearch
-            ? `No network access requests matching "${debouncedSearch}"`
-            : 'No network access requests pending approval'}
+        <div className="text-center py-8">
+          <svg className="w-12 h-12 text-muted mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+          </svg>
+          <p className="text-subtle mb-1">
+            {debouncedSearch
+              ? `No network access requests matching "${debouncedSearch}"`
+              : showHistory
+                ? 'No network request history found'
+                : 'No network access requests pending approval'}
+          </p>
+          <p className="text-xs text-muted">
+            {debouncedSearch
+              ? 'Try a different search term'
+              : 'Network access requests will appear here'}
+          </p>
         </div>
       ) : (
         <>
-        {/* Select All */}
+        {/* Select All (only count pending items) */}
+        {pendingItems.length > 0 && (
         <div className="flex items-center gap-2 py-2">
           <input
             type="checkbox"
-            checked={selectedIds.size === data.items.length && data.items.length > 0}
+            checked={selectedIds.size === pendingItems.length && pendingItems.length > 0}
             onChange={toggleSelectAll}
-            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            className="h-4 w-4 rounded border-hl-med text-iris focus:ring-iris"
           />
-          <span className="text-sm text-gray-600">Select all ({data.items.length})</span>
+          <span className="text-sm text-subtle">Select all pending ({pendingItems.length})</span>
         </div>
-        {data.items.map((req) => (
+        )}
+        {data.items.map((req) => {
+          const reqIsPending = isPendingStatus(req.status)
+          return (
         <div
           key={req.id}
-          className={`rounded-lg border bg-white p-4 shadow-sm ${selectedIds.has(req.id) ? 'border-blue-400 ring-1 ring-blue-200' : 'border-gray-200'}`}
+          className={`rounded-lg border p-4 shadow-sm ${
+            !reqIsPending
+              ? 'border-hl-med bg-hl-low'
+              : selectedIds.has(req.id)
+                ? 'border-iris bg-surface ring-1 ring-iris/30'
+                : 'border-hl-med bg-surface'
+          }`}
         >
           <div className="flex items-start gap-3">
+            {reqIsPending ? (
             <input
               type="checkbox"
               checked={selectedIds.has(req.id)}
               onChange={() => toggleSelection(req.id)}
-              className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              className="mt-1 h-4 w-4 rounded border-hl-med text-iris focus:ring-iris"
             />
+            ) : (
+            <div className="mt-1 h-4 w-4" />
+            )}
             <div className="flex-1">
               <div className="flex items-center gap-2">
-                <code className="rounded bg-blue-100 px-2 py-0.5 text-sm font-medium text-blue-800">
+                <code className="rounded bg-pine/10 px-2 py-0.5 text-sm font-medium text-pine">
                   {req.host}
                   {req.port ? `:${req.port}` : ''}
                 </code>
-                <span className="text-sm text-gray-500">for</span>
-                <span className="text-sm font-medium text-gray-700">
+                <span className="text-sm text-subtle">for</span>
+                <span className="text-sm font-medium text-on-base">
                   {req.server_name}.{req.tool_name}
                 </span>
+                <StatusBadge status={req.status} />
               </div>
-              <p className="mt-2 text-sm text-gray-600">{req.justification}</p>
+              <p className="mt-2 text-sm text-subtle">{req.justification}</p>
               {req.requested_by && (
-                <p className="mt-1 text-xs text-gray-400">
+                <p className="mt-1 text-xs text-muted">
                   Requested by: {req.requested_by}
                 </p>
               )}
+              {/* Show approval/rejection details for historical items */}
+              {req.status === 'approved' && req.reviewed_at && (
+                <p className="mt-1 text-xs text-foam">
+                  Approved{req.reviewed_by ? ` by ${req.reviewed_by}` : ''} on {formatDate(req.reviewed_at)}
+                </p>
+              )}
+              {req.status === 'rejected' && req.rejection_reason && (
+                <div className="mt-2 rounded bg-love/10 p-2 text-sm text-love">
+                  <strong>Rejection reason:</strong> {req.rejection_reason}
+                </div>
+              )}
             </div>
+            {reqIsPending && (
             <div className="ml-4 flex gap-2">
               <button
                 onClick={() => handleApprove(req.id)}
                 disabled={networkAction.isPending}
-                className="rounded bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+                className="rounded-lg bg-foam px-3 py-1.5 text-sm font-medium text-base hover:bg-foam/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-foam"
               >
                 Approve
               </button>
@@ -1165,31 +1375,33 @@ function NetworkRequestsQueue() {
                   setShowRejectModal(true)
                 }}
                 disabled={networkAction.isPending}
-                className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
               >
                 Request Revision
               </button>
             </div>
+            )}
           </div>
         </div>
-      ))}
+          )
+      })}
         </>
       )}
 
       {/* Revision Request Modal */}
       {showRejectModal && selectedRequest && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
-            <h3 className="text-lg font-medium text-gray-900">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl">
+            <h3 className="text-lg font-medium text-on-base">
               Request Revision: {selectedRequest.host}
             </h3>
-            <p className="mt-1 text-sm text-gray-500">
+            <p className="mt-1 text-sm text-subtle">
               Provide feedback to help the LLM find a better approach.
             </p>
             <textarea
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
-              className="mt-4 w-full rounded border border-gray-300 p-2 text-sm"
+              className="mt-4 w-full rounded-lg border border-hl-med p-2 text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
               rows={4}
               placeholder="What needs to be changed..."
             />
@@ -1200,14 +1412,14 @@ function NetworkRequestsQueue() {
                   setRejectReason('')
                   setSelectedRequest(null)
                 }}
-                className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                className="rounded-lg border border-hl-med px-3 py-1.5 text-sm font-medium text-on-base hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
               >
                 Cancel
               </button>
               <button
                 onClick={handleReject}
                 disabled={!rejectReason.trim() || networkAction.isPending}
-                className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
               >
                 Request Revision
               </button>
@@ -1218,18 +1430,18 @@ function NetworkRequestsQueue() {
 
       {/* Bulk Revision Request Modal */}
       {showBulkRejectModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
-            <h3 className="text-lg font-medium text-gray-900">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl">
+            <h3 className="text-lg font-medium text-on-base">
               Request Revision for {selectedIds.size} Network Requests
             </h3>
-            <p className="mt-1 text-sm text-gray-500">
+            <p className="mt-1 text-sm text-subtle">
               Provide feedback that will be applied to all selected requests.
             </p>
             <textarea
               value={bulkRejectReason}
               onChange={(e) => setBulkRejectReason(e.target.value)}
-              className="mt-4 w-full rounded border border-gray-300 p-2 text-sm"
+              className="mt-4 w-full rounded-lg border border-hl-med p-2 text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
               rows={4}
               placeholder="What needs to be changed..."
             />
@@ -1239,14 +1451,14 @@ function NetworkRequestsQueue() {
                   setShowBulkRejectModal(false)
                   setBulkRejectReason('')
                 }}
-                className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                className="rounded-lg border border-hl-med px-3 py-1.5 text-sm font-medium text-on-base hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
               >
                 Cancel
               </button>
               <button
                 onClick={handleBulkReject}
                 disabled={!bulkRejectReason.trim() || bulkAction.isPending}
-                className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
               >
                 Request Revision All
               </button>

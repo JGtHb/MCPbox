@@ -72,16 +72,16 @@ export function ConfigurationForm({ editConfig, onClose, onSuccess }: Configurat
   const isPending = createMutation.isPending || updateMutation.isPending
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-4 sm:p-6 w-full max-w-lg">
-        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
+    <div className="fixed inset-0 bg-base/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-surface rounded-lg shadow-xl p-4 sm:p-6 w-full max-w-lg">
+        <h3 className="text-lg font-medium text-on-base mb-4">
           {isEditing ? 'Edit Configuration' : 'New Tunnel Configuration'}
         </h3>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Name */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label className="block text-sm font-medium text-subtle mb-1">
               Configuration Name *
             </label>
             <input
@@ -90,13 +90,13 @@ export function ConfigurationForm({ editConfig, onClose, onSuccess }: Configurat
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g., Production, Development"
               required
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+              className="w-full px-3 py-2 border border-hl-med rounded-lg text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
             />
           </div>
 
           {/* Description */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label className="block text-sm font-medium text-subtle mb-1">
               Description
             </label>
             <input
@@ -104,13 +104,13 @@ export function ConfigurationForm({ editConfig, onClose, onSuccess }: Configurat
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Optional description"
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+              className="w-full px-3 py-2 border border-hl-med rounded-lg text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
             />
           </div>
 
           {/* Public URL */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label className="block text-sm font-medium text-subtle mb-1">
               Public URL / Custom Subdomain
             </label>
             <input
@@ -118,16 +118,16 @@ export function ConfigurationForm({ editConfig, onClose, onSuccess }: Configurat
               value={publicUrl}
               onChange={(e) => setPublicUrl(e.target.value)}
               placeholder="e.g., mcpbox.example.com"
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+              className="w-full px-3 py-2 border border-hl-med rounded-lg text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
             />
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            <p className="mt-1 text-xs text-muted">
               The hostname you configured in Cloudflare for this tunnel
             </p>
           </div>
 
           {/* Tunnel Token */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label className="block text-sm font-medium text-subtle mb-1">
               Tunnel Token {isEditing ? '(leave empty to keep current)' : '*'}
             </label>
             <div className="relative">
@@ -137,23 +137,24 @@ export function ConfigurationForm({ editConfig, onClose, onSuccess }: Configurat
                 onChange={(e) => setTunnelToken(e.target.value)}
                 placeholder={isEditing ? 'Enter new token to update' : 'Paste your tunnel token'}
                 required={!isEditing}
-                className="w-full px-3 py-2 pr-16 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                className="w-full px-3 py-2 pr-16 border border-hl-med rounded-lg text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
               />
               <button
                 type="button"
                 onClick={() => setShowToken(!showToken)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                aria-label="Toggle password visibility"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted hover:text-on-base rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
               >
                 {showToken ? 'Hide' : 'Show'}
               </button>
             </div>
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            <p className="mt-1 text-xs text-muted">
               Get this from{' '}
               <a
                 href="https://one.dash.cloudflare.com/"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-blue-600 dark:text-blue-400 hover:underline"
+                className="text-pine hover:underline"
               >
                 Cloudflare Zero Trust Dashboard
               </a>
@@ -163,8 +164,8 @@ export function ConfigurationForm({ editConfig, onClose, onSuccess }: Configurat
 
           {/* Error */}
           {error && (
-            <div className="p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg">
-              <p className="text-sm text-red-800 dark:text-red-300">{error}</p>
+            <div className="p-3 bg-love/10 border border-love/20 rounded-lg">
+              <p className="text-sm text-love">{error}</p>
             </div>
           )}
 
@@ -173,14 +174,14 @@ export function ConfigurationForm({ editConfig, onClose, onSuccess }: Configurat
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              className="flex-1 px-4 py-2 border border-hl-med rounded-lg text-subtle hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isPending || !name}
-              className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="flex-1 px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
             >
               {isPending ? 'Saving...' : isEditing ? 'Update' : 'Create'}
             </button>
@@ -189,11 +190,11 @@ export function ConfigurationForm({ editConfig, onClose, onSuccess }: Configurat
 
         {/* Setup help */}
         {!isEditing && (
-          <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
-            <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-2">
+          <div className="mt-6 pt-4 border-t border-hl-med">
+            <h4 className="text-sm font-medium text-on-base mb-2">
               How to create a named tunnel
             </h4>
-            <ol className="text-xs text-gray-600 dark:text-gray-400 space-y-1 list-decimal list-inside">
+            <ol className="text-xs text-subtle space-y-1 list-decimal list-inside">
               <li>Go to Cloudflare Zero Trust Dashboard</li>
               <li>Navigate to Networks &rarr; Tunnels</li>
               <li>Click "Create a tunnel"</li>

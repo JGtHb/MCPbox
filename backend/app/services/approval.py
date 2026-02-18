@@ -182,42 +182,39 @@ class ApprovalService:
         page: int = 1,
         page_size: int = 20,
         search: str | None = None,
+        status: str | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
-        """Get tools pending approval.
+        """Get tools by approval status.
 
         Args:
             page: Page number (1-indexed)
             page_size: Items per page
             search: Optional search term to filter by tool name, description, or server name
+            status: Filter by status. None or "pending_review" for pending only,
+                    "all" for all statuses, or specific status value.
 
         Returns:
             Tuple of (items, total_count)
         """
         from app.models import Server
 
-        # Build base filter
-        base_filter = Tool.approval_status == "pending_review"
-
-        # Add search filter if provided
-        if search:
-            search_term = f"%{search}%"
-            search_filter = or_(
-                Tool.name.ilike(search_term),
-                Tool.description.ilike(search_term),
-            )
-            # We need to join with Server for server name search
-            base_filter = base_filter & search_filter
+        # Determine status filter
+        if status and status != "pending_review":
+            if status == "all":
+                status_filter = Tool.approval_status.in_(["pending_review", "approved", "rejected"])
+            else:
+                status_filter = Tool.approval_status == status
+        else:
+            status_filter = Tool.approval_status == "pending_review"
 
         # Count total
-        count_stmt = select(func.count(Tool.id)).where(base_filter)
         if search:
-            # Join with Server for server name search in count
             count_stmt = (
                 select(func.count(Tool.id))
                 .select_from(Tool)
                 .outerjoin(Server, Tool.server_id == Server.id)
                 .where(
-                    Tool.approval_status == "pending_review",
+                    status_filter,
                     or_(
                         Tool.name.ilike(f"%{search}%"),
                         Tool.description.ilike(f"%{search}%"),
@@ -225,34 +222,35 @@ class ApprovalService:
                     ),
                 )
             )
+        else:
+            count_stmt = select(func.count(Tool.id)).where(status_filter)
         count_result = await self.db.execute(count_stmt)
         total = count_result.scalar() or 0
 
         # Get items with server info
-        stmt = (
-            select(Tool)
-            .options(selectinload(Tool.server))
-            .where(Tool.approval_status == "pending_review")
-            .order_by(Tool.approval_requested_at.asc())
-            .offset((page - 1) * page_size)
-            .limit(page_size)
-        )
         if search:
-            from app.models import Server
-
             stmt = (
                 select(Tool)
                 .options(selectinload(Tool.server))
                 .outerjoin(Server, Tool.server_id == Server.id)
                 .where(
-                    Tool.approval_status == "pending_review",
+                    status_filter,
                     or_(
                         Tool.name.ilike(f"%{search}%"),
                         Tool.description.ilike(f"%{search}%"),
                         Server.name.ilike(f"%{search}%"),
                     ),
                 )
-                .order_by(Tool.approval_requested_at.asc())
+                .order_by(Tool.approval_requested_at.desc().nullslast())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+        else:
+            stmt = (
+                select(Tool)
+                .options(selectinload(Tool.server))
+                .where(status_filter)
+                .order_by(Tool.approval_requested_at.desc().nullslast())
                 .offset((page - 1) * page_size)
                 .limit(page_size)
             )
@@ -269,7 +267,11 @@ class ApprovalService:
                 "python_code": tool.python_code,
                 "created_by": tool.created_by,
                 "publish_notes": tool.publish_notes,
+                "approval_status": tool.approval_status,
                 "approval_requested_at": tool.approval_requested_at,
+                "approved_at": tool.approved_at,
+                "approved_by": tool.approved_by,
+                "rejection_reason": tool.rejection_reason,
                 "current_version": tool.current_version,
             }
             for tool in tools
@@ -453,19 +455,28 @@ class ApprovalService:
         page: int = 1,
         page_size: int = 20,
         search: str | None = None,
+        status: str | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
-        """Get pending module requests.
+        """Get module requests filtered by status.
 
         Args:
             page: Page number (1-indexed)
             page_size: Items per page
             search: Optional search term to filter by module name or justification
+            status: Filter by status. None or "pending" for pending only,
+                    "all" for all statuses, or specific status value.
 
         Returns:
             Tuple of (items, total_count)
         """
         # Build base query conditions
-        conditions = [ModuleRequest.status == "pending"]
+        if status and status != "pending":
+            if status == "all":
+                conditions = [ModuleRequest.status.in_(["pending", "approved", "rejected"])]
+            else:
+                conditions = [ModuleRequest.status == status]
+        else:
+            conditions = [ModuleRequest.status == "pending"]
 
         if search:
             search_term = f"%{search}%"
@@ -484,7 +495,7 @@ class ApprovalService:
             select(ModuleRequest)
             .options(selectinload(ModuleRequest.tool).selectinload(Tool.server))
             .where(*conditions)
-            .order_by(ModuleRequest.created_at.asc())
+            .order_by(ModuleRequest.created_at.desc())
             .offset((page - 1) * page_size)
             .limit(page_size)
         )
@@ -502,6 +513,9 @@ class ApprovalService:
                 "justification": req.justification,
                 "requested_by": req.requested_by,
                 "status": req.status,
+                "reviewed_by": req.reviewed_by,
+                "reviewed_at": req.reviewed_at,
+                "rejection_reason": req.rejection_reason,
                 "created_at": req.created_at,
             }
             for req in requests
@@ -684,19 +698,28 @@ class ApprovalService:
         page: int = 1,
         page_size: int = 20,
         search: str | None = None,
+        status: str | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
-        """Get pending network access requests.
+        """Get network access requests filtered by status.
 
         Args:
             page: Page number (1-indexed)
             page_size: Items per page
             search: Optional search term to filter by host or justification
+            status: Filter by status. None or "pending" for pending only,
+                    "all" for all statuses, or specific status value.
 
         Returns:
             Tuple of (items, total_count)
         """
         # Build base query conditions
-        conditions = [NetworkAccessRequest.status == "pending"]
+        if status and status != "pending":
+            if status == "all":
+                conditions = [NetworkAccessRequest.status.in_(["pending", "approved", "rejected"])]
+            else:
+                conditions = [NetworkAccessRequest.status == status]
+        else:
+            conditions = [NetworkAccessRequest.status == "pending"]
 
         if search:
             search_term = f"%{search}%"
@@ -715,7 +738,7 @@ class ApprovalService:
             select(NetworkAccessRequest)
             .options(selectinload(NetworkAccessRequest.tool).selectinload(Tool.server))
             .where(*conditions)
-            .order_by(NetworkAccessRequest.created_at.asc())
+            .order_by(NetworkAccessRequest.created_at.desc())
             .offset((page - 1) * page_size)
             .limit(page_size)
         )
@@ -734,6 +757,9 @@ class ApprovalService:
                 "justification": req.justification,
                 "requested_by": req.requested_by,
                 "status": req.status,
+                "reviewed_by": req.reviewed_by,
+                "reviewed_at": req.reviewed_at,
+                "rejection_reason": req.rejection_reason,
                 "created_at": req.created_at,
             }
             for req in requests
@@ -753,6 +779,103 @@ class ApprovalService:
         )
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
+
+    # =========================================================================
+    # Server-scoped Queries
+    # =========================================================================
+
+    async def get_module_requests_for_server(
+        self,
+        server_id: UUID,
+        status: str | None = "approved",
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Get module requests for all tools belonging to a server."""
+
+        conditions = [Tool.server_id == server_id]
+        if status and status != "all":
+            conditions.append(ModuleRequest.status == status)
+
+        count_stmt = (
+            select(func.count(ModuleRequest.id))
+            .select_from(ModuleRequest)
+            .join(Tool, ModuleRequest.tool_id == Tool.id)
+            .where(*conditions)
+        )
+        count_result = await self.db.execute(count_stmt)
+        total = count_result.scalar() or 0
+
+        stmt = (
+            select(ModuleRequest)
+            .options(selectinload(ModuleRequest.tool).selectinload(Tool.server))
+            .join(Tool, ModuleRequest.tool_id == Tool.id)
+            .where(*conditions)
+            .order_by(ModuleRequest.created_at.desc())
+        )
+        result = await self.db.execute(stmt)
+        requests = result.scalars().all()
+
+        items = [
+            {
+                "id": str(req.id),
+                "tool_id": str(req.tool_id),
+                "tool_name": req.tool.name if req.tool else "Unknown",
+                "module_name": req.module_name,
+                "justification": req.justification,
+                "status": req.status,
+                "reviewed_by": req.reviewed_by,
+                "created_at": req.created_at.isoformat() if req.created_at else None,
+            }
+            for req in requests
+        ]
+
+        return items, total
+
+    async def get_network_requests_for_server(
+        self,
+        server_id: UUID,
+        status: str | None = "approved",
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Get network access requests for all tools belonging to a server."""
+
+        conditions = [Tool.server_id == server_id]
+        if status and status != "all":
+            conditions.append(NetworkAccessRequest.status == status)
+
+        count_stmt = (
+            select(func.count(NetworkAccessRequest.id))
+            .select_from(NetworkAccessRequest)
+            .join(Tool, NetworkAccessRequest.tool_id == Tool.id)
+            .where(*conditions)
+        )
+        count_result = await self.db.execute(count_stmt)
+        total = count_result.scalar() or 0
+
+        stmt = (
+            select(NetworkAccessRequest)
+            .options(selectinload(NetworkAccessRequest.tool).selectinload(Tool.server))
+            .join(Tool, NetworkAccessRequest.tool_id == Tool.id)
+            .where(*conditions)
+            .order_by(NetworkAccessRequest.created_at.desc())
+        )
+        result = await self.db.execute(stmt)
+        requests = result.scalars().all()
+
+        items = [
+            {
+                "id": str(req.id),
+                "tool_id": str(req.tool_id),
+                "tool_name": req.tool.name if req.tool else "Unknown",
+                "host": req.host,
+                "port": req.port,
+                "justification": req.justification,
+                "status": req.status,
+                "reviewed_by": req.reviewed_by,
+                "created_at": req.created_at.isoformat() if req.created_at else None,
+            }
+            for req in requests
+        ]
+
+        return items, total
 
     # =========================================================================
     # Dashboard Statistics

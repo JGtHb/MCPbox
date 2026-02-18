@@ -142,6 +142,14 @@ Features are sorted by status, with broken/partial items at the top for visibili
 - **Dependencies**: All core services (aggregates statistics)
 - **Test coverage**: `backend/tests/test_dashboard_api.py`, `frontend/src/**/__tests__/Dashboard.test.tsx` (10 tests)
 
+### Frontend UI Standards & Accessibility
+- **Status**: Complete
+- **Description**: Comprehensive frontend UI/UX polish pass. Established documented standards in `docs/FRONTEND-STANDARDS.md` covering: Rosé Pine color system (no generic Tailwind colors), three-tier button sizing (xs/sm/md), visible focus indicators on all interactive elements (WCAG 2.1 AA), `ConfirmModal` for all destructive confirmations (replacing native `confirm()`), ARIA attributes (`aria-label` on icon-only buttons, `aria-expanded` on collapsibles, `role="dialog"` on modals), consistent border-radius (`rounded-lg`/`rounded-md`/`rounded-full`), standardized empty states with icons, and mobile-responsive toolbars.
+- **Owner modules**: All `frontend/src/` components and pages, `docs/FRONTEND-STANDARDS.md`
+- **Dependencies**: `components/ui/ConfirmModal.tsx` (focus trap, escape handling, ARIA)
+- **Test coverage**: Existing frontend tests; standards enforced via documentation
+- **Security notes**: None (UI-only changes)
+
 ### Rate Limiting
 - **Status**: Complete
 - **Description**: Per-IP rate limiting on API endpoints (100 req/min default). Login rate limiting (5/min). Service token failure rate limiting (10/min). Sandbox tool rate limiting (60/min).

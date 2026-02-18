@@ -37,7 +37,7 @@ export function LogViewer({ serverId, enabled = true }: LogViewerProps) {
 
   if (!enabled) {
     return (
-      <div className="bg-gray-900 text-gray-400 rounded-lg p-4 text-center">
+      <div className="bg-base text-muted rounded-lg p-4 text-center">
         Start the server to view logs
       </div>
     )
@@ -45,7 +45,7 @@ export function LogViewer({ serverId, enabled = true }: LogViewerProps) {
 
   if (isLoading) {
     return (
-      <div className="bg-gray-900 text-gray-400 rounded-lg p-4 text-center animate-pulse">
+      <div className="bg-base text-muted rounded-lg p-4 text-center animate-pulse">
         Loading logs...
       </div>
     )
@@ -53,11 +53,11 @@ export function LogViewer({ serverId, enabled = true }: LogViewerProps) {
 
   if (error) {
     return (
-      <div className="bg-gray-900 text-red-400 rounded-lg p-4">
+      <div className="bg-base text-love rounded-lg p-4">
         <p>Failed to load logs</p>
         <button
           onClick={() => refetch()}
-          className="mt-2 text-sm text-blue-400 hover:text-blue-300"
+          className="mt-2 text-sm text-pine hover:text-pine/80 transition-colors rounded-md focus:outline-none focus:ring-2 focus:ring-iris"
         >
           Retry
         </button>
@@ -66,22 +66,22 @@ export function LogViewer({ serverId, enabled = true }: LogViewerProps) {
   }
 
   return (
-    <div className="bg-gray-900 rounded-lg overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
-        <span className="text-sm font-medium text-gray-300">Container Logs</span>
+    <div className="bg-base rounded-lg overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-2 bg-overlay border-b border-hl-med">
+        <span className="text-sm font-medium text-subtle">Container Logs</span>
         <div className="flex items-center space-x-4">
-          <label className="flex items-center space-x-2 text-sm text-gray-400">
+          <label className="flex items-center space-x-2 text-sm text-muted">
             <input
               type="checkbox"
               checked={autoScroll}
               onChange={(e) => setAutoScroll(e.target.checked)}
-              className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
+              className="rounded border-hl-med bg-hl-med text-iris focus:ring-iris"
             />
             <span>Auto-scroll</span>
           </label>
           <button
             onClick={() => refetch()}
-            className="text-sm text-gray-400 hover:text-gray-300"
+            className="text-sm text-muted hover:text-subtle transition-colors rounded-md focus:outline-none focus:ring-2 focus:ring-iris"
           >
             Refresh
           </button>
@@ -89,7 +89,7 @@ export function LogViewer({ serverId, enabled = true }: LogViewerProps) {
       </div>
       <pre
         ref={containerRef}
-        className="p-4 text-sm text-gray-300 font-mono overflow-auto max-h-96 whitespace-pre-wrap"
+        className="p-4 text-sm text-subtle font-mono overflow-auto max-h-96 whitespace-pre-wrap"
       >
         {data?.logs || 'No logs available'}
       </pre>

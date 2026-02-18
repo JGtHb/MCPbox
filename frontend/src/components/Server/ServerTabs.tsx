@@ -1,4 +1,4 @@
-export type TabId = 'overview' | 'tools' | 'external' | 'logs' | 'secrets' | 'settings'
+export type TabId = 'overview' | 'tools' | 'external' | 'resources' | 'logs' | 'secrets' | 'settings'
 
 interface Tab {
   id: TabId
@@ -32,6 +32,15 @@ const tabs: Tab[] = [
     icon: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.86-2.556a4.5 4.5 0 00-6.364-6.364L4.5 8.243a4.5 4.5 0 001.242 7.244" />
+      </svg>
+    ),
+  },
+  {
+    id: 'resources',
+    label: 'Approved Resources',
+    icon: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
       </svg>
     ),
   },
@@ -71,7 +80,7 @@ interface ServerTabsProps {
 
 export function ServerTabs({ activeTab, onTabChange }: ServerTabsProps) {
   return (
-    <div className="border-b border-gray-200">
+    <div className="border-b border-hl-med">
       <nav className="-mb-px flex space-x-6 overflow-x-auto px-6" aria-label="Server tabs">
         {tabs.map((tab) => {
           const isActive = tab.id === activeTab
@@ -79,10 +88,10 @@ export function ServerTabs({ activeTab, onTabChange }: ServerTabsProps) {
             <button
               key={tab.id}
               onClick={() => onTabChange(tab.id)}
-              className={`flex items-center gap-2 whitespace-nowrap py-3 px-1 border-b-2 text-sm font-medium transition-colors ${
+              className={`flex items-center gap-2 whitespace-nowrap py-3 px-1 border-b-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:ring-inset ${
                 isActive
-                  ? 'border-indigo-500 text-indigo-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  ? 'border-iris text-iris'
+                  : 'border-transparent text-subtle hover:text-on-base hover:border-hl-high'
               }`}
               aria-current={isActive ? 'page' : undefined}
             >

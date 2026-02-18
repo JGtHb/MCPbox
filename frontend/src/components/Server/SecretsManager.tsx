@@ -45,28 +45,28 @@ function SetValueModal({
       aria-labelledby="set-value-title"
     >
       <div
-        className="fixed inset-0 bg-gray-500 bg-opacity-75"
+        className="fixed inset-0 bg-base/75"
         aria-hidden="true"
         onClick={onCancel}
       />
       <div className="fixed inset-0 flex items-center justify-center p-4" onClick={onCancel}>
         <div
-          className="relative bg-white rounded-lg shadow-xl max-w-md w-full p-6"
+          className="relative bg-surface rounded-lg shadow-xl max-w-md w-full p-6"
           onClick={(e) => e.stopPropagation()}
         >
-          <h3 id="set-value-title" className="text-lg font-medium text-gray-900 mb-1">
+          <h3 id="set-value-title" className="text-lg font-medium text-on-base mb-1">
             Set Secret Value
           </h3>
-          <p className="text-sm text-gray-500 mb-4">
+          <p className="text-sm text-subtle mb-4">
             Set the value for <span className="font-mono font-medium">{secret.key_name}</span>
           </p>
           {secret.description && (
-            <p className="text-xs text-gray-400 mb-4">{secret.description}</p>
+            <p className="text-xs text-muted mb-4">{secret.description}</p>
           )}
 
           <form onSubmit={handleSubmit}>
             <div className="mb-4">
-              <label htmlFor="secret-value" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="secret-value" className="block text-sm font-medium text-on-base mb-1">
                 Value
               </label>
               <input
@@ -75,7 +75,7 @@ function SetValueModal({
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
                 placeholder="Enter secret value..."
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
+                className="w-full px-3 py-2 border border-hl-med rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris font-mono text-sm"
                 autoFocus
                 autoComplete="off"
               />
@@ -88,14 +88,14 @@ function SetValueModal({
                   onCancel()
                 }}
                 disabled={isLoading}
-                className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                className="flex-1 px-4 py-2 text-sm font-medium text-on-base bg-surface border border-hl-med rounded-md hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isLoading || !value.trim()}
-                className="flex-1 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                className="flex-1 px-4 py-2 text-sm font-medium text-base bg-iris rounded-md hover:bg-iris/80 transition-colors focus:outline-none focus:ring-2 focus:ring-iris disabled:opacity-50"
               >
                 {isLoading ? 'Setting...' : secret.has_value ? 'Update Value' : 'Set Value'}
               </button>
@@ -155,22 +155,22 @@ function CreateSecretModal({
       aria-labelledby="create-secret-title"
     >
       <div
-        className="fixed inset-0 bg-gray-500 bg-opacity-75"
+        className="fixed inset-0 bg-base/75"
         aria-hidden="true"
         onClick={onCancel}
       />
       <div className="fixed inset-0 flex items-center justify-center p-4" onClick={onCancel}>
         <div
-          className="relative bg-white rounded-lg shadow-xl max-w-md w-full p-6"
+          className="relative bg-surface rounded-lg shadow-xl max-w-md w-full p-6"
           onClick={(e) => e.stopPropagation()}
         >
-          <h3 id="create-secret-title" className="text-lg font-medium text-gray-900 mb-4">
+          <h3 id="create-secret-title" className="text-lg font-medium text-on-base mb-4">
             Create Secret
           </h3>
 
           <form onSubmit={handleSubmit}>
             <div className="mb-4">
-              <label htmlFor="key-name" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="key-name" className="block text-sm font-medium text-on-base mb-1">
                 Key Name
               </label>
               <input
@@ -182,23 +182,23 @@ function CreateSecretModal({
                   if (keyError) validateKeyName(e.target.value.toUpperCase())
                 }}
                 placeholder="e.g. API_KEY"
-                className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm ${
-                  keyError ? 'border-red-300' : 'border-gray-300'
+                className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris font-mono text-sm ${
+                  keyError ? 'border-love' : 'border-hl-med'
                 }`}
                 autoFocus
                 autoComplete="off"
               />
               {keyError && (
-                <p className="mt-1 text-xs text-red-600">{keyError}</p>
+                <p className="mt-1 text-xs text-love">{keyError}</p>
               )}
-              <p className="mt-1 text-xs text-gray-400">
+              <p className="mt-1 text-xs text-muted">
                 Uppercase letters, numbers, underscores. Access in tools via{' '}
-                <code className="bg-gray-100 px-1 rounded">secrets[&quot;KEY_NAME&quot;]</code>
+                <code className="bg-hl-low px-1 rounded">secrets[&quot;KEY_NAME&quot;]</code>
               </p>
             </div>
             <div className="mb-4">
-              <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">
-                Description <span className="text-gray-400">(optional)</span>
+              <label htmlFor="description" className="block text-sm font-medium text-on-base mb-1">
+                Description <span className="text-muted">(optional)</span>
               </label>
               <input
                 id="description"
@@ -206,7 +206,7 @@ function CreateSecretModal({
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="e.g. TheirStack API key for job search"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                className="w-full px-3 py-2 border border-hl-med rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris text-sm"
               />
             </div>
             <div className="flex space-x-3">
@@ -219,14 +219,14 @@ function CreateSecretModal({
                   onCancel()
                 }}
                 disabled={isLoading}
-                className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                className="flex-1 px-4 py-2 text-sm font-medium text-on-base bg-surface border border-hl-med rounded-md hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isLoading || !keyName.trim()}
-                className="flex-1 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                className="flex-1 px-4 py-2 text-sm font-medium text-base bg-iris rounded-md hover:bg-iris/80 transition-colors focus:outline-none focus:ring-2 focus:ring-iris disabled:opacity-50"
               >
                 {isLoading ? 'Creating...' : 'Create'}
               </button>
@@ -293,9 +293,9 @@ export function SecretsManager({ serverId }: SecretsManagerProps) {
   const secrets = data?.items || []
 
   return (
-    <div className="bg-white rounded-lg shadow p-6">
+    <div className="bg-surface rounded-lg shadow p-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-medium text-gray-900">
+        <h3 className="text-lg font-medium text-on-base">
           Secrets ({secrets.length})
         </h3>
         <button
@@ -303,30 +303,30 @@ export function SecretsManager({ serverId }: SecretsManagerProps) {
             setMutationError(null)
             setShowCreateModal(true)
           }}
-          className="px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          className="px-3 py-1.5 text-sm font-medium text-iris bg-iris/10 border border-iris rounded-md hover:bg-iris/20 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
         >
           + Add Secret
         </button>
       </div>
 
       {mutationError && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
-          <p className="text-sm text-red-700">{mutationError}</p>
+        <div className="mb-4 p-3 bg-love/10 border border-love/20 rounded-md">
+          <p className="text-sm text-love">{mutationError}</p>
         </div>
       )}
 
       {isLoading ? (
-        <div className="text-sm text-gray-500 py-4 text-center">
+        <div className="text-sm text-subtle py-4 text-center">
           Loading secrets...
         </div>
       ) : error ? (
-        <div className="text-sm text-red-500 py-4 text-center">
+        <div className="text-sm text-love py-4 text-center">
           Failed to load secrets
         </div>
       ) : secrets.length === 0 ? (
         <div className="text-center py-6">
           <svg
-            className="w-10 h-10 text-gray-300 mx-auto mb-3"
+            className="w-10 h-10 text-muted mx-auto mb-3"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -339,15 +339,15 @@ export function SecretsManager({ serverId }: SecretsManagerProps) {
               d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"
             />
           </svg>
-          <p className="text-gray-500 text-sm mb-1">No secrets configured</p>
-          <p className="text-xs text-gray-400">
-            LLMs create secret placeholders via <code className="bg-gray-100 px-1 rounded">mcpbox_create_server_secret</code>.
+          <p className="text-subtle text-sm mb-1">No secrets configured</p>
+          <p className="text-xs text-muted">
+            LLMs create secret placeholders via <code className="bg-hl-low px-1 rounded">mcpbox_create_server_secret</code>.
             <br />
             You can also add secrets manually above.
           </p>
         </div>
       ) : (
-        <div className="divide-y divide-gray-100">
+        <div className="divide-y divide-hl-med">
           {secrets.map((secret) => (
             <div
               key={secret.id}
@@ -355,21 +355,21 @@ export function SecretsManager({ serverId }: SecretsManagerProps) {
             >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-sm font-medium text-gray-900">
+                  <span className="font-mono text-sm font-medium text-on-base">
                     {secret.key_name}
                   </span>
                   <span
                     className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
                       secret.has_value
-                        ? 'bg-green-100 text-green-700'
-                        : 'bg-yellow-100 text-yellow-700'
+                        ? 'bg-foam/10 text-foam'
+                        : 'bg-gold/10 text-gold'
                     }`}
                   >
                     {secret.has_value ? 'Set' : 'Not Set'}
                   </span>
                 </div>
                 {secret.description && (
-                  <p className="text-xs text-gray-400 mt-0.5 truncate">
+                  <p className="text-xs text-muted mt-0.5 truncate">
                     {secret.description}
                   </p>
                 )}
@@ -381,7 +381,7 @@ export function SecretsManager({ serverId }: SecretsManagerProps) {
                     setSelectedSecret(secret)
                     setShowSetValueModal(true)
                   }}
-                  className="px-2.5 py-1 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-blue-500"
+                  className="px-2.5 py-1 text-xs font-medium text-on-base bg-surface border border-hl-med rounded-lg hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
                 >
                   {secret.has_value ? 'Update' : 'Set Value'}
                 </button>
@@ -390,7 +390,7 @@ export function SecretsManager({ serverId }: SecretsManagerProps) {
                     setMutationError(null)
                     setDeleteTarget(secret)
                   }}
-                  className="px-2.5 py-1 text-xs font-medium text-red-700 bg-white border border-red-200 rounded hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-red-500"
+                  className="px-2.5 py-1 text-xs font-medium text-love bg-surface border border-love/20 rounded-lg hover:bg-love/10 transition-colors focus:outline-none focus:ring-2 focus:ring-love"
                 >
                   Delete
                 </button>

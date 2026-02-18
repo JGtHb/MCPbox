@@ -70,7 +70,7 @@ Two modes: **Local** (no auth, Claude Desktop → localhost:8000/mcp) and **Remo
 | [docs/FEATURES.md](docs/FEATURES.md) | Feature inventory with status, test coverage, owner modules |
 | [docs/SECURITY.md](docs/SECURITY.md) | Security risk registry (17 findings by severity) |
 | [docs/TESTING.md](docs/TESTING.md) | Test coverage map, critical gaps, infrastructure |
-| [docs/DECISIONS.md](docs/DECISIONS.md) | Architecture decision records (14 ADRs) |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Architecture decision records (15 ADRs) |
 | [docs/API-CONTRACTS.md](docs/API-CONTRACTS.md) | Internal + external API contracts and schemas |
 | [docs/INCONSISTENCIES.md](docs/INCONSISTENCIES.md) | Technical debt, dead code, naming issues |
 | [docs/AUTH-FLOW.md](docs/AUTH-FLOW.md) | Worker + Gateway auth flow details |
@@ -78,6 +78,7 @@ Two modes: **Local** (no auth, Claude Desktop → localhost:8000/mcp) and **Remo
 | [docs/MCP-MANAGEMENT-TOOLS.md](docs/MCP-MANAGEMENT-TOOLS.md) | 24 `mcpbox_*` MCP tool reference |
 | [docs/INCIDENT-RESPONSE.md](docs/INCIDENT-RESPONSE.md) | Operational runbooks for failures |
 | [docs/CONSIDER-REMOVING.md](docs/CONSIDER-REMOVING.md) | Pre-release cleanup candidates (dead code, duplicates, vestigial features) |
+| [docs/FRONTEND-STANDARDS.md](docs/FRONTEND-STANDARDS.md) | Frontend style guide: colors, buttons, focus, ARIA, spacing, typography |
 
 ## Workflow Rules
 
@@ -85,6 +86,7 @@ Two modes: **Local** (no auth, Claude Desktop → localhost:8000/mcp) and **Remo
 - After security-relevant changes → update `docs/SECURITY.md`
 - After adding/modifying tests → update `docs/TESTING.md`
 - After architectural decisions → add entry to `docs/DECISIONS.md`
+- After frontend UI changes → follow `docs/FRONTEND-STANDARDS.md`
 - Periodically check `docs/INCONSISTENCIES.md` and resolve items
 - Always run `./scripts/pre-pr-check.sh` before PRs
 

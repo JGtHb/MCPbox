@@ -25,6 +25,7 @@ export interface ToolListItem {
   external_tool_name: string | null
   approval_status: string
   created_by: string | null
+  python_code: string | null
 }
 
 // Code validation types (used by test mocks)
