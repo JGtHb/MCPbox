@@ -8,7 +8,7 @@ export function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   return (
-    <div className="flex h-screen bg-gray-100 dark:bg-gray-900">
+    <div className="flex h-screen bg-base text-on-base">
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
         <div
@@ -34,19 +34,19 @@ export function Layout() {
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Mobile header with menu button */}
-        <div className="lg:hidden bg-gray-900 px-4 py-3 flex items-center gap-3">
+        <div className="lg:hidden bg-overlay px-4 py-3 flex items-center gap-3">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="p-2 text-white hover:bg-gray-800 rounded-lg"
+            className="p-2 text-on-base hover:bg-hl-med rounded-lg"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <span className="text-white font-bold">MCPbox</span>
+          <span className="text-on-base font-bold">MCPbox</span>
         </div>
 
-        <main className="flex-1 overflow-auto dark:bg-gray-900">
+        <main className="flex-1 overflow-auto bg-base">
           <Outlet />
         </main>
       </div>

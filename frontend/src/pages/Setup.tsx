@@ -51,11 +51,11 @@ export function Setup({ onSetupComplete }: SetupProps) {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-base px-4">
       <div className="max-w-md w-full space-y-8">
         <div className="text-center">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">MCPbox Setup</h1>
-          <p className="mt-2 text-gray-600 dark:text-gray-400">
+          <h1 className="text-3xl font-bold text-on-base">MCPbox Setup</h1>
+          <p className="mt-2 text-subtle">
             Create your admin account to get started
           </p>
         </div>
@@ -63,7 +63,7 @@ export function Setup({ onSetupComplete }: SetupProps) {
         <form onSubmit={handleSubmit} className="mt-8 space-y-6">
           <div className="space-y-4">
             <div>
-              <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label htmlFor="username" className="block text-sm font-medium text-on-base mb-1">
                 Username
               </label>
               <input
@@ -72,19 +72,19 @@ export function Setup({ onSetupComplete }: SetupProps) {
                 type="text"
                 autoComplete="username"
                 required
-                className="appearance-none rounded-lg relative block w-full px-3 py-3 border border-gray-300 dark:border-gray-600 placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-white bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                className="appearance-none rounded-lg relative block w-full px-3 py-3 border border-hl-med placeholder-muted text-on-base bg-surface focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris sm:text-sm"
                 placeholder="admin"
                 value={username}
                 onChange={e => setUsername(e.target.value)}
                 disabled={isLoading}
               />
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              <p className="mt-1 text-xs text-muted">
                 3-50 characters, letters, numbers, and underscores
               </p>
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label htmlFor="password" className="block text-sm font-medium text-on-base mb-1">
                 Password
               </label>
               <input
@@ -93,19 +93,19 @@ export function Setup({ onSetupComplete }: SetupProps) {
                 type="password"
                 autoComplete="new-password"
                 required
-                className="appearance-none rounded-lg relative block w-full px-3 py-3 border border-gray-300 dark:border-gray-600 placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-white bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                className="appearance-none rounded-lg relative block w-full px-3 py-3 border border-hl-med placeholder-muted text-on-base bg-surface focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris sm:text-sm"
                 placeholder="Enter password"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 disabled={isLoading}
               />
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              <p className="mt-1 text-xs text-muted">
                 Minimum 12 characters
               </p>
             </div>
 
             <div>
-              <label htmlFor="confirm-password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label htmlFor="confirm-password" className="block text-sm font-medium text-on-base mb-1">
                 Confirm Password
               </label>
               <input
@@ -114,7 +114,7 @@ export function Setup({ onSetupComplete }: SetupProps) {
                 type="password"
                 autoComplete="new-password"
                 required
-                className="appearance-none rounded-lg relative block w-full px-3 py-3 border border-gray-300 dark:border-gray-600 placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-white bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                className="appearance-none rounded-lg relative block w-full px-3 py-3 border border-hl-med placeholder-muted text-on-base bg-surface focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris sm:text-sm"
                 placeholder="Confirm password"
                 value={confirmPassword}
                 onChange={e => setConfirmPassword(e.target.value)}
@@ -124,11 +124,11 @@ export function Setup({ onSetupComplete }: SetupProps) {
           </div>
 
           {error && (
-            <div className="rounded-md bg-red-50 dark:bg-red-900/20 p-4">
+            <div className="rounded-md bg-love/10 p-4">
               <div className="flex">
                 <div className="flex-shrink-0">
                   <svg
-                    className="h-5 w-5 text-red-400"
+                    className="h-5 w-5 text-love"
                     viewBox="0 0 20 20"
                     fill="currentColor"
                     aria-hidden="true"
@@ -141,7 +141,7 @@ export function Setup({ onSetupComplete }: SetupProps) {
                   </svg>
                 </div>
                 <div className="ml-3">
-                  <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
+                  <p className="text-sm text-love">{error}</p>
                 </div>
               </div>
             </div>
@@ -151,12 +151,12 @@ export function Setup({ onSetupComplete }: SetupProps) {
             <button
               type="submit"
               disabled={isLoading || !username || !password || !confirmPassword}
-              className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-base bg-iris hover:bg-iris/80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-iris disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {isLoading ? (
                 <span className="flex items-center">
                   <svg
-                    className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
+                    className="animate-spin -ml-1 mr-3 h-5 w-5 text-base"
                     xmlns="http://www.w3.org/2000/svg"
                     fill="none"
                     viewBox="0 0 24 24"
@@ -184,7 +184,7 @@ export function Setup({ onSetupComplete }: SetupProps) {
           </div>
         </form>
 
-        <div className="text-center text-sm text-gray-500 dark:text-gray-400">
+        <div className="text-center text-sm text-muted">
           <p>
             This account will be used to access the MCPbox dashboard.
           </p>

@@ -1,3 +1,43 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    /* Rosé Pine Dawn */
+    --color-base: 250 244 237;         /* #faf4ed */
+    --color-surface: 255 250 243;      /* #fffaf3 */
+    --color-overlay: 242 233 225;      /* #f2e9e1 */
+    --color-muted: 152 147 165;        /* #9893a5 */
+    --color-subtle: 121 117 147;       /* #797593 */
+    --color-text: 87 82 121;           /* #575279 */
+    --color-love: 180 99 122;          /* #b4637a */
+    --color-gold: 234 157 52;          /* #ea9d34 */
+    --color-rose: 215 130 126;         /* #d7827e */
+    --color-pine: 40 105 131;          /* #286983 */
+    --color-foam: 86 148 159;          /* #56949f */
+    --color-iris: 144 122 169;         /* #907aa9 */
+    --color-highlight-low: 244 237 232;   /* #f4ede8 */
+    --color-highlight-med: 223 218 217;   /* #dfdad9 */
+    --color-highlight-high: 206 202 205;  /* #cecacd */
+  }
+
+  .dark {
+    /* Rosé Pine Moon */
+    --color-base: 35 33 54;            /* #232136 */
+    --color-surface: 42 39 63;         /* #2a273f */
+    --color-overlay: 57 53 82;         /* #393552 */
+    --color-muted: 110 106 134;        /* #6e6a86 */
+    --color-subtle: 144 140 170;       /* #908caa */
+    --color-text: 224 222 244;         /* #e0def4 */
+    --color-love: 235 111 146;         /* #eb6f92 */
+    --color-gold: 246 193 119;         /* #f6c177 */
+    --color-rose: 234 154 151;         /* #ea9a97 */
+    --color-pine: 62 143 176;          /* #3e8fb0 */
+    --color-foam: 156 207 216;         /* #9ccfd8 */
+    --color-iris: 196 167 231;         /* #c4a7e7 */
+    --color-highlight-low: 42 40 62;      /* #2a283e */
+    --color-highlight-med: 68 65 90;      /* #44415a */
+    --color-highlight-high: 86 82 110;    /* #56526e */
+  }
+}

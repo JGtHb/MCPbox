@@ -37,17 +37,17 @@ export function Tunnel() {
 
   if (isLoading) {
     return (
-      <div className="dark:bg-gray-900 min-h-full">
+      <div className="min-h-full">
         <Header title="Remote Access" />
         <div className="p-4 sm:p-6 max-w-4xl flex items-center justify-center min-h-[400px]">
-          <div className="animate-spin h-8 w-8 border-4 border-purple-500 border-t-transparent rounded-full" />
+          <div className="animate-spin h-8 w-8 border-4 border-iris border-t-transparent rounded-full" />
         </div>
       </div>
     )
   }
 
   return (
-    <div className="dark:bg-gray-900 min-h-full">
+    <div className="min-h-full">
       <Header title="Remote Access" />
       <div className="p-4 sm:p-6 max-w-4xl mx-auto">
 
@@ -55,11 +55,11 @@ export function Tunnel() {
         {isWizardActive && (
           <>
             {/* Status Card */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6 mb-6">
+            <div className="bg-surface rounded-lg shadow p-4 sm:p-6 mb-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                  <span className="text-lg font-medium text-gray-900 dark:text-white">
+                  <div className="w-3 h-3 rounded-full bg-foam"></div>
+                  <span className="text-lg font-medium text-on-base">
                     Remote Access Configured
                   </span>
                 </div>
@@ -69,7 +69,7 @@ export function Tunnel() {
                 {/* Worker URL */}
                 {cloudflareStatus?.worker_url && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <label className="block text-sm font-medium text-subtle mb-2">
                       MCP Endpoint URL (use this in Claude Web)
                     </label>
                     <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
@@ -77,11 +77,11 @@ export function Tunnel() {
                         type="text"
                         readOnly
                         value={`${cloudflareStatus.worker_url}/mcp`}
-                        className="flex-1 px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono text-gray-900 dark:text-gray-100"
+                        className="flex-1 px-3 py-2 bg-hl-low border border-hl-med rounded-lg text-sm font-mono text-on-base"
                       />
                       <button
                         onClick={() => handleCopy(`${cloudflareStatus.worker_url}/mcp`, 'worker')}
-                        className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm transition-colors"
+                        className="px-4 py-2 bg-iris hover:bg-iris/80 text-base rounded-lg text-sm transition-colors"
                       >
                         {copySuccess === 'worker' ? 'Copied!' : 'Copy URL'}
                       </button>
@@ -90,22 +90,22 @@ export function Tunnel() {
                 )}
 
                 {/* Configuration summary */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-                  <div className="text-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                    <div className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Tunnel</div>
-                    <div className="text-sm font-medium text-gray-900 dark:text-white mt-1">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-hl-med">
+                  <div className="text-center p-3 bg-hl-low rounded-lg">
+                    <div className="text-xs text-muted uppercase tracking-wide">Tunnel</div>
+                    <div className="text-sm font-medium text-on-base mt-1">
                       {cloudflareStatus?.tunnel_name || 'Configured'}
                     </div>
                   </div>
-                  <div className="text-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                    <div className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Worker</div>
-                    <div className="text-sm font-medium text-gray-900 dark:text-white mt-1">
+                  <div className="text-center p-3 bg-hl-low rounded-lg">
+                    <div className="text-xs text-muted uppercase tracking-wide">Worker</div>
+                    <div className="text-sm font-medium text-on-base mt-1">
                       {cloudflareStatus?.worker_name || 'Deployed'}
                     </div>
                   </div>
-                  <div className="text-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                    <div className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Security</div>
-                    <div className="text-sm font-medium text-green-600 dark:text-green-400 mt-1">
+                  <div className="text-center p-3 bg-hl-low rounded-lg">
+                    <div className="text-xs text-muted uppercase tracking-wide">Security</div>
+                    <div className="text-sm font-medium text-foam mt-1">
                       JWT Verified
                     </div>
                   </div>
@@ -114,17 +114,17 @@ export function Tunnel() {
             </div>
 
             {/* How to use */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6 mb-6">
-              <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">How to Connect Claude Web</h3>
-              <div className="space-y-4 text-sm text-gray-600 dark:text-gray-400">
+            <div className="bg-surface rounded-lg shadow p-4 sm:p-6 mb-6">
+              <h3 className="text-lg font-medium text-on-base mb-4">How to Connect Claude Web</h3>
+              <div className="space-y-4 text-sm text-subtle">
                 <ol className="list-decimal list-inside space-y-2">
-                  <li>Go to <a href="https://claude.ai" target="_blank" rel="noopener noreferrer" className="text-purple-600 dark:text-purple-400 hover:underline">claude.ai</a> and open Settings</li>
+                  <li>Go to <a href="https://claude.ai" target="_blank" rel="noopener noreferrer" className="text-iris hover:underline">claude.ai</a> and open Settings</li>
                   <li>Navigate to Integrations or MCP Servers</li>
-                  <li>Add your Worker URL: <code className="bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded font-mono text-xs">{cloudflareStatus?.worker_url}/mcp</code></li>
+                  <li>Add your Worker URL: <code className="bg-hl-low px-2 py-0.5 rounded font-mono text-xs">{cloudflareStatus?.worker_url}/mcp</code></li>
                   <li>Authenticate when prompted (OAuth handled by the Worker)</li>
                   <li>Your MCPbox tools will appear in Claude</li>
                 </ol>
-                <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                <p className="mt-3 text-xs text-muted">
                   If you just completed the setup wizard, it may take a few minutes for Cloudflare
                   to propagate your configuration. Wait and retry if you see a connection error.
                 </p>
@@ -132,12 +132,12 @@ export function Tunnel() {
             </div>
 
             {/* Management actions */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6">
-              <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Management</h3>
+            <div className="bg-surface rounded-lg shadow p-4 sm:p-6">
+              <h3 className="text-lg font-medium text-on-base mb-4">Management</h3>
               <div className="flex flex-wrap gap-3">
                 <Link
                   to="/tunnel/setup"
-                  className="px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg text-sm transition-colors"
+                  className="px-4 py-2 bg-hl-low hover:bg-hl-med text-subtle rounded-lg text-sm transition-colors"
                 >
                   View Setup Details
                 </Link>
@@ -145,20 +145,20 @@ export function Tunnel() {
                   href="https://one.dash.cloudflare.com"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg text-sm transition-colors"
+                  className="px-4 py-2 bg-hl-low hover:bg-hl-med text-subtle rounded-lg text-sm transition-colors"
                 >
                   Cloudflare Dashboard
                 </a>
                 <button
                   onClick={handleTeardown}
                   disabled={teardownMutation.isPending}
-                  className="px-4 py-2 bg-red-100 dark:bg-red-900/30 hover:bg-red-200 dark:hover:bg-red-900/50 text-red-700 dark:text-red-300 rounded-lg text-sm transition-colors"
+                  className="px-4 py-2 bg-love/10 hover:bg-love/20 text-love rounded-lg text-sm transition-colors"
                 >
                   {teardownMutation.isPending ? 'Removing...' : 'Remove Setup'}
                 </button>
               </div>
               {teardownMutation.error && (
-                <p className="mt-3 text-sm text-red-600 dark:text-red-400">
+                <p className="mt-3 text-sm text-love">
                   {teardownMutation.error instanceof Error ? teardownMutation.error.message : 'Failed to remove setup'}
                 </p>
               )}
@@ -168,22 +168,22 @@ export function Tunnel() {
 
         {/* Wizard in progress */}
         {isWizardInProgress && (
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6 mb-6">
+          <div className="bg-surface rounded-lg shadow p-4 sm:p-6 mb-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <div className="flex items-center gap-3 mb-2">
-                  <div className="w-3 h-3 rounded-full bg-yellow-500 animate-pulse"></div>
-                  <span className="text-lg font-medium text-gray-900 dark:text-white">
+                  <div className="w-3 h-3 rounded-full bg-gold animate-pulse"></div>
+                  <span className="text-lg font-medium text-on-base">
                     Setup In Progress
                   </span>
                 </div>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
+                <p className="text-sm text-subtle">
                   Step {cloudflareStatus?.completed_step} of 5 completed
                 </p>
               </div>
               <Link
                 to="/tunnel/setup"
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
+                className="px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 transition-colors text-sm"
               >
                 Continue Setup
               </Link>
@@ -195,39 +195,39 @@ export function Tunnel() {
         {!cloudflareStatus?.config_id && (
           <>
             {/* Hero card */}
-            <div className="bg-gradient-to-br from-purple-600 to-purple-800 rounded-lg shadow p-6 sm:p-8 mb-6 text-white">
+            <div className="bg-gradient-to-br from-iris to-iris/80 rounded-lg shadow p-6 sm:p-8 mb-6 text-base">
               <h2 className="text-2xl font-bold mb-3">Enable Remote Access</h2>
-              <p className="text-purple-100 mb-6">
+              <p className="text-iris/70 mb-6">
                 Connect Claude Web to your MCPbox tools from anywhere. The setup wizard will
                 configure a secure Cloudflare tunnel with Zero Trust authentication.
               </p>
               <Link
                 to="/tunnel/setup"
-                className="inline-block px-6 py-3 bg-white text-purple-700 font-medium rounded-lg hover:bg-purple-50 transition-colors"
+                className="inline-block px-6 py-3 bg-base text-iris font-medium rounded-lg hover:bg-hl-low transition-colors"
               >
                 Start Setup Wizard
               </Link>
             </div>
 
             {/* What you'll get */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6 mb-6">
-              <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">What the Wizard Configures</h3>
+            <div className="bg-surface rounded-lg shadow p-4 sm:p-6 mb-6">
+              <h3 className="text-lg font-medium text-on-base mb-4">What the Wizard Configures</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                  <h4 className="font-medium text-gray-900 dark:text-white mb-2">Cloudflare Tunnel</h4>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                <div className="p-4 bg-hl-low rounded-lg">
+                  <h4 className="font-medium text-on-base mb-2">Cloudflare Tunnel</h4>
+                  <p className="text-sm text-subtle">
                     Secure outbound connection from your network - no exposed ports needed.
                   </p>
                 </div>
-                <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                  <h4 className="font-medium text-gray-900 dark:text-white mb-2">Workers VPC</h4>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                <div className="p-4 bg-hl-low rounded-lg">
+                  <h4 className="font-medium text-on-base mb-2">Workers VPC</h4>
+                  <p className="text-sm text-subtle">
                     Private network routing so your tunnel has no public URL.
                   </p>
                 </div>
-                <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                  <h4 className="font-medium text-gray-900 dark:text-white mb-2">OIDC Authentication</h4>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                <div className="p-4 bg-hl-low rounded-lg">
+                  <h4 className="font-medium text-on-base mb-2">OIDC Authentication</h4>
+                  <p className="text-sm text-subtle">
                     OAuth 2.1 authentication via Cloudflare Access for secure MCP client access.
                   </p>
                 </div>
@@ -235,19 +235,19 @@ export function Tunnel() {
             </div>
 
             {/* Requirements */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6">
-              <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Requirements</h3>
-              <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
+            <div className="bg-surface rounded-lg shadow p-4 sm:p-6">
+              <h3 className="text-lg font-medium text-on-base mb-4">Requirements</h3>
+              <ul className="space-y-2 text-sm text-subtle">
                 <li className="flex items-start gap-2">
-                  <span className="text-green-500 mt-0.5">✓</span>
+                  <span className="text-foam mt-0.5">&#10003;</span>
                   <span>Cloudflare account (free tier works)</span>
                 </li>
                 <li className="flex items-start gap-2">
-                  <span className="text-green-500 mt-0.5">✓</span>
+                  <span className="text-foam mt-0.5">&#10003;</span>
                   <span>Domain added to Cloudflare (for the Worker hostname)</span>
                 </li>
                 <li className="flex items-start gap-2">
-                  <span className="text-green-500 mt-0.5">✓</span>
+                  <span className="text-foam mt-0.5">&#10003;</span>
                   <span>API token with required permissions (wizard will guide you)</span>
                 </li>
               </ul>

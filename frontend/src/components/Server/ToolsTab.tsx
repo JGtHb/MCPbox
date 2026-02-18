@@ -3,10 +3,10 @@ import { useTools, useUpdateToolEnabled, useRenameTool, useDeleteTool, useUpdate
 import { ToolExecutionLogs } from './ToolExecutionLogs'
 
 const APPROVAL_COLORS: Record<string, string> = {
-  draft: 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300',
-  pending_review: 'bg-yellow-100 dark:bg-yellow-900/50 text-yellow-800 dark:text-yellow-300',
-  approved: 'bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300',
-  rejected: 'bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300',
+  draft: 'bg-overlay text-subtle',
+  pending_review: 'bg-gold/10 text-gold',
+  approved: 'bg-foam/10 text-foam',
+  rejected: 'bg-love/10 text-love',
 }
 
 const APPROVAL_LABELS: Record<string, string> = {
@@ -19,11 +19,11 @@ const APPROVAL_LABELS: Record<string, string> = {
 const TOOL_TYPE_BADGE: Record<string, { label: string; className: string }> = {
   python_code: {
     label: 'Python',
-    className: 'bg-purple-100 dark:bg-purple-900/50 text-purple-800 dark:text-purple-300',
+    className: 'bg-iris/10 text-iris',
   },
   mcp_passthrough: {
     label: 'External',
-    className: 'bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300',
+    className: 'bg-pine/10 text-pine',
   },
 }
 
@@ -41,11 +41,11 @@ export function ToolsTab({ serverId }: ToolsTabProps) {
 
   if (isLoading) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+      <div className="bg-surface rounded-lg shadow p-6">
         <div className="animate-pulse space-y-3">
-          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/4" />
-          <div className="h-10 bg-gray-200 dark:bg-gray-700 rounded" />
-          <div className="h-10 bg-gray-200 dark:bg-gray-700 rounded" />
+          <div className="h-4 bg-hl-med rounded w-1/4" />
+          <div className="h-10 bg-hl-med rounded" />
+          <div className="h-10 bg-hl-med rounded" />
         </div>
       </div>
     )
@@ -53,10 +53,10 @@ export function ToolsTab({ serverId }: ToolsTabProps) {
 
   if (!tools || tools.length === 0) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+      <div className="bg-surface rounded-lg shadow p-6">
         <div className="text-center py-8">
           <svg
-            className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3"
+            className="w-12 h-12 text-subtle mx-auto mb-3"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -68,9 +68,9 @@ export function ToolsTab({ serverId }: ToolsTabProps) {
               d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
             />
           </svg>
-          <p className="text-gray-500 dark:text-gray-400 mb-1">No tools defined</p>
-          <p className="text-xs text-gray-400 dark:text-gray-500">
-            Create tools using the <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">mcpbox_create_tool</code> MCP command
+          <p className="text-subtle mb-1">No tools defined</p>
+          <p className="text-xs text-muted">
+            Create tools using the <code className="bg-hl-low px-1 rounded">mcpbox_create_tool</code> MCP command
           </p>
         </div>
       </div>
@@ -78,13 +78,13 @@ export function ToolsTab({ serverId }: ToolsTabProps) {
   }
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
-      <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-        <h3 className="text-lg font-medium text-gray-900 dark:text-white">
+    <div className="bg-surface rounded-lg shadow">
+      <div className="px-6 py-4 border-b border-hl-med">
+        <h3 className="text-lg font-medium text-on-base">
           Tools ({tools.length})
         </h3>
       </div>
-      <ul className="divide-y divide-gray-200 dark:divide-gray-700" role="list">
+      <ul className="divide-y divide-hl-med" role="list">
         {tools.map((tool) => (
           <ToolRow
             key={tool.id}
@@ -116,15 +116,15 @@ export function ToolsTab({ serverId }: ToolsTabProps) {
       {deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setDeleteTarget(null)}>
           <div
-            className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md mx-4"
+            className="bg-surface rounded-lg shadow-xl p-6 w-full max-w-md mx-4"
             onClick={e => e.stopPropagation()}
           >
-            <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Delete Tool</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              Are you sure you want to delete <span className="font-mono font-medium text-gray-900 dark:text-white">{deleteTarget.name}</span>? This action cannot be undone.
+            <h3 className="text-lg font-medium text-on-base mb-2">Delete Tool</h3>
+            <p className="text-sm text-subtle mb-4">
+              Are you sure you want to delete <span className="font-mono font-medium text-on-base">{deleteTarget.name}</span>? This action cannot be undone.
             </p>
             {deleteTool.isError && (
-              <p className="mb-4 text-sm text-red-600 dark:text-red-400">
+              <p className="mb-4 text-sm text-love">
                 {deleteTool.error instanceof Error ? deleteTool.error.message : 'Delete failed'}
               </p>
             )}
@@ -132,7 +132,7 @@ export function ToolsTab({ serverId }: ToolsTabProps) {
               <button
                 type="button"
                 onClick={() => setDeleteTarget(null)}
-                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
+                className="px-4 py-2 text-sm font-medium text-on-base hover:text-on-base"
               >
                 Cancel
               </button>
@@ -144,7 +144,7 @@ export function ToolsTab({ serverId }: ToolsTabProps) {
                     onSuccess: () => setDeleteTarget(null),
                   })
                 }}
-                className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 disabled:opacity-50"
+                className="px-4 py-2 bg-love text-base text-sm font-medium rounded-md hover:bg-love/80 disabled:opacity-50"
               >
                 {deleteTool.isPending ? 'Deleting...' : 'Delete'}
               </button>
@@ -178,31 +178,31 @@ function ToolRow({ tool, isExpanded, onToggle, onToggleEnabled, onRename, onDele
         <div className="flex items-center justify-between">
           <button
             onClick={onToggle}
-            className="flex items-center gap-3 min-w-0 flex-1 text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded px-1 py-1 -ml-1"
+            className="flex items-center gap-3 min-w-0 flex-1 text-left hover:bg-hl-low rounded px-1 py-1 -ml-1"
           >
             <span className={`px-2 py-0.5 text-xs font-medium rounded flex-shrink-0 ${badge.className}`}>
               {badge.label}
             </span>
             <div className="min-w-0 flex-1">
-              <span className="text-gray-900 dark:text-white font-medium truncate block">{tool.name}</span>
+              <span className="text-on-base font-medium truncate block">{tool.name}</span>
               {tool.description ? (
-                <span className="text-xs text-gray-500 dark:text-gray-400 truncate block">{tool.description}</span>
+                <span className="text-xs text-subtle truncate block">{tool.description}</span>
               ) : (
-                <span className="text-xs text-gray-400 dark:text-gray-500 italic truncate block">No description</span>
+                <span className="text-xs text-muted italic truncate block">No description</span>
               )}
               {isExternal && tool.external_tool_name && tool.external_tool_name !== tool.name && (
-                <span className="text-xs text-gray-400 dark:text-gray-500 truncate block">
+                <span className="text-xs text-muted truncate block">
                   from: {tool.external_tool_name}
                 </span>
               )}
             </div>
             <span
-              className={`px-2 py-0.5 text-xs font-medium rounded flex-shrink-0 ${APPROVAL_COLORS[tool.approval_status] || 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
+              className={`px-2 py-0.5 text-xs font-medium rounded flex-shrink-0 ${APPROVAL_COLORS[tool.approval_status] || 'bg-overlay text-subtle'}`}
             >
               {APPROVAL_LABELS[tool.approval_status] || tool.approval_status}
             </span>
             <svg
-              className={`w-4 h-4 text-gray-400 dark:text-gray-500 transition-transform flex-shrink-0 ${
+              className={`w-4 h-4 text-muted transition-transform flex-shrink-0 ${
                 isExpanded ? 'rotate-180' : ''
               }`}
               fill="none"
@@ -220,7 +220,7 @@ function ToolRow({ tool, isExpanded, onToggle, onToggleEnabled, onRename, onDele
           <div className="flex items-center gap-3 ml-3">
             <button
               onClick={(e) => { e.stopPropagation(); onRename() }}
-              className="p-1 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 rounded"
+              className="p-1 text-muted hover:text-subtle rounded"
               title="Rename tool"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -229,7 +229,7 @@ function ToolRow({ tool, isExpanded, onToggle, onToggleEnabled, onRename, onDele
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); onDelete() }}
-              className="p-1 text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400 rounded"
+              className="p-1 text-muted hover:text-love rounded"
               title="Delete tool"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -247,8 +247,8 @@ function ToolRow({ tool, isExpanded, onToggle, onToggleEnabled, onRename, onDele
                 disabled={isUpdating || !isApproved}
                 className="sr-only peer"
               />
-              <div className="w-9 h-5 bg-gray-200 dark:bg-gray-600 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-300 dark:peer-focus:ring-indigo-600 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600 peer-disabled:opacity-50" />
-              <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
+              <div className="w-9 h-5 bg-hl-med peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-iris rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-iris peer-disabled:opacity-50" />
+              <span className="ml-2 text-xs text-subtle">
                 {!isApproved ? 'Not approved' : tool.enabled ? 'Enabled' : 'Disabled'}
               </span>
             </label>
@@ -257,7 +257,7 @@ function ToolRow({ tool, isExpanded, onToggle, onToggleEnabled, onRename, onDele
       </div>
       {isExpanded && (
         <div className="px-6 pb-4">
-          <div className="ml-2 pl-4 border-l-2 border-gray-200 dark:border-gray-700 space-y-4">
+          <div className="ml-2 pl-4 border-l-2 border-hl-med space-y-4">
             {/* Editable Description */}
             <ToolDescription toolId={tool.id} description={tool.description} />
             {/* Code Viewer */}
@@ -311,7 +311,7 @@ function ToolDescription({ toolId, description }: ToolDescriptionProps) {
   if (isEditing) {
     return (
       <div className="space-y-2">
-        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+        <label className="block text-xs font-medium text-on-base">
           Description
         </label>
         <textarea
@@ -324,24 +324,24 @@ function ToolDescription({ toolId, description }: ToolDescriptionProps) {
           rows={3}
           maxLength={2000}
           placeholder="Describe what this tool does, when to use it, and what it returns..."
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-indigo-500 focus:border-indigo-500"
+          className="w-full px-3 py-2 text-sm border border-hl-med rounded-md bg-surface text-on-base placeholder-muted focus:ring-iris focus:border-iris"
           autoFocus
         />
         <div className="flex items-center gap-2">
           <button
             onClick={handleSave}
             disabled={updateDescription.isPending}
-            className="px-3 py-1 text-xs font-medium bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
+            className="px-3 py-1 text-xs font-medium bg-iris text-base rounded hover:bg-iris/80 disabled:opacity-50"
           >
             {updateDescription.isPending ? 'Saving...' : 'Save'}
           </button>
           <button
             onClick={handleCancel}
-            className="px-3 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
+            className="px-3 py-1 text-xs font-medium text-subtle hover:text-on-base"
           >
             Cancel
           </button>
-          <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">
+          <span className="text-xs text-muted ml-auto">
             {value.length}/2000
           </span>
         </div>
@@ -353,20 +353,20 @@ function ToolDescription({ toolId, description }: ToolDescriptionProps) {
     <div className="group/desc">
       <div className="flex items-start gap-2">
         <div className="flex-1 min-w-0">
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+          <label className="block text-xs font-medium text-on-base mb-1">
             Description
           </label>
           {description ? (
-            <p className="text-sm text-gray-600 dark:text-gray-400 whitespace-pre-wrap">{description}</p>
+            <p className="text-sm text-subtle whitespace-pre-wrap">{description}</p>
           ) : (
-            <p className="text-sm text-gray-400 dark:text-gray-500 italic">
+            <p className="text-sm text-muted italic">
               No description. Add one to help LLMs understand when and how to use this tool.
             </p>
           )}
         </div>
         <button
           onClick={() => { setValue(description || ''); setIsEditing(true) }}
-          className="p-1 text-gray-400 hover:text-indigo-600 dark:text-gray-500 dark:hover:text-indigo-400 rounded opacity-0 group-hover/desc:opacity-100 transition-opacity mt-4"
+          className="p-1 text-muted hover:text-iris rounded opacity-0 group-hover/desc:opacity-100 transition-opacity mt-4"
           title="Edit description"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -409,13 +409,13 @@ function RenameToolModal({ tool, onClose }: RenameToolModalProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
       <div
-        className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md mx-4"
+        className="bg-surface rounded-lg shadow-xl p-6 w-full max-w-md mx-4"
         onClick={e => e.stopPropagation()}
       >
-        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Rename Tool</h3>
+        <h3 className="text-lg font-medium text-on-base mb-4">Rename Tool</h3>
         <form onSubmit={handleSubmit}>
           <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label className="block text-sm font-medium text-on-base mb-1">
               Tool Name
             </label>
             <input
@@ -423,38 +423,38 @@ function RenameToolModal({ tool, onClose }: RenameToolModalProps) {
               value={name}
               onChange={e => setName(e.target.value.toLowerCase())}
               pattern="^[a-z][a-z0-9_]*$"
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-indigo-500 focus:border-indigo-500"
+              className="w-full px-3 py-2 border border-hl-med rounded-md text-sm bg-surface text-on-base focus:ring-iris focus:border-iris"
               autoFocus
             />
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            <p className="mt-1 text-xs text-subtle">
               Lowercase letters, numbers, and underscores. Must start with a letter.
             </p>
           </div>
           {isExternal && tool.external_tool_name && (
-            <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-md">
-              <p className="text-xs text-blue-700 dark:text-blue-300">
+            <div className="mb-4 p-3 bg-pine/10 rounded-md">
+              <p className="text-xs text-pine">
                 External source name: <span className="font-mono font-medium">{tool.external_tool_name}</span>
               </p>
-              <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+              <p className="text-xs text-pine mt-1">
                 Renaming only changes the local name. Tool execution still uses the original external name.
               </p>
             </div>
           )}
           {error && (
-            <p className="mb-4 text-sm text-red-600 dark:text-red-400">{error}</p>
+            <p className="mb-4 text-sm text-love">{error}</p>
           )}
           <div className="flex items-center gap-3 justify-end">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
+              className="px-4 py-2 text-sm font-medium text-on-base hover:text-on-base"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={!isValid || renameMutation.isPending}
-              className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:opacity-50"
+              className="px-4 py-2 bg-iris text-base text-sm font-medium rounded-md hover:bg-iris/80 disabled:opacity-50"
             >
               {renameMutation.isPending ? 'Renaming...' : 'Rename'}
             </button>
@@ -498,7 +498,7 @@ function ToolCodeViewer({ code }: ToolCodeViewerProps) {
     <div>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
+        className="flex items-center gap-2 text-xs font-medium text-on-base hover:text-on-base"
       >
         <svg
           className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-90' : ''}`}
@@ -514,12 +514,12 @@ function ToolCodeViewer({ code }: ToolCodeViewerProps) {
         <div className="mt-2 relative">
           <button
             onClick={handleCopy}
-            className="absolute top-2 right-2 px-2 py-1 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded shadow-sm"
+            className="absolute top-2 right-2 px-2 py-1 text-xs font-medium text-subtle hover:text-on-base bg-surface border border-hl-med rounded shadow-sm"
             title="Copy code"
           >
             {copied ? 'Copied!' : 'Copy'}
           </button>
-          <pre className="font-mono text-sm bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md p-4 overflow-x-auto whitespace-pre-wrap text-gray-800 dark:text-gray-200">
+          <pre className="font-mono text-sm bg-hl-low border border-hl-med rounded-md p-4 overflow-x-auto whitespace-pre-wrap text-on-base">
             {code}
           </pre>
         </div>

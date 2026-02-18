@@ -27,40 +27,40 @@ function LogDetail({ log }: { log: ExecutionLog }) {
   const [expanded, setExpanded] = useState(false)
 
   return (
-    <div className="border border-gray-200 rounded-lg mb-2 overflow-hidden">
+    <div className="border border-hl-med rounded-lg mb-2 overflow-hidden">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 text-left"
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-hl-low text-left"
       >
         <div className="flex items-center gap-3 min-w-0">
           <span
             className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
               log.success
-                ? 'bg-green-100 text-green-700'
-                : 'bg-red-100 text-red-700'
+                ? 'bg-foam/10 text-foam'
+                : 'bg-love/10 text-love'
             }`}
           >
             {log.success ? '\u2713' : '\u2717'}
           </span>
-          <span className="text-sm text-gray-500 whitespace-nowrap">
+          <span className="text-sm text-subtle whitespace-nowrap">
             {formatTime(log.created_at)}
           </span>
-          <span className="text-sm text-gray-700 font-mono truncate">
+          <span className="text-sm text-on-base font-mono truncate">
             {formatDuration(log.duration_ms)}
           </span>
           {log.executed_by && (
-            <span className="text-xs text-gray-400 truncate">
+            <span className="text-xs text-muted truncate">
               by {log.executed_by}
             </span>
           )}
           {log.error && (
-            <span className="text-xs text-red-600 truncate ml-2">
+            <span className="text-xs text-love truncate ml-2">
               {log.error.slice(0, 80)}
             </span>
           )}
         </div>
         <svg
-          className={`w-4 h-4 text-gray-400 transition-transform ${
+          className={`w-4 h-4 text-muted transition-transform ${
             expanded ? 'rotate-180' : ''
           }`}
           fill="none"
@@ -77,13 +77,13 @@ function LogDetail({ log }: { log: ExecutionLog }) {
       </button>
 
       {expanded && (
-        <div className="px-4 pb-4 space-y-3 border-t border-gray-100">
+        <div className="px-4 pb-4 space-y-3 border-t border-hl-med">
           {log.input_args && Object.keys(log.input_args).length > 0 && (
             <div>
-              <h4 className="text-xs font-semibold text-gray-500 uppercase mb-1">
+              <h4 className="text-xs font-semibold text-subtle uppercase mb-1">
                 Input Arguments
               </h4>
-              <pre className="text-xs bg-gray-50 p-2 rounded overflow-x-auto max-h-40">
+              <pre className="text-xs bg-hl-low p-2 rounded overflow-x-auto max-h-40">
                 {JSON.stringify(log.input_args, null, 2)}
               </pre>
             </div>
@@ -91,10 +91,10 @@ function LogDetail({ log }: { log: ExecutionLog }) {
 
           {log.error && (
             <div>
-              <h4 className="text-xs font-semibold text-red-500 uppercase mb-1">
+              <h4 className="text-xs font-semibold text-love uppercase mb-1">
                 Error
               </h4>
-              <pre className="text-xs bg-red-50 text-red-800 p-2 rounded overflow-x-auto max-h-40 whitespace-pre-wrap">
+              <pre className="text-xs bg-love/10 text-love p-2 rounded overflow-x-auto max-h-40 whitespace-pre-wrap">
                 {log.error}
               </pre>
             </div>
@@ -102,10 +102,10 @@ function LogDetail({ log }: { log: ExecutionLog }) {
 
           {log.result !== null && log.result !== undefined && (
             <div>
-              <h4 className="text-xs font-semibold text-gray-500 uppercase mb-1">
+              <h4 className="text-xs font-semibold text-subtle uppercase mb-1">
                 Result
               </h4>
-              <pre className="text-xs bg-gray-50 p-2 rounded overflow-x-auto max-h-40">
+              <pre className="text-xs bg-hl-low p-2 rounded overflow-x-auto max-h-40">
                 {typeof log.result === 'string'
                   ? log.result
                   : JSON.stringify(log.result, null, 2)}
@@ -115,10 +115,10 @@ function LogDetail({ log }: { log: ExecutionLog }) {
 
           {log.stdout && (
             <div>
-              <h4 className="text-xs font-semibold text-gray-500 uppercase mb-1">
+              <h4 className="text-xs font-semibold text-subtle uppercase mb-1">
                 Stdout
               </h4>
-              <pre className="text-xs bg-gray-50 p-2 rounded overflow-x-auto max-h-40 whitespace-pre-wrap">
+              <pre className="text-xs bg-hl-low p-2 rounded overflow-x-auto max-h-40 whitespace-pre-wrap">
                 {log.stdout}
               </pre>
             </div>
@@ -135,7 +135,7 @@ export function ToolExecutionLogs({ toolId, toolName }: ToolExecutionLogsProps) 
 
   if (isLoading) {
     return (
-      <div className="text-sm text-gray-500 py-4 text-center">
+      <div className="text-sm text-subtle py-4 text-center">
         Loading execution logs...
       </div>
     )
@@ -143,7 +143,7 @@ export function ToolExecutionLogs({ toolId, toolName }: ToolExecutionLogsProps) 
 
   if (error) {
     return (
-      <div className="text-sm text-red-500 py-4 text-center">
+      <div className="text-sm text-love py-4 text-center">
         Failed to load execution logs
       </div>
     )
@@ -151,7 +151,7 @@ export function ToolExecutionLogs({ toolId, toolName }: ToolExecutionLogsProps) 
 
   if (!data || data.items.length === 0) {
     return (
-      <div className="text-sm text-gray-500 py-4 text-center">
+      <div className="text-sm text-subtle py-4 text-center">
         No execution logs yet for {toolName}
       </div>
     )
@@ -160,7 +160,7 @@ export function ToolExecutionLogs({ toolId, toolName }: ToolExecutionLogsProps) 
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <h4 className="text-sm font-medium text-gray-700">
+        <h4 className="text-sm font-medium text-on-base">
           Execution Logs ({data.total})
         </h4>
       </div>
@@ -176,17 +176,17 @@ export function ToolExecutionLogs({ toolId, toolName }: ToolExecutionLogsProps) 
           <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page <= 1}
-            className="px-3 py-1 border rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+            className="px-3 py-1 border rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low"
           >
             Previous
           </button>
-          <span className="text-gray-500">
+          <span className="text-subtle">
             Page {page} of {data.pages}
           </span>
           <button
             onClick={() => setPage((p) => Math.min(data.pages, p + 1))}
             disabled={page >= data.pages}
-            className="px-3 py-1 border rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+            className="px-3 py-1 border rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low"
           >
             Next
           </button>

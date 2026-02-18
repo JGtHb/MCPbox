@@ -22,7 +22,7 @@ export function ServerControls({ serverId, status, hasTools }: ServerControlsPro
   return (
     <div className="flex flex-col space-y-2">
       {errorMessage && (
-        <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+        <div className="text-sm text-love bg-love/10 border border-love/20 rounded px-3 py-2">
           {errorMessage}
         </div>
       )}
@@ -32,7 +32,7 @@ export function ServerControls({ serverId, status, hasTools }: ServerControlsPro
           <button
             onClick={() => stopMutation.mutate(serverId)}
             disabled={isLoading}
-            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-base bg-love hover:bg-love/80 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 24 24">
               <rect x="6" y="6" width="12" height="12" />
@@ -42,7 +42,7 @@ export function ServerControls({ serverId, status, hasTools }: ServerControlsPro
           <button
             onClick={() => restartMutation.mutate(serverId)}
             disabled={isLoading}
-            className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center px-4 py-2 border border-hl-med rounded-md shadow-sm text-sm font-medium text-on-base bg-surface hover:bg-hl-low disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
@@ -59,7 +59,7 @@ export function ServerControls({ serverId, status, hasTools }: ServerControlsPro
         <button
           onClick={() => startMutation.mutate(serverId)}
           disabled={isLoading || !canStart}
-          className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-base bg-foam hover:bg-foam/80 disabled:opacity-50 disabled:cursor-not-allowed"
           title={!hasTools ? 'Add tools first' : undefined}
         >
           <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 24 24">
@@ -70,7 +70,7 @@ export function ServerControls({ serverId, status, hasTools }: ServerControlsPro
       )}
 
       {!hasTools && status !== 'running' && (
-        <span className="text-sm text-amber-600">
+        <span className="text-sm text-gold">
           Add tools first to enable starting
         </span>
       )}

@@ -22,12 +22,12 @@ const PAGE_SIZE_OPTIONS = [10, 20, 50] as const
 
 function getLevelBadgeClasses(level: string): string {
   const classes: Record<string, string> = {
-    debug: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300',
-    info: 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300',
-    warning: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300',
-    error: 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300',
+    debug: 'bg-overlay text-subtle',
+    info: 'bg-pine/10 text-pine',
+    warning: 'bg-gold/10 text-gold',
+    error: 'bg-love/10 text-love',
   }
-  return classes[level] || 'bg-gray-100 text-gray-800'
+  return classes[level] || 'bg-overlay text-on-base'
 }
 
 function getLevelLabel(level: string): string {
@@ -134,7 +134,7 @@ export function Activity() {
       : '0'
 
   return (
-    <div className="dark:bg-gray-900 min-h-full">
+    <div className="bg-base min-h-full">
       <Header title="Activity" />
       <div className="p-4 sm:p-6">
         {/* Stats Cards */}
@@ -166,20 +166,20 @@ export function Activity() {
         </div>
 
         {/* Tabs */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow mb-6">
-          <div className="border-b border-gray-200 dark:border-gray-700">
+        <div className="bg-surface rounded-lg shadow mb-6">
+          <div className="border-b border-hl-med">
             <nav className="flex -mb-px">
               <button
                 onClick={() => setActiveTab('executions')}
                 className={`px-4 sm:px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === 'executions'
-                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+                    ? 'border-iris text-pine'
+                    : 'border-transparent text-subtle hover:text-on-base hover:border-hl-high'
                 }`}
               >
                 Execution History
                 {logsData && (
-                  <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">
+                  <span className="ml-2 text-xs font-normal text-muted">
                     ({logsData.total})
                   </span>
                 )}
@@ -188,13 +188,13 @@ export function Activity() {
                 onClick={() => setActiveTab('protocol')}
                 className={`px-4 sm:px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === 'protocol'
-                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+                    ? 'border-iris text-pine'
+                    : 'border-transparent text-subtle hover:text-on-base hover:border-hl-high'
                 }`}
               >
                 Protocol Logs
                 {protoData && (
-                  <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">
+                  <span className="ml-2 text-xs font-normal text-muted">
                     ({protoData.total})
                   </span>
                 )}
@@ -205,10 +205,10 @@ export function Activity() {
                 <span className="flex items-center gap-1.5">
                   <span
                     className={`w-2 h-2 rounded-full ${
-                      connected ? 'bg-green-500 animate-pulse' : 'bg-gray-400'
+                      connected ? 'bg-foam animate-pulse' : 'bg-muted'
                     }`}
                   />
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                  <span className="text-xs text-subtle">
                     {connected ? 'Live' : 'Offline'}
                   </span>
                 </span>
@@ -220,10 +220,10 @@ export function Activity() {
           {activeTab === 'executions' && (
             <div>
               {/* Execution Filters */}
-              <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+              <div className="px-4 py-3 border-b border-hl-med">
                 <div className="flex flex-wrap items-center gap-3 sm:gap-4">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300 hidden sm:inline">
+                    <span className="text-sm font-medium text-on-base hidden sm:inline">
                       Tool:
                     </span>
                     <input
@@ -231,23 +231,23 @@ export function Activity() {
                       value={toolNameFilter}
                       onChange={(e) => handleToolNameChange(e.target.value)}
                       placeholder="Filter by tool name..."
-                      className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 w-48"
+                      className="px-3 py-1 text-sm border border-hl-med rounded-lg bg-surface text-on-base w-48"
                     />
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300 hidden sm:inline">
+                    <span className="text-sm font-medium text-on-base hidden sm:inline">
                       Status:
                     </span>
-                    <div className="flex rounded-lg overflow-hidden border border-gray-300 dark:border-gray-600">
+                    <div className="flex rounded-lg overflow-hidden border border-hl-med">
                       {(['all', 'success', 'failure'] as SuccessFilter[]).map((f) => (
                         <button
                           key={f}
                           onClick={() => handleSuccessFilterChange(f)}
                           className={`px-3 py-1 text-sm ${
                             successFilter === f
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600'
+                              ? 'bg-iris text-base'
+                              : 'bg-surface text-on-base hover:bg-hl-low'
                           }`}
                         >
                           {f === 'all' ? 'All' : f === 'success' ? 'Success' : 'Failed'}
@@ -257,13 +257,13 @@ export function Activity() {
                   </div>
 
                   <div className="flex items-center gap-2 ml-auto">
-                    <span className="text-sm text-gray-500 dark:text-gray-400 hidden sm:inline">
+                    <span className="text-sm text-subtle hidden sm:inline">
                       Show:
                     </span>
                     <select
                       value={execPageSize}
                       onChange={(e) => handleExecPageSizeChange(Number(e.target.value))}
-                      className="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                      className="px-2 py-1 text-sm border border-hl-med rounded-lg bg-surface text-on-base"
                     >
                       {PAGE_SIZE_OPTIONS.map((size) => (
                         <option key={size} value={size}>
@@ -271,7 +271,7 @@ export function Activity() {
                         </option>
                       ))}
                     </select>
-                    <span className="text-sm text-gray-500 dark:text-gray-400 hidden sm:inline">
+                    <span className="text-sm text-subtle hidden sm:inline">
                       per page
                     </span>
                   </div>
@@ -280,13 +280,13 @@ export function Activity() {
 
               {/* Execution Logs List */}
               {logsLoading ? (
-                <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+                <div className="p-8 text-center text-subtle">
                   Loading execution logs...
                 </div>
               ) : !logsData || logsData.items.length === 0 ? (
                 <div className="p-8 text-center">
                   <svg
-                    className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3"
+                    className="w-12 h-12 text-subtle mx-auto mb-3"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -298,8 +298,8 @@ export function Activity() {
                       d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
                     />
                   </svg>
-                  <p className="text-gray-500 dark:text-gray-400 mb-1">No executions yet</p>
-                  <p className="text-xs text-gray-400 dark:text-gray-500">
+                  <p className="text-subtle mb-1">No executions yet</p>
+                  <p className="text-xs text-muted">
                     Tool executions will appear here when tools are called
                   </p>
                 </div>
@@ -312,21 +312,21 @@ export function Activity() {
                   </div>
 
                   {logsData.pages > 1 && (
-                    <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700 text-sm">
+                    <div className="flex items-center justify-between px-4 py-3 border-t border-hl-med text-sm">
                       <button
                         onClick={() => setExecPage((p) => Math.max(1, p - 1))}
                         disabled={execPage <= 1}
-                        className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-700"
+                        className="px-3 py-1 border border-hl-med rounded text-on-base disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low"
                       >
                         Previous
                       </button>
-                      <span className="text-gray-500 dark:text-gray-400">
+                      <span className="text-subtle">
                         Page {execPage} of {logsData.pages}
                       </span>
                       <button
                         onClick={() => setExecPage((p) => Math.min(logsData.pages, p + 1))}
                         disabled={execPage >= logsData.pages}
-                        className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-700"
+                        className="px-3 py-1 border border-hl-med rounded text-on-base disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low"
                       >
                         Next
                       </button>
@@ -341,16 +341,16 @@ export function Activity() {
           {activeTab === 'protocol' && (
             <div>
               {/* Protocol Filters */}
-              <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+              <div className="px-4 py-3 border-b border-hl-med">
                 <div className="flex flex-wrap items-center gap-3 sm:gap-4">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300 hidden sm:inline">
+                    <span className="text-sm font-medium text-on-base hidden sm:inline">
                       Type:
                     </span>
                     <select
                       value={logTypeFilter}
                       onChange={(e) => handleLogTypeChange(e.target.value)}
-                      className="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                      className="px-2 py-1 text-sm border border-hl-med rounded-lg bg-surface text-on-base"
                     >
                       <option value="">All</option>
                       <option value="mcp_request">MCP Request</option>
@@ -364,13 +364,13 @@ export function Activity() {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300 hidden sm:inline">
+                    <span className="text-sm font-medium text-on-base hidden sm:inline">
                       Level:
                     </span>
                     <select
                       value={levelFilter}
                       onChange={(e) => handleLevelChange(e.target.value)}
-                      className="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                      className="px-2 py-1 text-sm border border-hl-med rounded-lg bg-surface text-on-base"
                     >
                       <option value="">All</option>
                       <option value="debug">Debug</option>
@@ -386,18 +386,18 @@ export function Activity() {
                       value={searchFilter}
                       onChange={(e) => handleSearchChange(e.target.value)}
                       placeholder="Search logs..."
-                      className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 w-full max-w-xs"
+                      className="px-3 py-1 text-sm border border-hl-med rounded-lg bg-surface text-on-base w-full max-w-xs"
                     />
                   </div>
 
                   <div className="flex items-center gap-2 ml-auto">
-                    <span className="text-sm text-gray-500 dark:text-gray-400 hidden sm:inline">
+                    <span className="text-sm text-subtle hidden sm:inline">
                       Show:
                     </span>
                     <select
                       value={protoPageSize}
                       onChange={(e) => handleProtoPageSizeChange(Number(e.target.value))}
-                      className="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                      className="px-2 py-1 text-sm border border-hl-med rounded-lg bg-surface text-on-base"
                     >
                       {PAGE_SIZE_OPTIONS.map((size) => (
                         <option key={size} value={size}>
@@ -405,7 +405,7 @@ export function Activity() {
                         </option>
                       ))}
                     </select>
-                    <span className="text-sm text-gray-500 dark:text-gray-400 hidden sm:inline">
+                    <span className="text-sm text-subtle hidden sm:inline">
                       per page
                     </span>
                   </div>
@@ -414,13 +414,13 @@ export function Activity() {
 
               {/* Protocol Logs List */}
               {protoLoading ? (
-                <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+                <div className="p-8 text-center text-subtle">
                   Loading protocol logs...
                 </div>
               ) : !protoData || protoData.items.length === 0 ? (
                 <div className="p-8 text-center">
                   <svg
-                    className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3"
+                    className="w-12 h-12 text-subtle mx-auto mb-3"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -432,35 +432,35 @@ export function Activity() {
                       d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
                     />
                   </svg>
-                  <p className="text-gray-500 dark:text-gray-400 mb-1">No protocol logs found</p>
-                  <p className="text-xs text-gray-400 dark:text-gray-500">
+                  <p className="text-subtle mb-1">No protocol logs found</p>
+                  <p className="text-xs text-muted">
                     Protocol activity will be recorded here as MCP interactions occur
                   </p>
                 </div>
               ) : (
                 <>
-                  <div className="divide-y divide-gray-100 dark:divide-gray-700">
+                  <div className="divide-y divide-hl-low">
                     {protoData.items.map((log) => (
                       <ProtocolLogEntry key={log.id} log={log} />
                     ))}
                   </div>
 
                   {protoData.pages > 1 && (
-                    <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700 text-sm">
+                    <div className="flex items-center justify-between px-4 py-3 border-t border-hl-med text-sm">
                       <button
                         onClick={() => setProtoPage((p) => Math.max(1, p - 1))}
                         disabled={protoPage <= 1}
-                        className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-700"
+                        className="px-3 py-1 border border-hl-med rounded text-on-base disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low"
                       >
                         Previous
                       </button>
-                      <span className="text-gray-500 dark:text-gray-400">
+                      <span className="text-subtle">
                         Page {protoPage} of {protoData.pages}
                       </span>
                       <button
                         onClick={() => setProtoPage((p) => Math.min(protoData.pages, p + 1))}
                         disabled={protoPage >= protoData.pages}
-                        className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-700"
+                        className="px-3 py-1 border border-hl-med rounded text-on-base disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low"
                       >
                         Next
                       </button>
@@ -486,21 +486,21 @@ interface StatCardProps {
 
 function StatCard({ title, value, subtitle, loading, color = 'blue' }: StatCardProps) {
   const colorClasses = {
-    blue: 'text-blue-600 dark:text-blue-400',
-    green: 'text-green-600 dark:text-green-400',
-    red: 'text-red-600 dark:text-red-400',
-    gray: 'text-gray-600 dark:text-gray-400',
+    blue: 'text-pine',
+    green: 'text-foam',
+    red: 'text-love',
+    gray: 'text-subtle',
   }
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-3 sm:p-4">
-      <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">{title}</p>
+    <div className="bg-surface rounded-lg shadow p-3 sm:p-4">
+      <p className="text-xs sm:text-sm text-subtle">{title}</p>
       {loading ? (
-        <div className="h-8 bg-gray-100 dark:bg-gray-700 rounded animate-pulse mt-1" />
+        <div className="h-8 bg-hl-low rounded animate-pulse mt-1" />
       ) : (
         <>
           <p className={`text-xl sm:text-2xl font-bold ${colorClasses[color]}`}>{value}</p>
-          {subtitle && <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{subtitle}</p>}
+          {subtitle && <p className="text-xs text-muted mt-1">{subtitle}</p>}
         </>
       )}
     </div>
@@ -511,13 +511,13 @@ function ProtocolLogEntry({ log }: { log: ActivityLog }) {
   const [expanded, setExpanded] = useState(false)
 
   const typeStyles: Record<string, string> = {
-    mcp_request: 'border-l-blue-400',
-    mcp_response: 'border-l-green-400',
-    error: 'border-l-red-400',
-    alert: 'border-l-yellow-400',
-    audit: 'border-l-indigo-400',
-    network: 'border-l-purple-400',
-    system: 'border-l-gray-400',
+    mcp_request: 'border-l-pine',
+    mcp_response: 'border-l-foam',
+    error: 'border-l-love',
+    alert: 'border-l-gold',
+    audit: 'border-l-iris',
+    network: 'border-l-iris',
+    system: 'border-l-muted',
   }
 
   const timestamp = new Date(log.created_at).toLocaleString(undefined, {
@@ -530,8 +530,8 @@ function ProtocolLogEntry({ log }: { log: ActivityLog }) {
 
   return (
     <div
-      className={`px-4 py-2.5 border-l-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
-        typeStyles[log.log_type] || 'border-l-gray-300'
+      className={`px-4 py-2.5 border-l-4 cursor-pointer hover:bg-hl-low transition-colors ${
+        typeStyles[log.log_type] || 'border-l-muted'
       }`}
       onClick={() => setExpanded(!expanded)}
       role="button"
@@ -544,7 +544,7 @@ function ProtocolLogEntry({ log }: { log: ActivityLog }) {
       }}
     >
       <div className="flex items-center gap-2">
-        <span className="text-xs text-gray-400 dark:text-gray-500 font-mono w-28 flex-shrink-0">
+        <span className="text-xs text-muted font-mono w-28 flex-shrink-0">
           {timestamp}
         </span>
         <span
@@ -557,16 +557,16 @@ function ProtocolLogEntry({ log }: { log: ActivityLog }) {
         >
           {getLevelLabel(log.level)}
         </span>
-        <span className="flex-1 text-xs text-gray-700 dark:text-gray-300 truncate">
+        <span className="flex-1 text-xs text-on-base truncate">
           {log.message}
         </span>
         {log.duration_ms != null && (
-          <span className="text-xs text-gray-400 dark:text-gray-500 font-mono flex-shrink-0">
+          <span className="text-xs text-muted font-mono flex-shrink-0">
             {log.duration_ms}ms
           </span>
         )}
         <svg
-          className={`w-3.5 h-3.5 text-gray-400 dark:text-gray-500 transition-transform flex-shrink-0 ${
+          className={`w-3.5 h-3.5 text-muted transition-transform flex-shrink-0 ${
             expanded ? 'rotate-180' : ''
           }`}
           fill="none"
@@ -579,7 +579,7 @@ function ProtocolLogEntry({ log }: { log: ActivityLog }) {
 
       {expanded && log.details && (
         <div className="mt-2 ml-28">
-          <pre className="text-xs bg-gray-800 dark:bg-gray-900 text-gray-100 p-3 rounded overflow-x-auto max-h-48">
+          <pre className="text-xs bg-overlay text-on-base p-3 rounded overflow-x-auto max-h-48">
             {JSON.stringify(log.details, null, 2)}
           </pre>
         </div>

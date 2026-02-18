@@ -91,11 +91,11 @@ export function ErrorFallback({ error, onReset }: ErrorFallbackProps) {
       className="min-h-[400px] flex items-center justify-center p-6"
       role="alert"
     >
-      <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-6 text-center">
+      <div className="max-w-md w-full bg-surface rounded-lg shadow-lg p-6 text-center">
         {/* Error Icon */}
-        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
+        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-love/10 flex items-center justify-center">
           <svg
-            className="w-8 h-8 text-red-600"
+            className="w-8 h-8 text-love"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -111,22 +111,22 @@ export function ErrorFallback({ error, onReset }: ErrorFallbackProps) {
         </div>
 
         {/* Title */}
-        <h2 className="text-xl font-semibold text-gray-900 mb-2">
+        <h2 className="text-xl font-semibold text-on-base mb-2">
           Something went wrong
         </h2>
 
         {/* Message */}
-        <p className="text-gray-600 mb-4">
+        <p className="text-subtle mb-4">
           An unexpected error occurred. Please try again.
         </p>
 
         {/* Error details (development only) */}
         {error && import.meta.env.DEV && (
           <details className="mb-4 text-left">
-            <summary className="text-sm text-gray-500 cursor-pointer hover:text-gray-700">
+            <summary className="text-sm text-subtle cursor-pointer hover:text-on-base">
               Error details
             </summary>
-            <pre className="mt-2 p-3 bg-gray-100 rounded text-xs text-red-700 overflow-auto max-h-32">
+            <pre className="mt-2 p-3 bg-hl-low rounded text-xs text-love overflow-auto max-h-32">
               {error.message}
               {error.stack && `\n\n${error.stack}`}
             </pre>
@@ -138,14 +138,14 @@ export function ErrorFallback({ error, onReset }: ErrorFallbackProps) {
           {onReset && (
             <button
               onClick={onReset}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              className="px-4 py-2 text-sm font-medium text-subtle bg-surface border border-hl-med rounded-md hover:bg-hl-low focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-iris"
             >
               Try Again
             </button>
           )}
           <button
             onClick={() => window.location.reload()}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            className="px-4 py-2 text-sm font-medium text-base bg-iris rounded-md hover:bg-iris/80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-iris"
           >
             Reload Page
           </button>

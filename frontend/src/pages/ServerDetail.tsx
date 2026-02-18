@@ -78,14 +78,14 @@ export function ServerDetail() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => copy(server.id)}
-              className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 font-mono flex items-center gap-1 transition-colors"
+              className="text-xs text-muted hover:text-on-base font-mono flex items-center gap-1 transition-colors"
               title="Copy server ID"
             >
               {server.id.slice(0, 8)}...
               <span className="text-xs">{copied ? 'Copied' : 'Copy ID'}</span>
             </button>
             <span
-              className={`px-3 py-1 text-sm font-medium rounded-full ${STATUS_COLORS[statusKey] || 'bg-gray-100 text-gray-800'}`}
+              className={`px-3 py-1 text-sm font-medium rounded-full ${STATUS_COLORS[statusKey] || 'bg-overlay text-subtle'}`}
               role="status"
             >
               {STATUS_LABELS[statusKey] || server.status}
@@ -99,16 +99,16 @@ export function ServerDetail() {
       <div className="p-6">
         {/* Import success toast */}
         {importToast && (
-          <div className="mb-4 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg flex items-center justify-between">
+          <div className="mb-4 p-3 bg-foam/10 border border-foam/20 rounded-lg flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <svg className="h-5 w-5 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="h-5 w-5 text-foam" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
-              <span className="text-sm font-medium text-green-800 dark:text-green-300">{importToast}</span>
+              <span className="text-sm font-medium text-foam">{importToast}</span>
             </div>
             <button
               onClick={() => setImportToast(null)}
-              className="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-200"
+              className="text-foam hover:text-foam/80"
             >
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

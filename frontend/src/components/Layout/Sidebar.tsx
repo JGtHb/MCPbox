@@ -28,17 +28,17 @@ interface SidebarProps {
 export function Sidebar({ isDark, theme, setTheme, onClose }: SidebarProps) {
   const { logout } = useAuth()
   return (
-    <aside className="w-64 h-full bg-gray-900 text-white flex flex-col">
+    <aside className="w-64 h-full bg-overlay text-on-base flex flex-col">
       {/* Logo with close button on mobile */}
-      <div className="p-4 border-b border-gray-800 flex items-center justify-between">
+      <div className="p-4 border-b border-hl-med flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold">MCPbox</h1>
-          <p className="text-xs text-gray-400">MCP Server Management</p>
+          <p className="text-xs text-muted">MCP Server Management</p>
         </div>
         {onClose && (
           <button
             onClick={onClose}
-            className="lg:hidden p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg"
+            className="lg:hidden p-2 text-muted hover:text-on-base hover:bg-hl-med rounded-lg"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -58,8 +58,8 @@ export function Sidebar({ isDark, theme, setTheme, onClose }: SidebarProps) {
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
                     isActive
-                      ? 'bg-blue-600 text-white'
-                      : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                      ? 'bg-iris text-base font-medium'
+                      : 'text-subtle hover:bg-hl-med hover:text-on-base'
                   }`
                 }
               >
@@ -72,18 +72,18 @@ export function Sidebar({ isDark, theme, setTheme, onClose }: SidebarProps) {
       </nav>
 
       {/* Theme Toggle */}
-      <div className="p-4 border-t border-gray-800">
+      <div className="p-4 border-t border-hl-med">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-xs text-gray-400">Theme</span>
-          <span className="text-xs text-gray-500">{isDark ? 'Dark' : 'Light'}</span>
+          <span className="text-xs text-muted">Theme</span>
+          <span className="text-xs text-subtle">{isDark ? 'Dark' : 'Light'}</span>
         </div>
-        <div className="flex rounded-lg overflow-hidden bg-gray-800">
+        <div className="flex rounded-lg overflow-hidden bg-hl-low">
           <button
             onClick={() => setTheme('light')}
             className={`flex-1 px-2 py-1.5 text-xs transition-colors ${
               theme === 'light'
-                ? 'bg-blue-600 text-white'
-                : 'text-gray-400 hover:text-white'
+                ? 'bg-iris text-base'
+                : 'text-muted hover:text-on-base'
             }`}
             title="Light mode"
           >
@@ -93,8 +93,8 @@ export function Sidebar({ isDark, theme, setTheme, onClose }: SidebarProps) {
             onClick={() => setTheme('system')}
             className={`flex-1 px-2 py-1.5 text-xs transition-colors ${
               theme === 'system'
-                ? 'bg-blue-600 text-white'
-                : 'text-gray-400 hover:text-white'
+                ? 'bg-iris text-base'
+                : 'text-muted hover:text-on-base'
             }`}
             title="System preference"
           >
@@ -104,8 +104,8 @@ export function Sidebar({ isDark, theme, setTheme, onClose }: SidebarProps) {
             onClick={() => setTheme('dark')}
             className={`flex-1 px-2 py-1.5 text-xs transition-colors ${
               theme === 'dark'
-                ? 'bg-blue-600 text-white'
-                : 'text-gray-400 hover:text-white'
+                ? 'bg-iris text-base'
+                : 'text-muted hover:text-on-base'
             }`}
             title="Dark mode"
           >
@@ -115,10 +115,10 @@ export function Sidebar({ isDark, theme, setTheme, onClose }: SidebarProps) {
       </div>
 
       {/* Logout */}
-      <div className="p-4 border-t border-gray-800">
+      <div className="p-4 border-t border-hl-med">
         <button
           onClick={logout}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors"
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-subtle hover:bg-hl-med hover:text-on-base transition-colors"
         >
           <span className="text-lg">🚪</span>
           <span>Logout</span>
@@ -126,7 +126,7 @@ export function Sidebar({ isDark, theme, setTheme, onClose }: SidebarProps) {
       </div>
 
       {/* Footer */}
-      <div className="p-4 border-t border-gray-800 text-xs text-gray-500">
+      <div className="p-4 border-t border-hl-med text-xs text-muted">
         <p>v0.1.0 • Development</p>
       </div>
     </aside>

@@ -31,7 +31,7 @@ export function ConfigurationList({ onEdit, onCreateNew }: ConfigurationListProp
     return (
       <div className="animate-pulse space-y-3">
         {[1, 2, 3].map((i) => (
-          <div key={i} className="h-16 bg-gray-100 dark:bg-gray-700 rounded-lg" />
+          <div key={i} className="h-16 bg-hl-med rounded-lg" />
         ))}
       </div>
     )
@@ -47,29 +47,29 @@ export function ConfigurationList({ onEdit, onCreateNew }: ConfigurationListProp
               key={config.id}
               className={`p-4 rounded-lg border transition-colors ${
                 config.is_active
-                  ? 'bg-purple-50 dark:bg-purple-900/30 border-purple-200 dark:border-purple-700'
-                  : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                  ? 'bg-iris/10 border-iris/30'
+                  : 'bg-surface border-hl-med hover:border-hl-high'
               }`}
             >
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <h4 className="font-medium text-gray-900 dark:text-white">
+                    <h4 className="font-medium text-on-base">
                       {config.name}
                     </h4>
                     {config.is_active && (
-                      <span className="px-2 py-0.5 text-xs bg-purple-100 dark:bg-purple-800 text-purple-700 dark:text-purple-300 rounded-full">
+                      <span className="px-2 py-0.5 text-xs bg-iris/10 text-iris rounded-full">
                         Active
                       </span>
                     )}
                   </div>
                   {config.description && (
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    <p className="text-sm text-muted mt-1">
                       {config.description}
                     </p>
                   )}
                   {config.public_url && (
-                    <p className="text-sm font-mono text-gray-600 dark:text-gray-300 mt-1">
+                    <p className="text-sm font-mono text-subtle mt-1">
                       {config.public_url}
                     </p>
                   )}
@@ -79,14 +79,14 @@ export function ConfigurationList({ onEdit, onCreateNew }: ConfigurationListProp
                     <button
                       onClick={() => handleActivate(config.id)}
                       disabled={activateMutation.isPending}
-                      className="px-3 py-1.5 text-sm bg-purple-100 dark:bg-purple-900/50 hover:bg-purple-200 dark:hover:bg-purple-800 text-purple-700 dark:text-purple-300 rounded-lg transition-colors disabled:opacity-50"
+                      className="px-3 py-1.5 text-sm bg-iris/10 hover:bg-iris/20 text-iris rounded-lg transition-colors disabled:opacity-50"
                     >
                       Activate
                     </button>
                   )}
                   <button
                     onClick={() => onEdit(config)}
-                    className="px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg transition-colors"
+                    className="px-3 py-1.5 text-sm bg-hl-low hover:bg-hl-med text-subtle rounded-lg transition-colors"
                   >
                     Edit
                   </button>
@@ -94,7 +94,7 @@ export function ConfigurationList({ onEdit, onCreateNew }: ConfigurationListProp
                     <button
                       onClick={() => handleDelete(config)}
                       disabled={deleteMutation.isPending}
-                      className="px-3 py-1.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors disabled:opacity-50"
+                      className="px-3 py-1.5 text-sm text-love hover:bg-love/10 rounded-lg transition-colors disabled:opacity-50"
                     >
                       Delete
                     </button>
@@ -105,14 +105,14 @@ export function ConfigurationList({ onEdit, onCreateNew }: ConfigurationListProp
           ))}
         </div>
       ) : (
-        <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+        <div className="text-center py-8 text-subtle">
           <p>No saved configurations yet.</p>
           <p className="text-sm mt-1">
             Create a configuration to connect to Claude via Cloudflare MCP Server Portals.
           </p>
           <button
             onClick={onCreateNew}
-            className="mt-4 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
+            className="mt-4 px-4 py-2 bg-iris hover:bg-iris/80 text-base rounded-lg transition-colors"
           >
             Create Configuration
           </button>
@@ -125,17 +125,17 @@ export function ConfigurationList({ onEdit, onCreateNew }: ConfigurationListProp
           <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page === 1}
-            className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded disabled:opacity-50"
+            className="px-3 py-1 text-sm border border-hl-med rounded disabled:opacity-50"
           >
             Previous
           </button>
-          <span className="px-3 py-1 text-sm text-gray-600 dark:text-gray-400">
+          <span className="px-3 py-1 text-sm text-subtle">
             Page {page} of {data.pages}
           </span>
           <button
             onClick={() => setPage((p) => Math.min(data.pages, p + 1))}
             disabled={page === data.pages}
-            className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded disabled:opacity-50"
+            className="px-3 py-1 text-sm border border-hl-med rounded disabled:opacity-50"
           >
             Next
           </button>

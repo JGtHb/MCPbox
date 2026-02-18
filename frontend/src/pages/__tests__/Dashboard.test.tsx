@@ -11,7 +11,7 @@ describe('Dashboard', () => {
   it('shows period selector with default 24h selected', async () => {
     render(<Dashboard />)
 
-    expect(screen.getByRole('button', { name: '24h' })).toHaveClass('bg-blue-600')
+    expect(screen.getByRole('button', { name: '24h' })).toHaveClass('bg-iris')
   })
 
   it('allows changing the period', async () => {
@@ -19,8 +19,8 @@ describe('Dashboard', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '1h' }))
 
-    expect(screen.getByRole('button', { name: '1h' })).toHaveClass('bg-blue-600')
-    expect(screen.getByRole('button', { name: '24h' })).not.toHaveClass('bg-blue-600')
+    expect(screen.getByRole('button', { name: '1h' })).toHaveClass('bg-iris')
+    expect(screen.getByRole('button', { name: '24h' })).not.toHaveClass('bg-iris')
   })
 
   it('displays stats cards', async () => {

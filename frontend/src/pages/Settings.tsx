@@ -74,7 +74,7 @@ function useDebounce<T>(value: T, delay: number): T {
 function ModuleStatusBadge({ module }: { module: ModuleInfo }) {
   if (module.is_stdlib) {
     return (
-      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400">
+      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-hl-low text-subtle">
         stdlib
       </span>
     )
@@ -82,7 +82,7 @@ function ModuleStatusBadge({ module }: { module: ModuleInfo }) {
 
   if (module.is_installed) {
     return (
-      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-foam/10 text-foam">
         {module.installed_version ? `v${module.installed_version}` : 'installed'}
       </span>
     )
@@ -90,14 +90,14 @@ function ModuleStatusBadge({ module }: { module: ModuleInfo }) {
 
   if (module.error) {
     return (
-      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" title={module.error}>
+      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-love/10 text-love" title={module.error}>
         failed
       </span>
     )
   }
 
   return (
-    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
+    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-gold/10 text-gold">
       not installed
     </span>
   )
@@ -166,20 +166,20 @@ function PolicyToggle({
     <div className="flex items-start justify-between py-3">
       <div className="flex-1 pr-4">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-gray-900 dark:text-white">{meta.label}</span>
+          <span className="text-sm font-medium text-on-base">{meta.label}</span>
           {!isSecure && (
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-gold/10 text-gold">
               relaxed
             </span>
           )}
         </div>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{meta.description}</p>
+        <p className="text-xs text-subtle mt-0.5">{meta.description}</p>
       </div>
       <select
         value={currentValue}
         onChange={(e) => onUpdate(settingKey, e.target.value)}
         disabled={isPending}
-        className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:opacity-50"
+        className="text-sm border border-hl-med rounded-lg px-2 py-1 bg-surface text-on-base disabled:opacity-50"
       >
         <option value={meta.options[0]}>{meta.optionLabels[0]}</option>
         <option value={meta.options[1]}>{meta.optionLabels[1]}</option>
@@ -281,11 +281,11 @@ function UsersTab() {
 
   if (statusLoading) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+      <div className="bg-surface rounded-lg shadow p-6">
         <div className="animate-pulse space-y-3">
-          <div className="h-6 bg-gray-100 dark:bg-gray-700 rounded w-48"></div>
-          <div className="h-4 bg-gray-100 dark:bg-gray-700 rounded w-96"></div>
-          <div className="h-32 bg-gray-100 dark:bg-gray-700 rounded"></div>
+          <div className="h-6 bg-hl-low rounded w-48"></div>
+          <div className="h-4 bg-hl-low rounded w-96"></div>
+          <div className="h-32 bg-hl-low rounded"></div>
         </div>
       </div>
     )
@@ -293,10 +293,10 @@ function UsersTab() {
 
   if (!isConfigured) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Approved Users</h3>
-        <div className="p-4 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600">
-          <p className="text-sm text-gray-600 dark:text-gray-400">
+      <div className="bg-surface rounded-lg shadow p-6">
+        <h3 className="text-lg font-medium text-on-base mb-4">Approved Users</h3>
+        <div className="p-4 rounded-lg bg-hl-low border border-hl-med">
+          <p className="text-sm text-subtle">
             Remote access is not configured. Set up Cloudflare tunnel first.
           </p>
         </div>
@@ -305,17 +305,17 @@ function UsersTab() {
   }
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+    <div className="bg-surface rounded-lg shadow p-6">
       <div className="mb-4">
-        <h3 className="text-lg font-medium text-gray-900 dark:text-white">Approved Users</h3>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+        <h3 className="text-lg font-medium text-on-base">Approved Users</h3>
+        <p className="text-sm text-subtle mt-1">
           Controls who can access MCPbox remotely via the Cloudflare tunnel. Changes are synced to the Cloudflare Access Policy.
         </p>
       </div>
 
       {/* Policy type radio group */}
       <div className="space-y-3 mb-6">
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+        <label className="block text-sm font-medium text-on-base">
           Access Policy Type
         </label>
         <div className="space-y-2">
@@ -326,9 +326,9 @@ function UsersTab() {
               value="everyone"
               checked={policyType === 'everyone'}
               onChange={() => setPolicyType('everyone')}
-              className="text-blue-600 focus:ring-blue-500"
+              className="text-iris focus:ring-iris"
             />
-            <span className="text-sm text-gray-900 dark:text-white">Everyone</span>
+            <span className="text-sm text-on-base">Everyone</span>
           </label>
           <label className="flex items-center gap-3 cursor-pointer">
             <input
@@ -337,9 +337,9 @@ function UsersTab() {
               value="emails"
               checked={policyType === 'emails'}
               onChange={() => setPolicyType('emails')}
-              className="text-blue-600 focus:ring-blue-500"
+              className="text-iris focus:ring-iris"
             />
-            <span className="text-sm text-gray-900 dark:text-white">Specific Emails</span>
+            <span className="text-sm text-on-base">Specific Emails</span>
           </label>
           <label className="flex items-center gap-3 cursor-pointer">
             <input
@@ -348,21 +348,21 @@ function UsersTab() {
               value="email_domain"
               checked={policyType === 'email_domain'}
               onChange={() => setPolicyType('email_domain')}
-              className="text-blue-600 focus:ring-blue-500"
+              className="text-iris focus:ring-iris"
             />
-            <span className="text-sm text-gray-900 dark:text-white">Email Domain</span>
+            <span className="text-sm text-on-base">Email Domain</span>
           </label>
         </div>
       </div>
 
       {/* Everyone warning */}
       {policyType === 'everyone' && (
-        <div className="mb-6 p-3 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
+        <div className="mb-6 p-3 rounded-lg bg-gold/10 border border-gold/30">
           <div className="flex items-start gap-2">
-            <svg className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5 text-gold flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
-            <p className="text-sm text-yellow-700 dark:text-yellow-400">
+            <p className="text-sm text-gold">
               Anyone with the URL can access MCPbox remotely. This is not recommended for production use.
             </p>
           </div>
@@ -382,34 +382,34 @@ function UsersTab() {
               }}
               onKeyPress={handleEmailKeyPress}
               placeholder="user@example.com"
-              className="flex-1 max-w-sm px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+              className="flex-1 max-w-sm px-3 py-2 text-sm border border-hl-med rounded-lg focus:ring-iris focus:border-iris bg-surface text-on-base"
             />
             <button
               onClick={handleAddEmail}
               disabled={!newEmail.trim()}
-              className="px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 text-sm text-base bg-iris hover:bg-iris/80 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Add
             </button>
           </div>
 
           {emailError && (
-            <div className="text-sm text-red-600 dark:text-red-400">
+            <div className="text-sm text-love">
               {emailError}
             </div>
           )}
 
           {emails.length > 0 ? (
-            <div className="border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-700 max-h-60 overflow-y-auto">
+            <div className="border border-hl-med rounded-lg divide-y divide-hl-low max-h-60 overflow-y-auto">
               {emails.map((email) => (
                 <div
                   key={email}
-                  className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                  className="flex items-center justify-between px-3 py-2 hover:bg-hl-low"
                 >
-                  <span className="text-sm text-gray-800 dark:text-gray-200">{email}</span>
+                  <span className="text-sm text-on-base">{email}</span>
                   <button
                     onClick={() => handleRemoveEmail(email)}
-                    className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                    className="p-1 text-muted hover:text-love hover:bg-love/10 rounded transition-colors"
                     aria-label={`Remove ${email}`}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -420,7 +420,7 @@ function UsersTab() {
               ))}
             </div>
           ) : (
-            <div className="p-4 text-center text-sm text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700 rounded-lg">
+            <div className="p-4 text-center text-sm text-subtle border border-hl-med rounded-lg">
               No approved emails. Add email addresses above.
             </div>
           )}
@@ -430,7 +430,7 @@ function UsersTab() {
       {/* Email domain input */}
       {policyType === 'email_domain' && (
         <div className="mb-6 space-y-2">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label className="block text-sm font-medium text-on-base">
             Allowed Domain
           </label>
           <input
@@ -438,9 +438,9 @@ function UsersTab() {
             value={emailDomain}
             onChange={(e) => setEmailDomain(e.target.value.trim())}
             placeholder="company.com"
-            className="w-full max-w-sm px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+            className="w-full max-w-sm px-3 py-2 text-sm border border-hl-med rounded-lg focus:ring-iris focus:border-iris bg-surface text-on-base"
           />
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-subtle">
             Any email address ending in @{emailDomain || 'domain.com'} will be allowed access.
           </p>
         </div>
@@ -451,25 +451,25 @@ function UsersTab() {
         <button
           onClick={handleSave}
           disabled={updateAccessPolicy.isPending}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {updateAccessPolicy.isPending ? 'Saving...' : 'Save Changes'}
         </button>
 
         {saveSuccess && (
-          <span className="text-sm text-green-600 dark:text-green-400">{saveSuccess}</span>
+          <span className="text-sm text-foam">{saveSuccess}</span>
         )}
       </div>
 
       {saveError && (
-        <div className="mt-4 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-400 border border-red-200 dark:border-red-800">
+        <div className="mt-4 p-3 rounded-lg bg-love/10 text-love border border-love/30">
           {saveError}
         </div>
       )}
 
       {/* Sync note */}
-      <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
-        <p className="text-xs text-gray-500 dark:text-gray-400">
+      <div className="mt-6 pt-4 border-t border-hl-med">
+        <p className="text-xs text-subtle">
           Changes are synced to the Cloudflare Access Policy on the OIDC application. The Access Policy is the source of truth for email enforcement.
         </p>
       </div>
@@ -727,7 +727,7 @@ export function Settings() {
       <div className="p-6">
         <div className="max-w-3xl">
           {/* Tab Navigation */}
-          <div className="border-b border-gray-200 dark:border-gray-700 mb-6">
+          <div className="border-b border-hl-med mb-6">
             <nav className="-mb-px flex space-x-6 overflow-x-auto" aria-label="Settings tabs">
               {SETTINGS_TABS.map((tab) => {
                 const isActive = tab.id === activeTab
@@ -737,8 +737,8 @@ export function Settings() {
                     onClick={() => setActiveTab(tab.id)}
                     className={`whitespace-nowrap py-3 px-1 border-b-2 text-sm font-medium transition-colors ${
                       isActive
-                        ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                        : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+                        ? 'border-iris text-pine'
+                        : 'border-transparent text-subtle hover:text-on-base hover:border-hl-med'
                     }`}
                     aria-current={isActive ? 'page' : undefined}
                   >
@@ -753,22 +753,22 @@ export function Settings() {
           <div className="space-y-6">
             {/* Security Tab */}
             {activeTab === 'security' && (
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+              <div className="bg-surface rounded-lg shadow p-6">
                 <div className="mb-4">
-                  <h3 className="text-lg font-medium text-gray-900 dark:text-white">Security Policy</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  <h3 className="text-lg font-medium text-on-base">Security Policy</h3>
+                  <p className="text-sm text-subtle mt-1">
                     Controls that affect security posture. Defaults are the most restrictive options.
                   </p>
                 </div>
 
                 {policyLoading ? (
                   <div className="animate-pulse space-y-3">
-                    <div className="h-12 bg-gray-100 dark:bg-gray-700 rounded"></div>
-                    <div className="h-12 bg-gray-100 dark:bg-gray-700 rounded"></div>
-                    <div className="h-12 bg-gray-100 dark:bg-gray-700 rounded"></div>
+                    <div className="h-12 bg-hl-low rounded"></div>
+                    <div className="h-12 bg-hl-low rounded"></div>
+                    <div className="h-12 bg-hl-low rounded"></div>
                   </div>
                 ) : securityPolicy ? (
-                  <div className="space-y-1 divide-y divide-gray-100 dark:divide-gray-700">
+                  <div className="space-y-1 divide-y divide-hl-low">
                     {Object.keys(POLICY_LABELS).map((key) => (
                       <PolicyToggle
                         key={key}
@@ -782,8 +782,8 @@ export function Settings() {
                     {/* Log retention (numeric input) */}
                     <div className="flex items-start justify-between py-3">
                       <div className="flex-1 pr-4">
-                        <span className="text-sm font-medium text-gray-900 dark:text-white">Log Retention</span>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                        <span className="text-sm font-medium text-on-base">Log Retention</span>
+                        <p className="text-xs text-subtle mt-0.5">
                           How long execution logs are kept before cleanup.
                         </p>
                       </div>
@@ -800,20 +800,20 @@ export function Settings() {
                           min={1}
                           max={3650}
                           disabled={updatePolicy.isPending}
-                          className="w-20 text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:opacity-50"
+                          className="w-20 text-sm border border-hl-med rounded-lg px-2 py-1 bg-surface text-on-base disabled:opacity-50"
                         />
-                        <span className="text-sm text-gray-500 dark:text-gray-400">days</span>
+                        <span className="text-sm text-subtle">days</span>
                       </div>
                     </div>
 
                     {/* MCP rate limit (numeric input) */}
                     <div className="flex items-start justify-between py-3">
                       <div className="flex-1 pr-4">
-                        <span className="text-sm font-medium text-gray-900 dark:text-white">MCP Rate Limit</span>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                        <span className="text-sm font-medium text-on-base">MCP Rate Limit</span>
+                        <p className="text-xs text-subtle mt-0.5">
                           Requests per minute for the MCP gateway. All remote users share a single IP via cloudflared.
                         </p>
-                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                        <p className="text-xs text-muted mt-0.5">
                           The MCP gateway process requires a restart for changes to take effect.
                         </p>
                       </div>
@@ -830,15 +830,15 @@ export function Settings() {
                           min={10}
                           max={10000}
                           disabled={updatePolicy.isPending}
-                          className="w-24 text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:opacity-50"
+                          className="w-24 text-sm border border-hl-med rounded-lg px-2 py-1 bg-surface text-on-base disabled:opacity-50"
                         />
-                        <span className="text-sm text-gray-500 dark:text-gray-400">req/min</span>
+                        <span className="text-sm text-subtle">req/min</span>
                       </div>
                     </div>
 
                     {policyWarning && (
                       <div className="pt-3">
-                        <div className="text-sm text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg px-3 py-2">
+                        <div className="text-sm text-gold bg-gold/10 border border-gold/30 rounded-lg px-3 py-2">
                           {policyWarning}
                         </div>
                       </div>
@@ -846,7 +846,7 @@ export function Settings() {
 
                     {policyError && (
                       <div className="pt-3">
-                        <div className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2">
+                        <div className="text-sm text-love bg-love/10 border border-love/30 rounded-lg px-3 py-2">
                           {policyError}
                         </div>
                       </div>
@@ -858,11 +858,11 @@ export function Settings() {
 
             {/* Modules Tab */}
             {activeTab === 'modules' && (
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+              <div className="bg-surface rounded-lg shadow p-6">
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h3 className="text-lg font-medium text-gray-900 dark:text-white">Python Modules</h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    <h3 className="text-lg font-medium text-on-base">Python Modules</h3>
+                    <p className="text-sm text-subtle mt-1">
                       Modules that can be imported in tool code. Third-party packages are auto-installed.
                     </p>
                   </div>
@@ -870,7 +870,7 @@ export function Settings() {
                     <button
                       onClick={handleSyncAll}
                       disabled={syncModules.isPending || updateModules.isPending}
-                      className="text-sm px-3 py-1 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 border border-blue-300 dark:border-blue-600 rounded-lg disabled:opacity-50"
+                      className="text-sm px-3 py-1 text-pine hover:text-pine/80 border border-iris/50 rounded-lg disabled:opacity-50"
                       title="Reinstall all third-party packages"
                     >
                       {syncModules.isPending ? 'Syncing...' : 'Sync Packages'}
@@ -879,7 +879,7 @@ export function Settings() {
                       <button
                         onClick={handleResetModules}
                         disabled={updateModules.isPending}
-                        className="text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 disabled:opacity-50"
+                        className="text-sm text-pine hover:text-pine/80 disabled:opacity-50"
                       >
                         Reset to defaults
                       </button>
@@ -889,8 +889,8 @@ export function Settings() {
 
                 {modulesLoading ? (
                   <div className="animate-pulse space-y-2">
-                    <div className="h-10 bg-gray-100 dark:bg-gray-700 rounded"></div>
-                    <div className="h-40 bg-gray-100 dark:bg-gray-700 rounded"></div>
+                    <div className="h-10 bg-hl-low rounded"></div>
+                    <div className="h-40 bg-hl-low rounded"></div>
                   </div>
                 ) : moduleConfig ? (
                   <div className="space-y-4">
@@ -899,20 +899,20 @@ export function Settings() {
                       <span
                         className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
                           moduleConfig.is_custom
-                            ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-                            : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+                            ? 'bg-pine/10 text-pine'
+                            : 'bg-hl-low text-on-base'
                         }`}
                       >
                         {moduleConfig.is_custom ? 'Custom' : 'Defaults'}
                       </span>
-                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                      <span className="text-xs text-subtle">
                         {stdlibCount} stdlib
                       </span>
-                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                      <span className="text-xs text-subtle">
                         {installedCount} installed
                       </span>
                       {notInstalledCount > 0 && (
-                        <span className="text-xs text-yellow-600 dark:text-yellow-400">
+                        <span className="text-xs text-gold">
                           {notInstalledCount} not installed
                         </span>
                       )}
@@ -927,12 +927,12 @@ export function Settings() {
                           onChange={(e) => setNewModule(e.target.value)}
                           onKeyPress={handleModuleKeyPress}
                           placeholder="Add module (e.g., requests, numpy)"
-                          className="flex-1 max-w-sm px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                          className="flex-1 max-w-sm px-3 py-2 text-sm border border-hl-med rounded-lg focus:ring-iris focus:border-iris bg-surface text-on-base"
                         />
                         <button
                           onClick={handleAddModule}
                           disabled={!newModule.trim() || updateModules.isPending}
-                          className="px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="px-4 py-2 text-sm text-base bg-iris hover:bg-iris/80 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {updateModules.isPending ? 'Adding...' : 'Add'}
                         </button>
@@ -942,36 +942,36 @@ export function Settings() {
                       {debouncedNewModule && (
                         <div className="max-w-sm">
                           {pypiLoading ? (
-                            <div className="text-xs text-gray-500 dark:text-gray-400 animate-pulse">
+                            <div className="text-xs text-subtle animate-pulse">
                               Looking up package info...
                             </div>
                           ) : pypiInfo ? (
-                            <div className="text-xs p-2 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600">
+                            <div className="text-xs p-2 rounded-lg bg-hl-low border border-hl-med">
                               {pypiInfo.is_stdlib ? (
-                                <span className="text-gray-600 dark:text-gray-400">
+                                <span className="text-subtle">
                                   <strong>{pypiInfo.module_name}</strong> is a Python standard library module (no install needed)
                                 </span>
                               ) : pypiInfo.pypi_info ? (
                                 <div className="space-y-1">
                                   <div className="flex items-center gap-2">
-                                    <span className="font-medium text-gray-900 dark:text-white">
+                                    <span className="font-medium text-on-base">
                                       {pypiInfo.pypi_info.name}
                                     </span>
-                                    <span className="text-gray-500">v{pypiInfo.pypi_info.version}</span>
+                                    <span className="text-subtle">v{pypiInfo.pypi_info.version}</span>
                                   </div>
                                   {pypiInfo.pypi_info.summary && (
-                                    <p className="text-gray-600 dark:text-gray-400 line-clamp-2">
+                                    <p className="text-subtle line-clamp-2">
                                       {pypiInfo.pypi_info.summary}
                                     </p>
                                   )}
                                   {pypiInfo.module_name !== pypiInfo.package_name && (
-                                    <p className="text-gray-500 dark:text-gray-500 italic">
+                                    <p className="text-subtle italic">
                                       Package: {pypiInfo.package_name}
                                     </p>
                                   )}
                                 </div>
                               ) : pypiInfo.error ? (
-                                <span className="text-yellow-600 dark:text-yellow-400">
+                                <span className="text-gold">
                                   {pypiInfo.error}
                                 </span>
                               ) : null}
@@ -983,15 +983,15 @@ export function Settings() {
 
                     {/* Error display */}
                     {moduleError && (
-                      <div className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2">
+                      <div className="text-sm text-love bg-love/10 border border-love/30 rounded-lg px-3 py-2">
                         {moduleError}
                       </div>
                     )}
 
                     {/* Module list */}
-                    <div className="border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-700 max-h-80 overflow-y-auto">
+                    <div className="border border-hl-med rounded-lg divide-y divide-hl-low max-h-80 overflow-y-auto">
                       {moduleConfig.allowed_modules.length === 0 ? (
-                        <div className="p-4 text-center text-sm text-gray-500 dark:text-gray-400">
+                        <div className="p-4 text-center text-sm text-subtle">
                           No modules allowed. Add some modules above.
                         </div>
                       ) : (
@@ -1001,14 +1001,14 @@ export function Settings() {
                           .map((module) => (
                             <div
                               key={module.module_name}
-                              className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                              className="flex items-center justify-between px-3 py-2 hover:bg-hl-low"
                             >
                               <div className="flex items-center gap-2">
-                                <code className="text-sm text-gray-800 dark:text-gray-200">
+                                <code className="text-sm text-on-base">
                                   {module.module_name}
                                 </code>
                                 {module.module_name !== module.package_name && !module.is_stdlib && (
-                                  <span className="text-xs text-gray-400 dark:text-gray-500">
+                                  <span className="text-xs text-muted">
                                     ({module.package_name})
                                   </span>
                                 )}
@@ -1020,7 +1020,7 @@ export function Settings() {
                                   <button
                                     onClick={() => handleRetryInstall(module.module_name)}
                                     disabled={installModule.isPending}
-                                    className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors disabled:opacity-50"
+                                    className="p-1 text-pine hover:text-pine/80 hover:bg-pine/10 rounded transition-colors disabled:opacity-50"
                                     title="Retry installation"
                                   >
                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1032,7 +1032,7 @@ export function Settings() {
                                 <button
                                   onClick={() => handleRemoveModule(module.module_name)}
                                   disabled={updateModules.isPending}
-                                  className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors disabled:opacity-50"
+                                  className="p-1 text-muted hover:text-love hover:bg-love/10 rounded transition-colors disabled:opacity-50"
                                   aria-label={`Remove ${module.module_name}`}
                                 >
                                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1057,11 +1057,11 @@ export function Settings() {
             {activeTab === 'account' && (
               <>
                 {/* Change Password */}
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-                  <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Change Password</h3>
+                <div className="bg-surface rounded-lg shadow p-6">
+                  <h3 className="text-lg font-medium text-on-base mb-4">Change Password</h3>
                   <form onSubmit={handlePasswordChange} className="space-y-4">
                     <div>
-                      <label htmlFor="current-password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      <label htmlFor="current-password" className="block text-sm font-medium text-on-base mb-1">
                         Current Password
                       </label>
                       <input
@@ -1071,11 +1071,11 @@ export function Settings() {
                         value={currentPassword}
                         onChange={e => setCurrentPassword(e.target.value)}
                         disabled={isChangingPassword}
-                        className="w-full max-w-sm px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                        className="w-full max-w-sm px-3 py-2 border border-hl-med rounded-lg focus:ring-iris focus:border-iris bg-surface text-on-base"
                       />
                     </div>
                     <div>
-                      <label htmlFor="new-password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      <label htmlFor="new-password" className="block text-sm font-medium text-on-base mb-1">
                         New Password
                       </label>
                       <input
@@ -1085,14 +1085,14 @@ export function Settings() {
                         value={newPassword}
                         onChange={e => setNewPassword(e.target.value)}
                         disabled={isChangingPassword}
-                        className="w-full max-w-sm px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                        className="w-full max-w-sm px-3 py-2 border border-hl-med rounded-lg focus:ring-iris focus:border-iris bg-surface text-on-base"
                       />
-                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      <p className="mt-1 text-xs text-subtle">
                         Minimum 12 characters
                       </p>
                     </div>
                     <div>
-                      <label htmlFor="confirm-password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      <label htmlFor="confirm-password" className="block text-sm font-medium text-on-base mb-1">
                         Confirm New Password
                       </label>
                       <input
@@ -1102,18 +1102,18 @@ export function Settings() {
                         value={confirmPassword}
                         onChange={e => setConfirmPassword(e.target.value)}
                         disabled={isChangingPassword}
-                        className="w-full max-w-sm px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                        className="w-full max-w-sm px-3 py-2 border border-hl-med rounded-lg focus:ring-iris focus:border-iris bg-surface text-on-base"
                       />
                     </div>
 
                     {passwordError && (
-                      <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-400 border border-red-200 dark:border-red-800 max-w-sm">
+                      <div className="p-3 rounded-lg bg-love/10 text-love border border-love/30 max-w-sm">
                         {passwordError}
                       </div>
                     )}
 
                     {passwordSuccess && (
-                      <div className="p-3 rounded-lg bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-400 border border-green-200 dark:border-green-800 max-w-sm">
+                      <div className="p-3 rounded-lg bg-foam/10 text-foam border border-foam/30 max-w-sm">
                         Password changed successfully. You will be logged out...
                       </div>
                     )}
@@ -1121,7 +1121,7 @@ export function Settings() {
                     <button
                       type="submit"
                       disabled={isChangingPassword || !currentPassword || !newPassword || !confirmPassword}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {isChangingPassword ? 'Changing...' : 'Change Password'}
                     </button>
@@ -1129,9 +1129,9 @@ export function Settings() {
                 </div>
 
                 {/* Export/Import */}
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-                  <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Export / Import</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                <div className="bg-surface rounded-lg shadow p-6">
+                  <h3 className="text-lg font-medium text-on-base mb-4">Export / Import</h3>
+                  <p className="text-sm text-subtle mb-4">
                     Backup your servers and tools, or migrate from another MCPbox instance.
                     Note: Credentials are not included in exports for security.
                   </p>
@@ -1141,23 +1141,23 @@ export function Settings() {
                       <button
                         onClick={handleExportAll}
                         disabled={exportAll.isPending}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+                        className="px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 disabled:opacity-50 flex items-center gap-2"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                         </svg>
                         {exportAll.isPending ? 'Exporting...' : 'Export All Servers'}
                       </button>
-                      <span className="text-sm text-gray-500 dark:text-gray-400">
+                      <span className="text-sm text-subtle">
                         Download all servers and tools as JSON
                       </span>
                     </div>
 
                     {/* Export Error */}
                     {exportError && (
-                      <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-400 border border-red-200 dark:border-red-800">
+                      <div className="p-3 rounded-lg bg-love/10 text-love border border-love/30">
                         <div className="flex items-center gap-2">
-                          <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-5 h-5 text-love" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                           </svg>
                           <span>{exportError}</span>
@@ -1166,7 +1166,7 @@ export function Settings() {
                     )}
 
                     {/* Import Section */}
-                    <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                    <div className="border-t border-hl-med pt-4">
                       <input
                         ref={fileInputRef}
                         type="file"
@@ -1178,14 +1178,14 @@ export function Settings() {
                         <button
                           onClick={handleImportClick}
                           disabled={importServers.isPending}
-                          className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 flex items-center gap-2"
+                          className="px-4 py-2 bg-hl-low text-on-base border border-hl-med rounded-lg hover:bg-hl-med disabled:opacity-50 flex items-center gap-2"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                           </svg>
                           {importServers.isPending ? 'Importing...' : 'Import from File'}
                         </button>
-                        <span className="text-sm text-gray-500 dark:text-gray-400">
+                        <span className="text-sm text-subtle">
                           Import servers from an MCPbox export file
                         </span>
                       </div>
@@ -1196,17 +1196,17 @@ export function Settings() {
                       <div
                         className={`p-3 rounded-lg ${
                           importResult.success
-                            ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-400 border border-green-200 dark:border-green-800'
-                            : 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-800'
+                            ? 'bg-foam/10 text-foam border border-foam/30'
+                            : 'bg-gold/10 text-gold border border-gold/30'
                         }`}
                       >
                         <div className="flex items-start gap-2">
                           {importResult.success ? (
-                            <svg className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-5 h-5 text-foam flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                             </svg>
                           ) : (
-                            <svg className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-5 h-5 text-gold flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                             </svg>
                           )}
@@ -1228,9 +1228,9 @@ export function Settings() {
 
                     {/* Import Error */}
                     {importError && (
-                      <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-400 border border-red-200 dark:border-red-800">
+                      <div className="p-3 rounded-lg bg-love/10 text-love border border-love/30">
                         <div className="flex items-center gap-2">
-                          <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-5 h-5 text-love" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                           </svg>
                           <span>{importError}</span>
@@ -1244,9 +1244,9 @@ export function Settings() {
 
             {/* About Tab */}
             {activeTab === 'about' && (
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">About</h3>
-                <div className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
+              <div className="bg-surface rounded-lg shadow p-6">
+                <h3 className="text-lg font-medium text-on-base mb-4">About</h3>
+                <div className="text-sm text-subtle space-y-1">
                   <p>MCPbox - MCP Server Builder</p>
                   <p>Build and deploy MCP servers with ease</p>
                 </div>

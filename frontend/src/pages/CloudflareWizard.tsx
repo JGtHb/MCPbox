@@ -36,12 +36,12 @@ function StepStatus({
     <div
       className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
         isComplete
-          ? 'bg-green-500 text-white'
+          ? 'bg-foam text-base'
           : isCurrent
-            ? 'bg-purple-500 text-white'
+            ? 'bg-iris text-base'
             : isPending
-              ? 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
-              : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
+              ? 'bg-hl-med text-muted'
+              : 'bg-hl-med text-muted'
       }`}
     >
       {isComplete ? (
@@ -78,7 +78,7 @@ function ProgressStepper({
         <div key={s.step} className="flex items-center">
           <div className="flex flex-col items-center">
             <StepStatus step={s.step} currentStep={currentStep} completedStep={completedStep} />
-            <span className="mt-1 text-xs text-gray-500 dark:text-gray-400 hidden sm:block">
+            <span className="mt-1 text-xs text-muted hidden sm:block">
               {s.label}
             </span>
           </div>
@@ -86,8 +86,8 @@ function ProgressStepper({
             <div
               className={`w-8 sm:w-12 h-0.5 mx-1 sm:mx-2 ${
                 completedStep >= s.step + 1
-                  ? 'bg-green-500'
-                  : 'bg-gray-200 dark:bg-gray-700'
+                  ? 'bg-foam'
+                  : 'bg-hl-med'
               }`}
             />
           )}
@@ -117,8 +117,8 @@ function StepCard({
 }) {
   return (
     <div
-      className={`bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6 mb-4 ${
-        isActive ? 'ring-2 ring-purple-500' : ''
+      className={`bg-surface rounded-lg shadow p-4 sm:p-6 mb-4 ${
+        isActive ? 'ring-2 ring-iris' : ''
       } ${isComplete && !isActive ? 'opacity-75' : ''}`}
     >
       <div className="flex items-start gap-4">
@@ -126,13 +126,13 @@ function StepCard({
         <div className="flex-1">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-lg font-medium text-gray-900 dark:text-white">{title}</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{description}</p>
+              <h3 className="text-lg font-medium text-on-base">{title}</h3>
+              <p className="text-sm text-muted mt-1">{description}</p>
             </div>
             {isComplete && !isActive && onEdit && (
               <button
                 onClick={onEdit}
-                className="px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded transition-colors"
+                className="px-3 py-1.5 text-sm bg-hl-low hover:bg-hl-med text-subtle rounded transition-colors"
               >
                 Edit
               </button>
@@ -162,7 +162,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="px-3 py-1.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded text-sm transition-colors"
+      className="px-3 py-1.5 bg-hl-low hover:bg-hl-med text-subtle rounded text-sm transition-colors"
     >
       {copied ? 'Copied!' : label}
     </button>
@@ -172,8 +172,8 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 // Error display
 function ErrorDisplay({ error }: { error: string }) {
   return (
-    <div className="p-4 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg">
-      <p className="text-sm text-red-800 dark:text-red-300">{error}</p>
+    <div className="p-4 bg-love/10 border border-love/20 rounded-lg">
+      <p className="text-sm text-love">{error}</p>
     </div>
   )
 }
@@ -181,8 +181,8 @@ function ErrorDisplay({ error }: { error: string }) {
 // Success display
 function SuccessDisplay({ message }: { message: string }) {
   return (
-    <div className="p-4 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-lg">
-      <p className="text-sm text-green-800 dark:text-green-300">{message}</p>
+    <div className="p-4 bg-foam/10 border border-foam/20 rounded-lg">
+      <p className="text-sm text-foam">{message}</p>
     </div>
   )
 }
@@ -201,32 +201,32 @@ function ConflictWarning({
 }) {
   const conflicts = error.conflicts
   return (
-    <div className="p-4 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-lg">
-      <p className="font-medium text-amber-800 dark:text-amber-300">
+    <div className="p-4 bg-gold/10 border border-gold/20 rounded-lg">
+      <p className="font-medium text-gold">
         Existing resources found:
       </p>
-      <ul className="mt-2 text-sm text-amber-700 dark:text-amber-400">
+      <ul className="mt-2 text-sm text-gold">
         {conflicts?.map((c) => (
           <li key={c.id}>
             &bull; {c.resource_type}: {c.name}
           </li>
         ))}
       </ul>
-      <p className="mt-2 text-sm text-amber-700 dark:text-amber-400">
+      <p className="mt-2 text-sm text-gold">
         These will be deleted and recreated. This cannot be undone.
       </p>
       <div className="mt-3 flex gap-2">
         <button
           onClick={onConfirm}
           disabled={isPending}
-          className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+          className="px-4 py-2 bg-gold text-base rounded-lg hover:bg-gold/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
         >
           {isPending ? 'Replacing...' : 'Replace Existing'}
         </button>
         <button
           onClick={onCancel}
           disabled={isPending}
-          className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors text-sm"
+          className="px-4 py-2 bg-hl-low text-subtle rounded-lg hover:bg-hl-med disabled:opacity-50 transition-colors text-sm"
         >
           Cancel
         </button>
@@ -437,17 +437,17 @@ export function CloudflareWizard() {
 
   if (isLoading) {
     return (
-      <div className="dark:bg-gray-900 min-h-full">
+      <div className="min-h-full">
         <Header title="Remote Access Setup" />
         <div className="p-4 sm:p-6 max-w-4xl flex items-center justify-center min-h-[400px]">
-          <div className="animate-spin h-8 w-8 border-4 border-purple-500 border-t-transparent rounded-full" />
+          <div className="animate-spin h-8 w-8 border-4 border-iris border-t-transparent rounded-full" />
         </div>
       </div>
     )
   }
 
   return (
-    <div className="dark:bg-gray-900 min-h-full">
+    <div className="min-h-full">
       <Header title="Remote Access Setup" />
       <div className="p-4 sm:p-6 max-w-4xl mx-auto">
         {/* Progress Stepper */}
@@ -469,11 +469,11 @@ export function CloudflareWizard() {
                 <SuccessDisplay message={`Currently connected as: ${status?.account_name || 'Connected'}`} />
               )}
 
-              <div className="p-4 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg">
-                <h4 className="text-sm font-medium text-blue-800 dark:text-blue-300 mb-2">
+              <div className="p-4 bg-pine/10 border border-pine/20 rounded-lg">
+                <h4 className="text-sm font-medium text-pine mb-2">
                   {configId ? 'Update API Token' : 'Create an API Token'}
                 </h4>
-                <p className="text-sm text-blue-700 dark:text-blue-400 mb-3">
+                <p className="text-sm text-pine mb-3">
                   {configId ? 'Enter a new API token to update your credentials. ' : ''}
                   Create an API token at{' '}
                   <a
@@ -486,7 +486,7 @@ export function CloudflareWizard() {
                   </a>{' '}
                   with these permissions:
                 </p>
-                <ul className="text-sm text-blue-700 dark:text-blue-400 space-y-1 list-disc list-inside">
+                <ul className="text-sm text-pine space-y-1 list-disc list-inside">
                   <li>Account &rarr; Cloudflare Tunnel &rarr; Edit</li>
                   <li>Account &rarr; Workers Scripts &rarr; Edit</li>
                   <li>Account &rarr; Workers KV Storage &rarr; Edit</li>
@@ -499,7 +499,7 @@ export function CloudflareWizard() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label className="block text-sm font-medium text-subtle mb-2">
                   API Token
                 </label>
                 <input
@@ -507,7 +507,7 @@ export function CloudflareWizard() {
                   value={apiToken}
                   onChange={(e) => setApiToken(e.target.value)}
                   placeholder={configId ? 'Enter new API token' : 'Enter your Cloudflare API token'}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full px-3 py-2 border border-hl-med rounded-lg bg-surface text-on-base"
                 />
               </div>
 
@@ -515,7 +515,7 @@ export function CloudflareWizard() {
                 {configId && (
                   <button
                     onClick={() => setCurrentStep(2)}
-                    className="flex-1 px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                    className="flex-1 px-4 py-2 bg-hl-low text-subtle rounded-lg hover:bg-hl-med transition-colors"
                   >
                     Cancel
                   </button>
@@ -523,7 +523,7 @@ export function CloudflareWizard() {
                 <button
                   onClick={configId ? handleUpdateApiToken : handleStartWithApiToken}
                   disabled={!apiToken || startWithApiTokenMutation.isPending || setApiTokenMutation.isPending}
-                  className={`${configId ? 'flex-1' : 'w-full'} px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors`}
+                  className={`${configId ? 'flex-1' : 'w-full'} px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors`}
                 >
                   {startWithApiTokenMutation.isPending || setApiTokenMutation.isPending
                     ? 'Verifying...'
@@ -565,14 +565,14 @@ export function CloudflareWizard() {
           {currentStep === 2 && (
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label className="block text-sm font-medium text-subtle mb-2">
                   Tunnel Name
                 </label>
                 <input
                   type="text"
                   value={tunnelName}
                   onChange={(e) => setTunnelName(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full px-3 py-2 border border-hl-med rounded-lg bg-surface text-on-base"
                 />
               </div>
 
@@ -612,7 +612,7 @@ export function CloudflareWizard() {
               <button
                 onClick={handleCreateTunnel}
                 disabled={!tunnelName || createTunnelMutation.isPending}
-                className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="w-full px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {createTunnelMutation.isPending ? 'Creating...' : 'Create Tunnel'}
               </button>
@@ -637,14 +637,14 @@ export function CloudflareWizard() {
           {currentStep === 3 && (
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label className="block text-sm font-medium text-subtle mb-2">
                   VPC Service Name
                 </label>
                 <input
                   type="text"
                   value={vpcServiceName}
                   onChange={(e) => setVpcServiceName(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full px-3 py-2 border border-hl-med rounded-lg bg-surface text-on-base"
                 />
               </div>
 
@@ -684,7 +684,7 @@ export function CloudflareWizard() {
               <button
                 onClick={handleCreateVpcService}
                 disabled={!vpcServiceName || createVpcServiceMutation.isPending}
-                className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="w-full px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {createVpcServiceMutation.isPending ? 'Creating...' : 'Create VPC Service'}
               </button>
@@ -707,14 +707,14 @@ export function CloudflareWizard() {
           {currentStep === 4 && (
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label className="block text-sm font-medium text-subtle mb-2">
                   Worker Name
                 </label>
                 <input
                   type="text"
                   value={workerName}
                   onChange={(e) => setWorkerName(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full px-3 py-2 border border-hl-med rounded-lg bg-surface text-on-base"
                 />
               </div>
 
@@ -731,7 +731,7 @@ export function CloudflareWizard() {
               <button
                 onClick={handleDeployWorker}
                 disabled={!workerName || deployWorkerMutation.isPending}
-                className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="w-full px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {deployWorkerMutation.isPending ? 'Deploying...' : 'Deploy Worker'}
               </button>
@@ -741,9 +741,9 @@ export function CloudflareWizard() {
             <div className="space-y-3">
               <SuccessDisplay message={`Worker: ${status?.worker_name}`} />
               {workerUrl && (
-                <div className="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-700 rounded">
-                  <span className="text-sm text-gray-600 dark:text-gray-400">URL:</span>
-                  <code className="text-sm font-mono text-gray-900 dark:text-white">{workerUrl}</code>
+                <div className="flex items-center gap-2 p-2 bg-hl-low rounded">
+                  <span className="text-sm text-subtle">URL:</span>
+                  <code className="text-sm font-mono text-on-base">{workerUrl}</code>
                 </div>
               )}
             </div>
@@ -761,8 +761,8 @@ export function CloudflareWizard() {
         >
           {currentStep === 5 && (
             <div className="space-y-4">
-              <div className="p-4 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg">
-                <p className="text-sm text-blue-700 dark:text-blue-300">
+              <div className="p-4 bg-pine/10 border border-pine/20 rounded-lg">
+                <p className="text-sm text-pine">
                   This creates a Cloudflare Access for SaaS (OIDC) application and syncs
                   the credentials to your Worker. Users authenticate via Cloudflare Access
                   when connecting from Claude or any MCP client.
@@ -770,12 +770,12 @@ export function CloudflareWizard() {
               </div>
 
               {/* Access Policy Configuration */}
-              <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-4">
+              <div className="border border-hl-med rounded-lg p-4 space-y-4">
                 <div>
-                  <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-1">
+                  <h4 className="text-sm font-medium text-on-base mb-1">
                     Access Policy
                   </h4>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                  <p className="text-xs text-muted">
                     Choose who can access your MCP tools remotely.
                   </p>
                 </div>
@@ -791,8 +791,8 @@ export function CloudflareWizard() {
                       className="mt-1"
                     />
                     <div>
-                      <span className="text-sm font-medium text-gray-900 dark:text-white">Everyone</span>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                      <span className="text-sm font-medium text-on-base">Everyone</span>
+                      <p className="text-xs text-muted">
                         Any authenticated Cloudflare user can access
                       </p>
                     </div>
@@ -808,8 +808,8 @@ export function CloudflareWizard() {
                       className="mt-1"
                     />
                     <div className="flex-1">
-                      <span className="text-sm font-medium text-gray-900 dark:text-white">Email Domain</span>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                      <span className="text-sm font-medium text-on-base">Email Domain</span>
+                      <p className="text-xs text-muted">
                         Only users with emails from a specific domain
                       </p>
                       {policyType === 'email_domain' && (
@@ -818,7 +818,7 @@ export function CloudflareWizard() {
                           value={policyEmailDomain}
                           onChange={(e) => setPolicyEmailDomain(e.target.value)}
                           placeholder="company.com"
-                          className="mt-2 w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                          className="mt-2 w-full px-3 py-1.5 text-sm border border-hl-med rounded-lg bg-surface text-on-base"
                         />
                       )}
                     </div>
@@ -834,8 +834,8 @@ export function CloudflareWizard() {
                       className="mt-1"
                     />
                     <div className="flex-1">
-                      <span className="text-sm font-medium text-gray-900 dark:text-white">Specific Emails</span>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                      <span className="text-sm font-medium text-on-base">Specific Emails</span>
+                      <p className="text-xs text-muted">
                         Only specific email addresses can access
                       </p>
                       {policyType === 'emails' && (
@@ -852,12 +852,12 @@ export function CloudflareWizard() {
                                 }
                               }}
                               placeholder="user@example.com"
-                              className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                              className="flex-1 px-3 py-1.5 text-sm border border-hl-med rounded-lg bg-surface text-on-base"
                             />
                             <button
                               type="button"
                               onClick={handleAddPolicyEmail}
-                              className="px-3 py-1.5 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                              className="px-3 py-1.5 text-sm bg-iris text-base rounded-lg hover:bg-iris/80 transition-colors"
                             >
                               Add
                             </button>
@@ -867,13 +867,13 @@ export function CloudflareWizard() {
                               {policyEmails.map((email) => (
                                 <span
                                   key={email}
-                                  className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300 rounded-full"
+                                  className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-iris/10 text-iris rounded-full"
                                 >
                                   {email}
                                   <button
                                     type="button"
                                     onClick={() => handleRemovePolicyEmail(email)}
-                                    className="text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-200"
+                                    className="text-iris hover:text-iris"
                                   >
                                     &times;
                                   </button>
@@ -887,13 +887,13 @@ export function CloudflareWizard() {
                   </label>
                 </div>
 
-                <p className="text-xs text-gray-400 dark:text-gray-500">
+                <p className="text-xs text-muted">
                   For advanced rules, use the{' '}
                   <a
                     href="https://one.dash.cloudflare.com"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="underline hover:text-gray-600 dark:hover:text-gray-300"
+                    className="underline hover:text-subtle"
                   >
                     Cloudflare Dashboard
                   </a>{' '}
@@ -918,7 +918,7 @@ export function CloudflareWizard() {
                   (policyType === 'emails' && policyEmails.length === 0) ||
                   (policyType === 'email_domain' && !policyEmailDomain)
                 }
-                className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="w-full px-4 py-2 bg-iris text-base rounded-lg hover:bg-iris/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {configureJwtMutation.isPending ? 'Configuring...' : 'Configure Access & OIDC'}
               </button>
@@ -939,13 +939,13 @@ export function CloudflareWizard() {
         >
           {currentStep === 6 && (
             <div className="space-y-4">
-              <div className="p-4 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-lg">
-                <p className="text-sm text-green-800 dark:text-green-300 mb-2">
+              <div className="p-4 bg-foam/10 border border-foam/20 rounded-lg">
+                <p className="text-sm text-foam mb-2">
                   Setup complete! Add this URL to Claude Web, OpenAI, or any MCP client:
                 </p>
                 {workerUrl && (
                   <div className="flex items-center gap-2 mt-3">
-                    <code className="flex-1 text-sm font-mono text-green-900 dark:text-green-100 bg-green-100 dark:bg-green-800/50 px-3 py-2 rounded">
+                    <code className="flex-1 text-sm font-mono text-foam bg-foam/20 px-3 py-2 rounded">
                       {workerUrl}/mcp
                     </code>
                     <CopyButton text={`${workerUrl}/mcp`} label="Copy" />
@@ -953,25 +953,25 @@ export function CloudflareWizard() {
                 )}
               </div>
 
-              <div className="p-4 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg">
-                <p className="text-sm text-blue-800 dark:text-blue-300 mb-2">
+              <div className="p-4 bg-pine/10 border border-pine/20 rounded-lg">
+                <p className="text-sm text-pine mb-2">
                   When connecting, the MCP client will perform an OAuth 2.1 flow.
                   You&apos;ll be redirected to Cloudflare Access to authenticate with your email.
                 </p>
-                <p className="text-xs text-blue-600 dark:text-blue-400">
+                <p className="text-xs text-pine">
                   Make sure the tunnel is running:{' '}
-                  <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">docker compose --profile remote up -d</code>
+                  <code className="bg-pine/20 px-1 rounded">docker compose --profile remote up -d</code>
                 </p>
               </div>
 
               <button
                 onClick={() => navigate('/tunnel')}
-                className="w-full px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+                className="w-full px-4 py-2.5 bg-foam text-base rounded-lg hover:bg-foam/80 transition-colors font-medium"
               >
                 Complete Setup
               </button>
 
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
+              <p className="text-xs text-muted mt-3">
                 It may take a few minutes for Cloudflare to fully propagate your
                 configuration. If you see a connection error, wait 2-3 minutes and try again.
               </p>
@@ -983,7 +983,7 @@ export function CloudflareWizard() {
         <div className="mt-6 flex flex-col sm:flex-row gap-3">
           <button
             onClick={() => navigate('/tunnel')}
-            className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+            className="px-4 py-2 bg-hl-low text-subtle rounded-lg hover:bg-hl-med transition-colors"
           >
             Back to Tunnel
           </button>
@@ -992,7 +992,7 @@ export function CloudflareWizard() {
             <button
               onClick={handleTeardown}
               disabled={teardownMutation.isPending}
-              className="px-4 py-2 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors"
+              className="px-4 py-2 bg-love/10 text-love rounded-lg hover:bg-love/20 transition-colors"
             >
               {teardownMutation.isPending ? 'Removing...' : 'Remove All Resources'}
             </button>
