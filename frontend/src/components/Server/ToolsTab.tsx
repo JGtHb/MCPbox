@@ -114,7 +114,7 @@ export function ToolsTab({ serverId }: ToolsTabProps) {
 
       {/* Delete Tool Confirm Modal */}
       {deleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setDeleteTarget(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50" onClick={() => setDeleteTarget(null)}>
           <div
             className="bg-surface rounded-lg shadow-xl p-6 w-full max-w-md mx-4"
             onClick={e => e.stopPropagation()}
@@ -247,7 +247,7 @@ function ToolRow({ tool, isExpanded, onToggle, onToggleEnabled, onRename, onDele
                 disabled={isUpdating || !isApproved}
                 className="sr-only peer"
               />
-              <div className="w-9 h-5 bg-hl-med peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-iris rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-iris peer-disabled:opacity-50" />
+              <div className="w-9 h-5 bg-hl-med peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-iris rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-surface after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-hl-med after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-iris peer-disabled:opacity-50" />
               <span className="ml-2 text-xs text-subtle">
                 {!isApproved ? 'Not approved' : tool.enabled ? 'Enabled' : 'Disabled'}
               </span>
@@ -407,7 +407,7 @@ function RenameToolModal({ tool, onClose }: RenameToolModalProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50" onClick={onClose}>
       <div
         className="bg-surface rounded-lg shadow-xl p-6 w-full max-w-md mx-4"
         onClick={e => e.stopPropagation()}

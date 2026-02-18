@@ -248,13 +248,13 @@ export function getLogTypeLabel(type: string): string {
  */
 export function getLogTypeBadgeClasses(type: string): string {
   const classes: Record<string, string> = {
-    mcp_request: 'bg-blue-100 text-blue-800',
-    mcp_response: 'bg-green-100 text-green-800',
-    network: 'bg-purple-100 text-purple-800',
-    alert: 'bg-yellow-100 text-yellow-800',
-    error: 'bg-red-100 text-red-800',
-    system: 'bg-gray-100 text-gray-800',
-    audit: 'bg-indigo-100 text-indigo-800',
+    mcp_request: 'bg-pine/10 text-pine',
+    mcp_response: 'bg-foam/10 text-foam',
+    network: 'bg-iris/10 text-iris',
+    alert: 'bg-gold/10 text-gold',
+    error: 'bg-love/10 text-love',
+    system: 'bg-overlay text-subtle',
+    audit: 'bg-iris/10 text-iris',
   }
-  return classes[type] || 'bg-gray-100 text-gray-800'
+  return classes[type] || 'bg-overlay text-subtle'
 }

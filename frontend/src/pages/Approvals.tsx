@@ -491,7 +491,7 @@ function ToolsQueue() {
 
       {/* Revision Request Modal */}
       {showRejectModal && selectedTool && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50">
           <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl">
             <h3 className="text-lg font-medium text-on-base">
               Request Revision: {selectedTool.name}
@@ -531,7 +531,7 @@ function ToolsQueue() {
 
       {/* Bulk Revision Request Modal */}
       {showBulkRejectModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50">
           <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl">
             <h3 className="text-lg font-medium text-on-base">
               Request Revision for {selectedIds.size} Tools
@@ -1017,7 +1017,7 @@ function ModuleRequestsQueue() {
 
       {/* Revision Request Modal */}
       {showRejectModal && selectedRequest && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50">
           <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl">
             <h3 className="text-lg font-medium text-on-base">
               Request Revision: {selectedRequest.module_name}
@@ -1057,7 +1057,7 @@ function ModuleRequestsQueue() {
 
       {/* Bulk Revision Request Modal */}
       {showBulkRejectModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50">
           <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl">
             <h3 className="text-lg font-medium text-on-base">
               Request Revision for {selectedIds.size} Module Requests
@@ -1360,7 +1360,7 @@ function NetworkRequestsQueue() {
 
       {/* Revision Request Modal */}
       {showRejectModal && selectedRequest && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50">
           <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl">
             <h3 className="text-lg font-medium text-on-base">
               Request Revision: {selectedRequest.host}
@@ -1400,7 +1400,7 @@ function NetworkRequestsQueue() {
 
       {/* Bulk Revision Request Modal */}
       {showBulkRejectModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50">
           <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl">
             <h3 className="text-lg font-medium text-on-base">
               Request Revision for {selectedIds.size} Network Requests
