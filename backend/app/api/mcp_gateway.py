@@ -81,10 +81,7 @@ async def cleanup_expired_sessions() -> int:
     """Remove expired sessions from the in-memory session dict. Returns count removed."""
     now = time.time()
     async with _sessions_lock:
-        expired = [
-            sid for sid, ts in _active_sessions.items()
-            if now - ts > SESSION_EXPIRY_SECONDS
-        ]
+        expired = [sid for sid, ts in _active_sessions.items() if now - ts > SESSION_EXPIRY_SECONDS]
         for sid in expired:
             del _active_sessions[sid]
         return len(expired)

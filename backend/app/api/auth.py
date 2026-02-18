@@ -63,9 +63,7 @@ async def is_token_blacklisted(db: AsyncSession, jti: str) -> bool:
 async def cleanup_expired_blacklist_entries(db: AsyncSession) -> int:
     """Remove expired entries from the token blacklist. Returns count removed."""
     now = datetime.now(tz=UTC)
-    result = await db.execute(
-        delete(TokenBlacklist).where(TokenBlacklist.expires_at < now)
-    )
+    result = await db.execute(delete(TokenBlacklist).where(TokenBlacklist.expires_at < now))
     return result.rowcount
 
 
