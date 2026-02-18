@@ -138,7 +138,6 @@ def _to_response(server: Any) -> ServerResponse:
         status=server.status,
         network_mode=server.network_mode,
         default_timeout_ms=server.default_timeout_ms,
-        helper_code=server.helper_code,
         created_at=server.created_at,
         updated_at=server.updated_at,
         tools=tools,

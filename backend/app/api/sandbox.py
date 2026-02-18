@@ -109,13 +109,11 @@ async def start_server(
     allowed_hosts = server.allowed_hosts if server.network_mode == "allowlist" else None
 
     try:
-        # Register with sandbox (include helper_code, allowed_modules, and network config)
+        # Register with sandbox (include allowed_modules and network config)
         result = await sandbox_client.register_server(
             server_id=str(server_id),
             server_name=server.name,
             tools=tool_defs,
-            credentials=[],
-            helper_code=server.helper_code,
             allowed_modules=allowed_modules,
             secrets=secrets,
             external_sources=external_sources_data,
@@ -257,13 +255,11 @@ async def restart_server(
     allowed_hosts = server.allowed_hosts if server.network_mode == "allowlist" else None
 
     try:
-        # Re-register (include helper_code, allowed_modules, and network config)
+        # Re-register (include allowed_modules and network config)
         result = await sandbox_client.register_server(
             server_id=str(server_id),
             server_name=server.name,
             tools=tool_defs,
-            credentials=[],
-            helper_code=server.helper_code,
             allowed_modules=allowed_modules,
             secrets=secrets,
             external_sources=external_sources_data,

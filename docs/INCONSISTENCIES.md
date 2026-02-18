@@ -54,20 +54,11 @@ detail="Not found"
 
 ## Half-Implemented Features
 
-### Settings Model
-- **File**: `backend/app/models/setting.py`, `backend/app/services/setting.py`, `backend/app/api/settings.py`
-- **Issue**: Full model with encrypted value support exists. Only basic listing endpoint implemented. No dedicated UI for creating/managing settings. Appears designed for feature toggles, preferences, and configuration but not fully wired up.
-- **Status**: Skeleton exists, minimal usage
-- **Recommendation**: Either expand to support planned use cases (feature toggles, LLM preferences) or document scope clearly
+### ~~Settings Model~~ — **RESOLVED**
+- **Resolution**: Expanded into Security Policy feature with 6 configurable settings. Backend: GET/PATCH `/api/settings/security-policy`. Frontend: Security Policy card on Settings page. The model is now actively used for both module management and security policy configuration.
 
-### Helper Code (Shared Server Code)
-- **File**: `backend/app/models/server.py:79-83` (field), `sandbox/app/executor.py` (loading)
-- **Issue**: `helper_code` field on Server model allows sharing Python utility functions across all tools in a server. The database field exists and executor loads it, but:
-  - No dedicated API endpoint for updating helper code
-  - No mention in the admin UI
-  - No dedicated tests
-- **Status**: Partially implemented — works at the database and executor level but not exposed through API/UI
-- **Recommendation**: Add API endpoint and UI support, or document as advanced/internal feature
+### ~~Helper Code (Shared Server Code)~~ — **RESOLVED**
+- **Resolution**: Removed during pre-release cleanup. Database column, model field, executor loading, all API/sandbox/frontend references removed. Migration 0035 drops the column.
 
 ---
 

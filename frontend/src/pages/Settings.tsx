@@ -14,7 +14,10 @@ import {
   usePyPIInfo,
   useInstallModule,
   useSyncModules,
+  useSecurityPolicy,
+  useUpdateSecurityPolicy,
   ModuleInfo,
+  SecurityPolicy,
 } from '../api/settings'
 import { useAuth } from '../contexts'
 
@@ -68,6 +71,88 @@ function ModuleStatusBadge({ module }: { module: ModuleInfo }) {
   )
 }
 
+// Security policy toggle descriptions
+const POLICY_LABELS: Record<string, { label: string; description: string; warning?: string; options: [string, string]; optionLabels: [string, string] }> = {
+  remote_tool_editing: {
+    label: 'Remote Tool Creation',
+    description: 'Whether remote sessions (via Cloudflare tunnel) can create, update, or delete tools and servers.',
+    warning: 'Enabling this allows remote LLM sessions to modify your tools. Only enable if you exclusively use remote access.',
+    options: ['disabled', 'enabled'],
+    optionLabels: ['Disabled', 'Enabled'],
+  },
+  tool_approval_mode: {
+    label: 'Tool Approval Mode',
+    description: 'Whether new tools require admin approval before becoming active.',
+    warning: 'Auto-approve means LLM-created tools become active immediately without human review.',
+    options: ['require_approval', 'auto_approve'],
+    optionLabels: ['Require Approval', 'Auto-Approve'],
+  },
+  network_access_policy: {
+    label: 'Network Access Policy',
+    description: 'Whether tools can reach any public host, or only explicitly approved hosts.',
+    warning: 'Allowing all public access removes the network allowlist protection.',
+    options: ['require_approval', 'allow_all_public'],
+    optionLabels: ['Require Approval', 'Allow All Public'],
+  },
+  module_approval_mode: {
+    label: 'Module Approval Mode',
+    description: 'Whether module import requests require admin approval or are auto-added.',
+    warning: 'Auto-approve means LLM-requested modules are added to the allowlist without review.',
+    options: ['require_approval', 'auto_approve'],
+    optionLabels: ['Require Approval', 'Auto-Approve'],
+  },
+  redact_secrets_in_output: {
+    label: 'Secret Redaction in Output',
+    description: 'Whether known secret values are scrubbed from tool return values and stdout.',
+    warning: 'Disabling redaction may expose secrets in tool output returned to the LLM.',
+    options: ['enabled', 'disabled'],
+    optionLabels: ['Enabled', 'Disabled'],
+  },
+}
+
+function PolicyToggle({
+  settingKey,
+  policy,
+  onUpdate,
+  isPending,
+}: {
+  settingKey: string
+  policy: SecurityPolicy
+  onUpdate: (key: string, value: string) => void
+  isPending: boolean
+}) {
+  const meta = POLICY_LABELS[settingKey]
+  if (!meta) return null
+
+  const currentValue = policy[settingKey as keyof SecurityPolicy] as string
+  const isSecure = currentValue === meta.options[0]
+
+  return (
+    <div className="flex items-start justify-between py-3">
+      <div className="flex-1 pr-4">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-gray-900 dark:text-white">{meta.label}</span>
+          {!isSecure && (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
+              relaxed
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{meta.description}</p>
+      </div>
+      <select
+        value={currentValue}
+        onChange={(e) => onUpdate(settingKey, e.target.value)}
+        disabled={isPending}
+        className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:opacity-50"
+      >
+        <option value={meta.options[0]}>{meta.optionLabels[0]}</option>
+        <option value={meta.options[1]}>{meta.optionLabels[1]}</option>
+      </select>
+    </div>
+  )
+}
+
 export function Settings() {
   // Export/Import state
   const exportAll = useExportAll()
@@ -96,6 +181,29 @@ export function Settings() {
       pendingTimeoutsRef.current.forEach(clearTimeout)
     }
   }, [])
+
+  // Security policy state
+  const { data: securityPolicy, isLoading: policyLoading } = useSecurityPolicy()
+  const updatePolicy = useUpdateSecurityPolicy()
+  const [policyError, setPolicyError] = useState<string | null>(null)
+  const [policyWarning, setPolicyWarning] = useState<string | null>(null)
+
+  const handlePolicyUpdate = async (key: string, value: string) => {
+    setPolicyError(null)
+    setPolicyWarning(null)
+
+    // Show warning when switching to less-secure option
+    const meta = POLICY_LABELS[key]
+    if (meta && value === meta.options[1] && meta.warning) {
+      setPolicyWarning(meta.warning)
+    }
+
+    try {
+      await updatePolicy.mutateAsync({ [key]: key === 'log_retention_days' ? parseInt(value) : value })
+    } catch (error) {
+      setPolicyError(error instanceof Error ? error.message : 'Failed to update policy')
+    }
+  }
 
   // Password change state
   const { logout } = useAuth()
@@ -343,6 +451,79 @@ export function Settings() {
                 {isChangingPassword ? 'Changing...' : 'Change Password'}
               </button>
             </form>
+          </div>
+
+          {/* Security Policy */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+            <div className="mb-4">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-white">Security Policy</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                Controls that affect security posture. Defaults are the most restrictive options.
+              </p>
+            </div>
+
+            {policyLoading ? (
+              <div className="animate-pulse space-y-3">
+                <div className="h-12 bg-gray-100 dark:bg-gray-700 rounded"></div>
+                <div className="h-12 bg-gray-100 dark:bg-gray-700 rounded"></div>
+                <div className="h-12 bg-gray-100 dark:bg-gray-700 rounded"></div>
+              </div>
+            ) : securityPolicy ? (
+              <div className="space-y-1 divide-y divide-gray-100 dark:divide-gray-700">
+                {Object.keys(POLICY_LABELS).map((key) => (
+                  <PolicyToggle
+                    key={key}
+                    settingKey={key}
+                    policy={securityPolicy}
+                    onUpdate={handlePolicyUpdate}
+                    isPending={updatePolicy.isPending}
+                  />
+                ))}
+
+                {/* Log retention (numeric input) */}
+                <div className="flex items-start justify-between py-3">
+                  <div className="flex-1 pr-4">
+                    <span className="text-sm font-medium text-gray-900 dark:text-white">Log Retention</span>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      How long execution logs are kept before cleanup.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      value={securityPolicy.log_retention_days}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value)
+                        if (val >= 1 && val <= 3650) {
+                          handlePolicyUpdate('log_retention_days', e.target.value)
+                        }
+                      }}
+                      min={1}
+                      max={3650}
+                      disabled={updatePolicy.isPending}
+                      className="w-20 text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:opacity-50"
+                    />
+                    <span className="text-sm text-gray-500 dark:text-gray-400">days</span>
+                  </div>
+                </div>
+
+                {policyWarning && (
+                  <div className="pt-3">
+                    <div className="text-sm text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg px-3 py-2">
+                      {policyWarning}
+                    </div>
+                  </div>
+                )}
+
+                {policyError && (
+                  <div className="pt-3">
+                    <div className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2">
+                      {policyError}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : null}
           </div>
 
           {/* Python Modules */}

@@ -16,7 +16,6 @@ export interface Server {
 export interface ServerDetail extends Server {
   allowed_hosts: string[] | null
   default_timeout_ms: number
-  helper_code: string | null
   // NOTE: allowed_modules removed - now global in Settings
 }
 

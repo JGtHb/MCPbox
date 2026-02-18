@@ -68,12 +68,6 @@ class Server(BaseModel):
         nullable=False,
     )
 
-    # Python code helpers (shared across all actions in this tool)
-    # Contains Python code that can be imported by action code via:
-    #   from _helpers import some_function
-    # Example use cases: pagination helpers, response parsers, constants
-    helper_code: Mapped[str | None] = mapped_column(Text, nullable=True)
-
     # NOTE: allowed_modules has been moved to global_config table
     # Module whitelist is now global, not per-server
 

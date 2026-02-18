@@ -54,7 +54,6 @@ class RegisteredServer:
 
     server_id: str
     server_name: str
-    helper_code: Optional[str] = None
     allowed_modules: Optional[list[str]] = None  # Custom modules or None for defaults
     tools: dict[str, Tool] = field(default_factory=dict)
     secrets: dict[str, str] = field(default_factory=dict)  # Decrypted key-value secrets
@@ -86,7 +85,6 @@ class ToolRegistry:
         server_id: str,
         server_name: str,
         tools: list[dict[str, Any]],
-        helper_code: Optional[str] = None,
         allowed_modules: Optional[list[str]] = None,
         secrets: dict[str, str] | None = None,
         external_sources: list[dict[str, Any]] | None = None,
@@ -98,7 +96,6 @@ class ToolRegistry:
             server_id: Unique server identifier
             server_name: Human-readable server name
             tools: List of tool definitions
-            helper_code: Optional shared Python code for all tools
             allowed_modules: Custom list of allowed Python modules (None = defaults)
             secrets: Dict of secret key→value pairs for injection into tool namespace
             external_sources: List of external MCP source configs for passthrough tools
@@ -114,7 +111,6 @@ class ToolRegistry:
         server = RegisteredServer(
             server_id=server_id,
             server_name=server_name,
-            helper_code=helper_code,
             allowed_modules=allowed_modules,
             secrets=secrets or {},
             allowed_hosts=set(allowed_hosts) if allowed_hosts is not None else None,
@@ -263,9 +259,8 @@ class ToolRegistry:
                 "error": "Tool has no Python code defined",
             }
 
-        # Get the server for helper code, allowed modules, secrets, and network config
+        # Get the server for allowed modules, secrets, and network config
         server = self.get_server_for_tool(tool.full_name)
-        helper_code = server.helper_code if server else None
         allowed_modules = (
             set(server.allowed_modules) if server and server.allowed_modules else None
         )
@@ -284,7 +279,6 @@ class ToolRegistry:
                 python_code=tool.python_code,
                 arguments=arguments,
                 http_client=http_client,
-                helper_code=helper_code,
                 timeout=tool.timeout_ms / 1000,
                 debug_mode=debug_mode,
                 allowed_modules=allowed_modules,

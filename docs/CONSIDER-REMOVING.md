@@ -101,17 +101,20 @@ Items are organized by category and prioritized by impact. Each item includes th
 
 ## 7. Half-Implemented Features
 
-### 7a. Settings Model (Under-Utilized)
-- **Files**: `backend/app/models/setting.py`, `backend/app/services/setting.py`, `backend/app/api/settings.py`
-- **Issue**: Full model with encrypted value support exists. Only basic listing endpoint implemented. No dedicated UI for creating/managing general settings. Designed for feature toggles and preferences but the module settings endpoint has taken over the primary use case
-- **Decision needed**: Either expand to support planned use cases (feature toggles, LLM preferences, etc.) or simplify to only what's actually used (module whitelist management). The current state is confusing — a general-purpose settings model that's only used for one thing
-- **Action**: Decide scope before release. If keeping, add CRUD endpoints and UI. If narrowing, rename to make purpose clear
+### ~~7a. Settings Model (Under-Utilized)~~ — **EXPANDED**
+- **Files**: `backend/app/api/settings.py`, `frontend/src/api/settings.ts`, `frontend/src/pages/Settings.tsx`
+- **Resolution**: Expanded into a Security Policy feature with 6 configurable settings:
+  1. `remote_tool_editing` (disabled/enabled) — controls remote session tool mutation access
+  2. `tool_approval_mode` (require_approval/auto_approve) — tool approval workflow
+  3. `network_access_policy` (require_approval/allow_all_public) — network allowlist enforcement
+  4. `module_approval_mode` (require_approval/auto_approve) — module request workflow
+  5. `redact_secrets_in_output` (enabled/disabled) — secret scrubbing in tool output
+  6. `log_retention_days` (1-3650) — log retention period
+- Uses existing Setting model key-value store. Backend: GET/PATCH `/api/settings/security-policy`. Frontend: Security Policy card with dropdown controls and warnings for less-secure options
 
-### 7b. Helper Code (Shared Server Code)
-- **Files**: `backend/app/models/server.py:79-83` (field), `sandbox/app/executor.py` (loading)
-- **Issue**: `helper_code` field on Server model allows sharing Python utility functions across all tools in a server. The database field exists and executor loads it, but there's no API endpoint for updating helper code after server creation and no UI support
-- **Decision needed**: Is this a planned feature for v1 or future work?
-- **Action**: If shipping in v1, add API endpoint and UI support. If deferring, add a code comment noting it's intentionally hidden and remove from any user-facing documentation
+### ~~7b. Helper Code (Shared Server Code)~~ — **REMOVED**
+- **Files**: `backend/app/models/server.py` (field), `sandbox/app/executor.py` (loading), `sandbox/app/registry.py`, `sandbox/app/routes.py`, `backend/app/services/sandbox_client.py`, `backend/app/api/sandbox.py`, `backend/app/api/tools.py`, `backend/app/api/servers.py`, `backend/app/api/export_import.py`, `backend/app/services/mcp_management.py`, `backend/app/services/server_recovery.py`, frontend types/UI
+- **Resolution**: Feature was never exposed via API or UI after server creation. Removed database column (migration 0035), model field, executor loading, all API/sandbox/frontend references. Updated FEATURES.md, INCONSISTENCIES.md, API-CONTRACTS.md
 
 ---
 
@@ -164,8 +167,8 @@ When reviewing this document, for each item decide:
 | ~~5d~~ | ~~Incomplete barrel export~~ | ~~Consistency~~ | ~~Low~~ | **REMOVED** |
 | ~~6a~~ | ~~Sandbox hardcoded limits~~ | ~~Config~~ | ~~Low~~ | **FIXED** |
 | ~~6b~~ | ~~Cloudflare hardcoded values~~ | ~~Config~~ | ~~Low~~ | **FIXED** |
-| 7a | Settings model scope | Feature decision | High | Medium |
-| 7b | Helper code feature | Feature decision | Medium | Low |
+| ~~7a~~ | ~~Settings model scope~~ | ~~Feature decision~~ | ~~High~~ | **EXPANDED** |
+| ~~7b~~ | ~~Helper code feature~~ | ~~Feature decision~~ | ~~Medium~~ | **REMOVED** |
 | 8a | In-memory token blacklist | Documentation | Trivial | None |
 | 8b | Session dict cleanup | Feature | Low | Low |
 | 9a | Duplicate middleware init | Refactor | Medium | Low |

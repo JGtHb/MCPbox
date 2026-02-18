@@ -6,22 +6,16 @@ Features are sorted by status, with broken/partial items at the top for visibili
 
 ## Partial / Needs Attention
 
-### Settings Model
-- **Status**: Partial — **decision required before release** (see [CONSIDER-REMOVING.md](CONSIDER-REMOVING.md#7a-settings-model-under-utilized))
-- **Description**: Key-value settings storage with optional encryption. The `Setting` database model exists but is minimally utilized — only basic listing via `/api/settings` endpoint. The module whitelist management has taken over the primary use case. Designed for feature toggles, preferences, and encrypted configuration but not fully wired up.
-- **Owner modules**: `backend/app/models/setting.py`, `backend/app/services/setting.py`, `backend/app/api/settings.py`
+### Settings Model + Security Policy
+- **Status**: Active — expanded during pre-release cleanup
+- **Description**: Key-value settings storage with optional encryption. Now includes a Security Policy feature with 6 configurable settings: `remote_tool_editing`, `tool_approval_mode`, `network_access_policy`, `module_approval_mode`, `redact_secrets_in_output`, `log_retention_days`. Backend API: GET/PATCH `/api/settings/security-policy`. Frontend: Security Policy card on Settings page with dropdown controls and warnings for less-secure options.
+- **Owner modules**: `backend/app/models/setting.py`, `backend/app/services/setting.py`, `backend/app/api/settings.py`, `frontend/src/pages/Settings.tsx`, `frontend/src/api/settings.ts`
 - **Dependencies**: Crypto service (for encrypted values)
-- **Test coverage**: No dedicated tests for settings API endpoints
-- **Security notes**: Supports encrypted values via AES-256-GCM
-- **Issues found**: Under-utilized model; unclear intended scope. Either expand with CRUD endpoints + UI, or narrow scope and rename to clarify purpose
+- **Security notes**: Supports encrypted values via AES-256-GCM. Defaults are the most restrictive options for all security policy settings
 
-### Helper Code (Shared Server Code)
-- **Status**: Partial — **decision required before release** (see [CONSIDER-REMOVING.md](CONSIDER-REMOVING.md#7b-helper-code-shared-server-code))
-- **Description**: `helper_code` field on Server model allows sharing Python utility code across all tools in a server. The database field exists and the executor loads it, but there is no API endpoint to update helper code directly (must be set at server creation or via raw update).
-- **Owner modules**: `backend/app/models/server.py` (field), `sandbox/app/executor.py` (loading)
-- **Dependencies**: Sandbox executor
-- **Test coverage**: No dedicated tests for helper code execution
-- **Issues found**: No UI or dedicated API endpoint for updating helper code after server creation. If shipping in v1, needs API + UI. If deferring, add code comment and hide from docs
+### ~~Helper Code (Shared Server Code)~~ — **REMOVED**
+- **Status**: Removed during pre-release cleanup
+- **Reason**: Never exposed via API or UI after server creation. Database field, executor loading, and all references removed. Migration 0035 drops the column.
 
 ---
 
