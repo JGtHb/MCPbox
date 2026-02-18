@@ -77,6 +77,19 @@ def _generate_session_id() -> str:
     return str(uuid.uuid4())
 
 
+async def cleanup_expired_sessions() -> int:
+    """Remove expired sessions from the in-memory session dict. Returns count removed."""
+    now = time.time()
+    async with _sessions_lock:
+        expired = [
+            sid for sid, ts in _active_sessions.items()
+            if now - ts > SESSION_EXPIRY_SECONDS
+        ]
+        for sid in expired:
+            del _active_sessions[sid]
+        return len(expired)
+
+
 async def _validate_session(session_id: str | None) -> bool:
     """Validate a session ID exists and hasn't expired."""
     if not session_id:

@@ -30,6 +30,7 @@ from app.models import (  # noqa: F401
     Server,
     ServerSecret,
     Setting,
+    TokenBlacklist,
     Tool,
     ToolExecutionLog,
     ToolVersion,
@@ -43,8 +44,40 @@ from app.services.tunnel import TunnelService
 
 logger = get_logger("main")
 
-# Background task for rate limiter cleanup
+# Background tasks
 _rate_limit_cleanup_task: asyncio.Task | None = None
+_token_blacklist_cleanup_task: asyncio.Task | None = None
+_session_cleanup_task: asyncio.Task | None = None
+
+
+async def _token_blacklist_cleanup_loop() -> None:
+    """Periodically remove expired entries from the token blacklist."""
+    from app.api.auth import cleanup_expired_blacklist_entries
+
+    while True:
+        await asyncio.sleep(300)  # Every 5 minutes
+        try:
+            async with async_session_maker() as db:
+                removed = await cleanup_expired_blacklist_entries(db)
+                await db.commit()
+                if removed > 0:
+                    logger.info(f"Cleaned up {removed} expired token blacklist entries")
+        except Exception:
+            logger.exception("Error cleaning up token blacklist")
+
+
+async def _session_cleanup_loop() -> None:
+    """Periodically remove expired MCP gateway sessions."""
+    from app.api.mcp_gateway import cleanup_expired_sessions
+
+    while True:
+        await asyncio.sleep(600)  # Every 10 minutes
+        try:
+            removed = await cleanup_expired_sessions()
+            if removed > 0:
+                logger.info(f"Cleaned up {removed} expired MCP sessions")
+        except Exception:
+            logger.exception("Error cleaning up MCP sessions")
 
 
 def _task_done_callback(task: asyncio.Task[None]) -> None:
@@ -90,6 +123,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     _rate_limit_cleanup_task = asyncio.create_task(rate_limit_cleanup_loop())
     _rate_limit_cleanup_task.add_done_callback(_task_done_callback)
 
+    # Start token blacklist cleanup task
+    global _token_blacklist_cleanup_task
+    _token_blacklist_cleanup_task = asyncio.create_task(_token_blacklist_cleanup_loop())
+    _token_blacklist_cleanup_task.add_done_callback(_task_done_callback)
+
+    # Start MCP session cleanup task
+    global _session_cleanup_task
+    _session_cleanup_task = asyncio.create_task(_session_cleanup_loop())
+    _session_cleanup_task.add_done_callback(_task_done_callback)
+
     # Re-register servers that were "running" before container restart
     from app.services.server_recovery import recover_running_servers
 
@@ -101,13 +144,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Shutdown
     logger.info("Shutting down...")
 
-    # Stop rate limiter cleanup task
-    if _rate_limit_cleanup_task:
-        _rate_limit_cleanup_task.cancel()
-        try:
-            await _rate_limit_cleanup_task
-        except asyncio.CancelledError:
-            pass
+    # Stop background cleanup tasks
+    for task in [_rate_limit_cleanup_task, _token_blacklist_cleanup_task, _session_cleanup_task]:
+        if task:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
     # Stop log retention service
     await log_retention_service.stop()

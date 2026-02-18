@@ -120,15 +120,13 @@ Items are organized by category and prioritized by impact. Each item includes th
 
 ## 8. In-Memory State (Operational Concern)
 
-### 8a. JWT Token Blacklist
+### ~~8a. JWT Token Blacklist~~ — **FIXED**
 - **File**: `backend/app/api/auth.py`
-- **Issue**: Logout invalidates tokens via an in-memory JTI blacklist. Lost on process restart. Short access token TTL (15 min) limits the blast radius
-- **Action**: Acceptable for single-process deployment. Document the limitation. If horizontal scaling is ever needed, move to Redis or database-backed blacklist
+- **Resolution**: Moved JTI blacklist from in-memory dict to a database table (`token_blacklist`, migration 0036). Revoked tokens now survive process restarts. Background task cleans up expired entries every 5 minutes.
 
-### 8b. MCP Gateway Session Dict
-- **File**: `backend/app/api/mcp_gateway.py:71-72`
-- **Issue**: `_active_sessions` stores MCP session state in memory. No periodic cleanup of expired sessions. Gateway must run `--workers 1`
-- **Action**: Add periodic cleanup task for expired sessions. Already documented in `INCONSISTENCIES.md`. Not blocking for release but should be addressed
+### ~~8b. MCP Gateway Session Dict~~ — **FIXED**
+- **File**: `backend/app/api/mcp_gateway.py`
+- **Resolution**: Added `cleanup_expired_sessions()` function and periodic cleanup task (every 10 minutes) to both `main.py` and `mcp_only.py` entry points. Expired sessions are now automatically removed from the in-memory dict.
 
 ---
 
@@ -169,6 +167,6 @@ When reviewing this document, for each item decide:
 | ~~6b~~ | ~~Cloudflare hardcoded values~~ | ~~Config~~ | ~~Low~~ | **FIXED** |
 | ~~7a~~ | ~~Settings model scope~~ | ~~Feature decision~~ | ~~High~~ | **EXPANDED** |
 | ~~7b~~ | ~~Helper code feature~~ | ~~Feature decision~~ | ~~Medium~~ | **REMOVED** |
-| 8a | In-memory token blacklist | Documentation | Trivial | None |
-| 8b | Session dict cleanup | Feature | Low | Low |
+| ~~8a~~ | ~~In-memory token blacklist~~ | ~~Documentation~~ | ~~Trivial~~ | **FIXED** |
+| ~~8b~~ | ~~Session dict cleanup~~ | ~~Feature~~ | ~~Low~~ | **FIXED** |
 | 9a | Duplicate middleware init | Refactor | Medium | Low |

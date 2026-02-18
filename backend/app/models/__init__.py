@@ -10,6 +10,7 @@ from app.models.network_access_request import NetworkAccessRequest
 from app.models.server import Server
 from app.models.server_secret import ServerSecret
 from app.models.setting import Setting
+from app.models.token_blacklist import TokenBlacklist
 from app.models.tool import Tool
 from app.models.tool_execution_log import ToolExecutionLog
 from app.models.tool_version import ToolVersion
@@ -27,6 +28,7 @@ __all__ = [
     "Server",
     "ServerSecret",
     "Setting",
+    "TokenBlacklist",
     "Tool",
     "ToolExecutionLog",
     "ToolVersion",

@@ -3,12 +3,15 @@
 import logging
 import time
 from collections import defaultdict
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import get_db
+from app.models.token_blacklist import TokenBlacklist
 from app.schemas.auth import (
     AuthStatusResponse,
     ChangePasswordRequest,
@@ -38,32 +41,32 @@ _login_attempts: dict[str, list[float]] = defaultdict(list)
 _LOGIN_WINDOW = 60  # 1-minute window
 _LOGIN_MAX_ATTEMPTS = 5  # Max login attempts per window
 
+
 # --- Token Blacklist (SEC-009) ---
-# In-memory blacklist for revoked JTIs. Each entry stores the token's expiry
-# timestamp so we can garbage-collect entries after they would have expired
-# naturally. This prevents stolen tokens from being used after logout.
-_token_blacklist: dict[str, float] = {}  # jti -> expiry_timestamp
+# Database-backed blacklist for revoked JTIs. Survives process restarts.
 
 
-def _cleanup_blacklist() -> None:
-    """Remove expired entries from the token blacklist."""
-    now = time.time()
-    expired = [jti for jti, exp in _token_blacklist.items() if exp < now]
-    for jti in expired:
-        del _token_blacklist[jti]
-
-
-def blacklist_token(jti: str, exp: float) -> None:
+async def blacklist_token(db: AsyncSession, jti: str, exp: float) -> None:
     """Add a token to the blacklist. exp is the Unix timestamp when it expires."""
-    _token_blacklist[jti] = exp
-    # Opportunistic cleanup
-    if len(_token_blacklist) > 100:
-        _cleanup_blacklist()
+    expires_at = datetime.fromtimestamp(exp, tz=UTC)
+    entry = TokenBlacklist(jti=jti, expires_at=expires_at)
+    db.add(entry)
+    await db.flush()
 
 
-def is_token_blacklisted(jti: str) -> bool:
+async def is_token_blacklisted(db: AsyncSession, jti: str) -> bool:
     """Check if a token JTI has been revoked."""
-    return jti in _token_blacklist
+    result = await db.execute(select(TokenBlacklist.jti).where(TokenBlacklist.jti == jti))
+    return result.scalar_one_or_none() is not None
+
+
+async def cleanup_expired_blacklist_entries(db: AsyncSession) -> int:
+    """Remove expired entries from the token blacklist. Returns count removed."""
+    now = datetime.now(tz=UTC)
+    result = await db.execute(
+        delete(TokenBlacklist).where(TokenBlacklist.expires_at < now)
+    )
+    return result.rowcount
 
 
 def _check_login_rate_limit(client_ip: str) -> None:
@@ -94,6 +97,7 @@ def get_auth_service(db: AsyncSession = Depends(get_db)) -> AuthService:
 
 async def get_current_user(
     request: Request,
+    db: AsyncSession = Depends(get_db),
     auth_service: AuthService = Depends(get_auth_service),
 ) -> Any:
     """Dependency to get the current authenticated user from JWT token."""
@@ -112,7 +116,7 @@ async def get_current_user(
         payload = validate_access_token(token)
         # SECURITY: Check if token has been revoked via logout (SEC-009)
         jti = payload.get("jti")
-        if jti and is_token_blacklisted(jti):
+        if jti and await is_token_blacklisted(db, jti):
             raise InvalidTokenError("Token has been revoked")
         user = await auth_service.validate_token_user(payload)
         return user
@@ -239,12 +243,13 @@ async def refresh_tokens(
 @router.post("/logout", response_model=MessageResponse)
 async def logout(
     request: Request,
+    db: AsyncSession = Depends(get_db),
     current_user: Any = Depends(get_current_user),
 ) -> MessageResponse:
     """Log out the current user.
 
     Blacklists the current access token's JTI so it cannot be reused
-    for the remainder of its TTL (SEC-009).
+    for the remainder of its TTL (SEC-009). Persisted to database.
     """
     # Extract JTI from the current token to blacklist it
     auth_header = request.headers.get("Authorization", "")
@@ -255,7 +260,8 @@ async def logout(
             jti = payload.get("jti")
             exp = payload.get("exp", 0)
             if jti:
-                blacklist_token(jti, exp)
+                await blacklist_token(db, jti, exp)
+                await db.commit()
         except Exception:
             pass  # Token was already validated by get_current_user dependency
     logger.info(f"User logged out: {current_user.username}")
