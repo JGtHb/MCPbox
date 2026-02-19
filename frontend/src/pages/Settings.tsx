@@ -737,7 +737,7 @@ export function Settings() {
                     onClick={() => setActiveTab(tab.id)}
                     className={`whitespace-nowrap py-3 px-1 border-b-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:ring-inset ${
                       isActive
-                        ? 'border-iris text-pine'
+                        ? 'border-rose text-rose'
                         : 'border-transparent text-subtle hover:text-on-base hover:border-hl-med'
                     }`}
                     aria-current={isActive ? 'page' : undefined}

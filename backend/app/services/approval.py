@@ -908,6 +908,25 @@ class ApprovalService:
         pending_network_result = await self.db.execute(pending_network_stmt)
         pending_network = pending_network_result.scalar() or 0
 
+        # Approved tools (total)
+        approved_tools_stmt = select(func.count(Tool.id)).where(Tool.approval_status == "approved")
+        approved_tools_result = await self.db.execute(approved_tools_stmt)
+        approved_tools = approved_tools_result.scalar() or 0
+
+        # Approved module requests (total)
+        approved_modules_stmt = select(func.count(ModuleRequest.id)).where(
+            ModuleRequest.status == "approved"
+        )
+        approved_modules_result = await self.db.execute(approved_modules_stmt)
+        approved_modules = approved_modules_result.scalar() or 0
+
+        # Approved network access requests (total)
+        approved_network_stmt = select(func.count(NetworkAccessRequest.id)).where(
+            NetworkAccessRequest.status == "approved"
+        )
+        approved_network_result = await self.db.execute(approved_network_stmt)
+        approved_network = approved_network_result.scalar() or 0
+
         # Recently approved (last 7 days)
         seven_days_ago = datetime.now(UTC) - timedelta(days=7)
 
@@ -930,9 +949,166 @@ class ApprovalService:
             "pending_tools": pending_tools,
             "pending_module_requests": pending_modules,
             "pending_network_requests": pending_network,
+            "approved_tools": approved_tools,
+            "approved_module_requests": approved_modules,
+            "approved_network_requests": approved_network,
             "recently_approved": recently_approved,
             "recently_rejected": recently_rejected,
         }
+
+    # =========================================================================
+    # Revocation
+    # =========================================================================
+
+    async def revoke_tool_approval(
+        self,
+        tool_id: UUID,
+        revoked_by: str,
+    ) -> Tool:
+        """Revoke an approved tool back to pending_review status.
+
+        The tool is removed from the live server registration and placed back
+        into the approval queue so it can be reviewed again.
+
+        Args:
+            tool_id: ID of the tool to revoke
+            revoked_by: Email of the admin revoking
+
+        Returns:
+            Updated tool (with server eagerly loaded for re-registration)
+
+        Raises:
+            ValueError: If tool not found or not currently approved
+        """
+        stmt = select(Tool).where(Tool.id == tool_id).options(selectinload(Tool.server))
+        result = await self.db.execute(stmt)
+        tool = result.scalar_one_or_none()
+
+        if not tool:
+            raise ValueError(f"Tool {tool_id} not found")
+
+        if tool.approval_status != "approved":
+            raise ValueError(
+                f"Tool must be in 'approved' status to revoke. "
+                f"Current status: {tool.approval_status}"
+            )
+
+        tool.approval_status = "pending_review"
+        tool.approved_at = None
+        tool.approved_by = None
+
+        await self.db.commit()
+        await self.db.refresh(tool, attribute_names=["server"])
+
+        logger.info(f"Tool {tool.name} ({tool_id}) approval revoked by {revoked_by}")
+        return tool
+
+    async def revoke_module_request(
+        self,
+        request_id: UUID,
+        revoked_by: str,
+    ) -> ModuleRequest:
+        """Revoke an approved module request back to pending status.
+
+        The module is removed from the global allowed modules list so the
+        sandbox will no longer permit it.
+
+        Args:
+            request_id: ID of the module request to revoke
+            revoked_by: Email of the admin revoking
+
+        Returns:
+            Updated module request
+
+        Raises:
+            ValueError: If request not found or not currently approved
+        """
+        stmt = (
+            select(ModuleRequest)
+            .options(selectinload(ModuleRequest.tool).selectinload(Tool.server))
+            .where(ModuleRequest.id == request_id)
+        )
+        result = await self.db.execute(stmt)
+        request = result.scalar_one_or_none()
+
+        if not request:
+            raise ValueError(f"Module request {request_id} not found")
+
+        if request.status != "approved":
+            raise ValueError(
+                f"Module request must be in 'approved' status to revoke. "
+                f"Current status: {request.status}"
+            )
+
+        request.status = "pending"
+        request.reviewed_at = None
+        request.reviewed_by = None
+        request.rejection_reason = None
+
+        # Remove module from global allowed modules list
+        from app.services.global_config import GlobalConfigService
+
+        config_service = GlobalConfigService(self.db)
+        await config_service.remove_module(request.module_name)
+
+        await self.db.commit()
+        await self.db.refresh(request)
+
+        logger.info(f"Module request {request_id} ({request.module_name}) revoked by {revoked_by}")
+        return request
+
+    async def revoke_network_access_request(
+        self,
+        request_id: UUID,
+        revoked_by: str,
+    ) -> NetworkAccessRequest:
+        """Revoke an approved network access request back to pending status.
+
+        The host is removed from the server's allowed hosts list.
+
+        Args:
+            request_id: ID of the network request to revoke
+            revoked_by: Email of the admin revoking
+
+        Returns:
+            Updated network access request
+
+        Raises:
+            ValueError: If request not found or not currently approved
+        """
+        stmt = (
+            select(NetworkAccessRequest)
+            .options(selectinload(NetworkAccessRequest.tool).selectinload(Tool.server))
+            .where(NetworkAccessRequest.id == request_id)
+        )
+        result = await self.db.execute(stmt)
+        request = result.scalar_one_or_none()
+
+        if not request:
+            raise ValueError(f"Network access request {request_id} not found")
+
+        if request.status != "approved":
+            raise ValueError(
+                f"Network access request must be in 'approved' status to revoke. "
+                f"Current status: {request.status}"
+            )
+
+        request.status = "pending"
+        request.reviewed_at = None
+        request.reviewed_by = None
+        request.rejection_reason = None
+
+        # Remove host from server's allowed hosts list
+        server = request.tool.server
+        if server and server.allowed_hosts:
+            updated_hosts = [h for h in server.allowed_hosts if h != request.host]
+            server.allowed_hosts = updated_hosts
+
+        await self.db.commit()
+        await self.db.refresh(request)
+
+        logger.info(f"Network access request {request_id} ({request.host}) revoked by {revoked_by}")
+        return request
 
     # =========================================================================
     # Bulk Actions

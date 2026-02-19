@@ -145,7 +145,7 @@ export function ErrorFallback({ error, onReset }: ErrorFallbackProps) {
           )}
           <button
             onClick={() => window.location.reload()}
-            className="px-4 py-2 text-sm font-medium text-base bg-iris rounded-md hover:bg-iris/80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-iris"
+            className="px-4 py-2 text-sm font-medium text-base bg-rose rounded-md hover:bg-rose/80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-iris"
           >
             Reload Page
           </button>

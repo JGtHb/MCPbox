@@ -221,7 +221,10 @@ async def take_tool_action(
 
             return {
                 "success": True,
-                "message": f"Tool '{tool.name}' has been approved",
+                "message": (
+                    f"Tool '{tool.name}' has been approved and registered with the sandbox. "
+                    "Users will need to restart or refresh their MCP client to see the new tool."
+                ),
                 "tool_id": str(tool.id),
                 "status": tool.approval_status,
                 "server_refreshed": refreshed,
@@ -250,6 +253,52 @@ async def take_tool_action(
             detail = error_msg
         else:
             detail = "Invalid tool approval request"
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail,
+        ) from e
+
+
+@router.post("/tools/{tool_id}/revoke")
+async def revoke_tool_approval(
+    tool_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    service: ApprovalService = Depends(get_approval_service),
+    admin_identity: str = Depends(get_admin_identity),
+) -> dict[str, Any]:
+    """Revoke an approved tool back to pending_review status.
+
+    The tool is immediately removed from the running server registration
+    and placed back into the approval queue for re-review.
+    Admin identity is extracted from verified JWT token.
+    """
+    try:
+        tool = await service.revoke_tool_approval(
+            tool_id=tool_id,
+            revoked_by=admin_identity,
+        )
+
+        # Re-register server to remove the revoked tool from active sandbox
+        refreshed = await _refresh_server_registration(tool, db)
+
+        # Notify MCP clients that tool list has changed
+        from app.services.tool_change_notifier import fire_and_forget_notify
+
+        fire_and_forget_notify()
+
+        return {
+            "success": True,
+            "message": f"Tool '{tool.name}' approval has been revoked",
+            "tool_id": str(tool.id),
+            "status": tool.approval_status,
+            "server_refreshed": refreshed,
+        }
+    except ValueError as e:
+        error_msg = str(e)
+        if "not found" in error_msg.lower() or "status" in error_msg.lower():
+            detail = error_msg
+        else:
+            detail = "Invalid tool revocation request"
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=detail,
@@ -433,6 +482,35 @@ async def take_module_request_action(
         ) from e
 
 
+@router.post("/modules/{request_id}/revoke", response_model=ModuleRequestResponse)
+async def revoke_module_request(
+    request_id: UUID,
+    service: ApprovalService = Depends(get_approval_service),
+    admin_identity: str = Depends(get_admin_identity),
+) -> ModuleRequestResponse:
+    """Revoke an approved module whitelist request back to pending status.
+
+    The module is removed from the global allowed modules list.
+    Admin identity is extracted from verified JWT token.
+    """
+    try:
+        request = await service.revoke_module_request(
+            request_id=request_id,
+            revoked_by=admin_identity,
+        )
+        return ModuleRequestResponse.model_validate(request)
+    except ValueError as e:
+        error_msg = str(e)
+        if "not found" in error_msg.lower() or "status" in error_msg.lower():
+            detail = error_msg
+        else:
+            detail = "Invalid module revocation request"
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail,
+        ) from e
+
+
 @router.post("/modules/bulk-action", response_model=BulkActionResponse)
 async def bulk_module_request_action(
     action: BulkModuleRequestAction,
@@ -542,6 +620,35 @@ async def take_network_request_action(
             detail = error_msg
         else:
             detail = "Invalid network access request"
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail,
+        ) from e
+
+
+@router.post("/network/{request_id}/revoke", response_model=NetworkAccessRequestResponse)
+async def revoke_network_access_request(
+    request_id: UUID,
+    service: ApprovalService = Depends(get_approval_service),
+    admin_identity: str = Depends(get_admin_identity),
+) -> NetworkAccessRequestResponse:
+    """Revoke an approved network access request back to pending status.
+
+    The host is removed from the server's allowed hosts list.
+    Admin identity is extracted from verified JWT token.
+    """
+    try:
+        request = await service.revoke_network_access_request(
+            request_id=request_id,
+            revoked_by=admin_identity,
+        )
+        return NetworkAccessRequestResponse.model_validate(request)
+    except ValueError as e:
+        error_msg = str(e)
+        if "not found" in error_msg.lower() or "status" in error_msg.lower():
+            detail = error_msg
+        else:
+            detail = "Invalid network revocation request"
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=detail,

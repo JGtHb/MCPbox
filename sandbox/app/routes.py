@@ -621,6 +621,11 @@ class ExecuteCodeRequest(BaseModel):
     # DEFAULT_ALLOWED_MODULES. Per-server overrides are only available via
     # /servers/register (SEC-015).
     secrets: dict[str, str] = {}  # Key-value secrets for injection into namespace
+    # Per-server network host allowlist — mirrors production tool execution.
+    # None = global SSRF protection only (any public host allowed).
+    # [] = block all outbound network access.
+    # ["api.example.com"] = only that host is reachable.
+    allowed_hosts: Optional[list[str]] = None
 
 
 class ExecuteCodeResponse(BaseModel):
@@ -742,9 +747,16 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
             main_func = namespace.get("main")
             if main_func is not None and asyncio.iscoroutinefunction(main_func):
                 # Create SSRF-protected HTTP client on the CURRENT event loop
-                # (same loop we'll await main() on — avoids event loop affinity issues)
+                # (same loop we'll await main() on — avoids event loop affinity issues).
+                # Pass allowed_hosts to enforce the same per-server network allowlist
+                # as production tool execution (None = global SSRF only).
                 _http_client = httpx.AsyncClient()
-                _protected_http = SSRFProtectedAsyncHttpClient(_http_client)
+                _allowed_hosts = (
+                    set(body.allowed_hosts) if body.allowed_hosts is not None else None
+                )
+                _protected_http = SSRFProtectedAsyncHttpClient(
+                    _http_client, allowed_hosts=_allowed_hosts
+                )
                 namespace["http"] = _protected_http
 
                 # Await main() directly on this event loop (matches production executor)

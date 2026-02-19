@@ -61,7 +61,7 @@ export function Dashboard() {
                 onClick={() => setPeriod(p)}
                 className={`px-3 py-1.5 text-sm font-medium first:rounded-l-md last:rounded-r-md border transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:z-10 ${
                   period === p
-                    ? 'bg-iris text-base border-iris'
+                    ? 'bg-rose text-base border-rose'
                     : 'bg-overlay text-muted border-hl-med hover:bg-hl-low'
                 }`}
               >
@@ -146,18 +146,20 @@ export function Dashboard() {
             <h3 className="text-sm font-medium text-on-base mb-4">Request Volume</h3>
             {dashboard?.requests_over_time && dashboard.requests_over_time.length > 0 ? (
               <div className="h-48 flex items-end gap-0.5">
-                {dashboard.requests_over_time.slice(-24).map((point, i) => {
+                {(() => {
                   const max = Math.max(...dashboard.requests_over_time.map((p) => p.value), 1)
-                  const height = (point.value / max) * 100
-                  return (
-                    <div
-                      key={i}
-                      className="flex-1 bg-pine rounded-t hover:bg-pine/80 transition-colors"
-                      style={{ height: `${Math.max(height, 2)}%` }}
-                      title={formatBarTooltip(point.timestamp, point.value, 'requests')}
-                    />
-                  )
-                })}
+                  return dashboard.requests_over_time.map((point) => {
+                    const height = (point.value / max) * 100
+                    return (
+                      <div
+                        key={point.timestamp}
+                        className="flex-1 bg-pine rounded-t hover:bg-pine/80 transition-colors"
+                        style={{ height: `${Math.max(height, 2)}%` }}
+                        title={formatBarTooltip(point.timestamp, point.value, 'requests')}
+                      />
+                    )
+                  })
+                })()}
               </div>
             ) : (
               <div className="h-48 flex items-center justify-center text-muted text-sm">
@@ -183,18 +185,20 @@ export function Dashboard() {
             <h3 className="text-sm font-medium text-on-base mb-4">Errors Over Time</h3>
             {dashboard?.errors_over_time && dashboard.errors_over_time.some((p) => p.value > 0) ? (
               <div className="h-48 flex items-end gap-0.5">
-                {dashboard.errors_over_time.slice(-24).map((point, i) => {
+                {(() => {
                   const max = Math.max(...dashboard.errors_over_time.map((p) => p.value), 1)
-                  const height = (point.value / max) * 100
-                  return (
-                    <div
-                      key={i}
-                      className="flex-1 bg-love rounded-t hover:bg-love/80 transition-colors"
-                      style={{ height: `${Math.max(height, point.value > 0 ? 5 : 0)}%` }}
-                      title={formatBarTooltip(point.timestamp, point.value, 'errors')}
-                    />
-                  )
-                })}
+                  return dashboard.errors_over_time.map((point) => {
+                    const height = (point.value / max) * 100
+                    return (
+                      <div
+                        key={point.timestamp}
+                        className="flex-1 bg-love rounded-t hover:bg-love/80 transition-colors"
+                        style={{ height: `${Math.max(height, point.value > 0 ? 5 : 0)}%` }}
+                        title={formatBarTooltip(point.timestamp, point.value, 'errors')}
+                      />
+                    )
+                  })
+                })()}
               </div>
             ) : (
               <div className="h-48 flex items-center justify-center text-foam text-sm">

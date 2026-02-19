@@ -173,7 +173,7 @@ export function Activity() {
                 onClick={() => setActiveTab('executions')}
                 className={`px-4 sm:px-6 py-3 text-sm font-medium border-b-2 transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:ring-inset ${
                   activeTab === 'executions'
-                    ? 'border-iris text-pine'
+                    ? 'border-rose text-rose'
                     : 'border-transparent text-subtle hover:text-on-base hover:border-hl-high'
                 }`}
               >
@@ -188,7 +188,7 @@ export function Activity() {
                 onClick={() => setActiveTab('protocol')}
                 className={`px-4 sm:px-6 py-3 text-sm font-medium border-b-2 transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:ring-inset ${
                   activeTab === 'protocol'
-                    ? 'border-iris text-pine'
+                    ? 'border-rose text-rose'
                     : 'border-transparent text-subtle hover:text-on-base hover:border-hl-high'
                 }`}
               >
@@ -246,7 +246,7 @@ export function Activity() {
                           onClick={() => handleSuccessFilterChange(f)}
                           className={`px-3 py-1 text-sm ${
                             successFilter === f
-                              ? 'bg-iris text-base'
+                              ? 'bg-rose text-base'
                               : 'bg-surface text-on-base hover:bg-hl-low'
                           }`}
                         >

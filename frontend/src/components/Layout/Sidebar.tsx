@@ -59,7 +59,7 @@ export function Sidebar({ isDark, theme, setTheme, onClose }: SidebarProps) {
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
                     isActive
-                      ? 'bg-iris text-base font-medium'
+                      ? 'bg-rose text-base font-medium'
                       : 'text-subtle hover:bg-hl-med hover:text-on-base'
                   }`
                 }
@@ -83,7 +83,7 @@ export function Sidebar({ isDark, theme, setTheme, onClose }: SidebarProps) {
             onClick={() => setTheme('light')}
             className={`flex-1 px-2 py-1.5 text-xs transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:z-10 ${
               theme === 'light'
-                ? 'bg-iris text-base'
+                ? 'bg-rose text-base'
                 : 'text-muted hover:text-on-base'
             }`}
             aria-label="Light mode"
@@ -94,7 +94,7 @@ export function Sidebar({ isDark, theme, setTheme, onClose }: SidebarProps) {
             onClick={() => setTheme('system')}
             className={`flex-1 px-2 py-1.5 text-xs transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:z-10 ${
               theme === 'system'
-                ? 'bg-iris text-base'
+                ? 'bg-rose text-base'
                 : 'text-muted hover:text-on-base'
             }`}
             aria-label="System theme"
@@ -105,7 +105,7 @@ export function Sidebar({ isDark, theme, setTheme, onClose }: SidebarProps) {
             onClick={() => setTheme('dark')}
             className={`flex-1 px-2 py-1.5 text-xs transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:z-10 ${
               theme === 'dark'
-                ? 'bg-iris text-base'
+                ? 'bg-rose text-base'
                 : 'text-muted hover:text-on-base'
             }`}
             aria-label="Dark mode"

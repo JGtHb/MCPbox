@@ -53,7 +53,7 @@ export function ConfigurationList({ onEdit, onCreateNew }: ConfigurationListProp
               key={config.id}
               className={`p-4 rounded-lg border transition-colors ${
                 config.is_active
-                  ? 'bg-iris/10 border-iris/30'
+                  ? 'bg-rose/10 border-rose/30'
                   : 'bg-surface border-hl-med hover:border-hl-high'
               }`}
             >
@@ -64,7 +64,7 @@ export function ConfigurationList({ onEdit, onCreateNew }: ConfigurationListProp
                       {config.name}
                     </h4>
                     {config.is_active && (
-                      <span className="px-2 py-0.5 text-xs bg-iris/10 text-iris rounded-full">
+                      <span className="px-2 py-0.5 text-xs bg-rose/10 text-rose rounded-full">
                         Active
                       </span>
                     )}
