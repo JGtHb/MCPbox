@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import get_db
+from app.models.server import Server
 from app.schemas.external_mcp_source import (
     DiscoverToolsResponse,
     ExternalMCPSourceCreate,
@@ -21,7 +22,6 @@ from app.schemas.external_mcp_source import (
     OAuthStartRequest,
     OAuthStartResponse,
 )
-from app.models.server import Server
 from app.services.external_mcp_source import ExternalMCPSourceService
 from app.services.mcp_oauth_client import (
     OAuthDiscoveryError,
