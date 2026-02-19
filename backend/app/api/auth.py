@@ -8,6 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import delete, select
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import get_db
@@ -63,7 +64,9 @@ async def is_token_blacklisted(db: AsyncSession, jti: str) -> bool:
 async def cleanup_expired_blacklist_entries(db: AsyncSession) -> int:
     """Remove expired entries from the token blacklist. Returns count removed."""
     now = datetime.now(tz=UTC)
-    result = await db.execute(delete(TokenBlacklist).where(TokenBlacklist.expires_at < now))
+    result: CursorResult[Any] = await db.execute(  # type: ignore[assignment]
+        delete(TokenBlacklist).where(TokenBlacklist.expires_at < now)
+    )
     return result.rowcount
 
 

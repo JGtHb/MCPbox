@@ -26,7 +26,7 @@ def cloudflare_config_factory(db_session):
         **kwargs,
     ) -> CloudflareConfig:
         config = CloudflareConfig(
-            encrypted_api_token=encrypt_to_base64(api_token),
+            encrypted_api_token=encrypt_to_base64(api_token, aad="cloudflare_api_token"),
             account_id=account_id,
             account_name=account_name,
             team_domain=team_domain,
@@ -232,7 +232,8 @@ async def test_create_tunnel_success(
     assert data["success"] is True
     assert data["tunnel_id"] == "tunnel123"
     assert data["tunnel_name"] == "mcpbox-tunnel"
-    assert data["tunnel_token"] == "tunnel-token-abc123"
+    # tunnel_token is stored in DB and not returned in response (security: prevent token leakage)
+    assert "tunnel_token" not in data
 
 
 @pytest.mark.asyncio
@@ -487,7 +488,7 @@ async def test_teardown_config_not_found(async_client, admin_headers):
 async def test_get_tunnel_token_success(async_client, admin_headers, cloudflare_config_factory):
     """Test getting tunnel token."""
     config = await cloudflare_config_factory(
-        encrypted_tunnel_token=encrypt_to_base64("my-tunnel-token-123"),
+        encrypted_tunnel_token=encrypt_to_base64("my-tunnel-token-123", aad="tunnel_token"),
     )
 
     response = await async_client.get(

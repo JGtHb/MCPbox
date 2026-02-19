@@ -85,6 +85,9 @@ export interface ApprovalDashboardStats {
   pending_tools: number
   pending_module_requests: number
   pending_network_requests: number
+  approved_tools: number
+  approved_module_requests: number
+  approved_network_requests: number
   recently_approved: number
   recently_rejected: number
 }
@@ -229,6 +232,50 @@ export async function bulkNetworkRequestAction(
   })
 }
 
+// Revocation functions
+export async function revokeToolApproval(toolId: string): Promise<void> {
+  await api.post(`/api/approvals/tools/${toolId}/revoke`, {})
+}
+
+export async function revokeModuleRequest(requestId: string): Promise<void> {
+  await api.post(`/api/approvals/modules/${requestId}/revoke`, {})
+}
+
+export async function revokeNetworkRequest(requestId: string): Promise<void> {
+  await api.post(`/api/approvals/network/${requestId}/revoke`, {})
+}
+
+export function useRevokeToolApproval() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (toolId: string) => revokeToolApproval(toolId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['approvals'] })
+      queryClient.invalidateQueries({ queryKey: ['tools'] })
+    },
+  })
+}
+
+export function useRevokeModuleRequest() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (requestId: string) => revokeModuleRequest(requestId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['approvals'] })
+    },
+  })
+}
+
+export function useRevokeNetworkRequest() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (requestId: string) => revokeNetworkRequest(requestId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['approvals'] })
+    },
+  })
+}
+
 // Server-specific approval API functions
 export async function getServerModuleRequests(serverId: string, status = 'approved'): Promise<{ items: ModuleRequestQueueItem[]; total: number }> {
   return api.get(`/api/approvals/server/${serverId}/modules?status=${status}`)
@@ -242,6 +289,17 @@ export function useServerModuleRequests(serverId: string, status = 'approved') {
   return useQuery({
     queryKey: ['approvals', 'server', serverId, 'modules', status],
     queryFn: () => getServerModuleRequests(serverId, status),
+    enabled: !!serverId,
+  })
+}
+
+export function useServerApprovedTools(serverId: string) {
+  return useQuery({
+    queryKey: ['approvals', 'tools', 'server', serverId, 'approved'],
+    queryFn: () => getPendingTools(1, 100, undefined, 'approved').then((r) => ({
+      items: r.items.filter((t) => t.server_id === serverId),
+      total: 0,
+    })),
     enabled: !!serverId,
   })
 }

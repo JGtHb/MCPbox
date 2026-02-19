@@ -85,7 +85,7 @@ function AppContent() {
               setAuthState('loading')
               checkAuthStatus()
             }}
-            className="px-4 py-2 bg-iris text-base rounded-lg text-sm font-medium hover:bg-iris/80 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
+            className="px-4 py-2 bg-rose text-base rounded-lg text-sm font-medium hover:bg-rose/80 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
           >
             Retry
           </button>

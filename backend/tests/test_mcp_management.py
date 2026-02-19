@@ -439,7 +439,7 @@ async def main(text: str) -> dict:
         server_id = create_result["id"]
 
         # Create a tool for this server (required before starting)
-        await service.execute_tool(
+        tool_result = await service.execute_tool(
             "mcpbox_create_tool",
             {
                 "server_id": server_id,
@@ -448,6 +448,17 @@ async def main(text: str) -> dict:
                 "python_code": "async def main():\n    return 'test'",
             },
         )
+
+        # Approve the tool — start_server only registers approved+enabled tools
+        from sqlalchemy import select
+
+        from app.models.tool import Tool
+
+        tool_row = (
+            await db_session.execute(select(Tool).where(Tool.id == tool_result["id"]))
+        ).scalar_one()
+        tool_row.approval_status = "approved"
+        await db_session.flush()
 
         # Mock sandbox client for start/stop operations
         mock_sandbox_client.register_server = AsyncMock(

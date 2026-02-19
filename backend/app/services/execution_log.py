@@ -11,6 +11,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import delete, desc, func, select
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tool_execution_log import ToolExecutionLog
@@ -285,7 +286,7 @@ class ExecutionLogService:
                 continue
 
             # Delete logs older than cutoff
-            del_result = await self.db.execute(
+            del_result: CursorResult[Any] = await self.db.execute(  # type: ignore[assignment]
                 delete(ToolExecutionLog).where(
                     ToolExecutionLog.tool_id == tool_id,
                     ToolExecutionLog.created_at <= cutoff_time,

@@ -1,12 +1,14 @@
 """API routes for External MCP Sources - connect external MCP servers to MCPbox."""
 
 import logging
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import get_db
+from app.models.server import Server
 from app.schemas.external_mcp_source import (
     DiscoverToolsResponse,
     ExternalMCPSourceCreate,
@@ -38,7 +40,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/external-sources", tags=["external-mcp-sources"])
 
 
-async def _refresh_server_after_import(server, db: AsyncSession) -> bool:
+async def _refresh_server_after_import(server: Server, db: AsyncSession) -> bool:
     """Re-register a running server with the sandbox after importing new tools.
 
     Loads all approved+enabled tools from DB and re-registers the full set
@@ -80,7 +82,6 @@ async def _refresh_server_after_import(server, db: AsyncSession) -> bool:
             server_id=str(server.id),
             server_name=server.name,
             tools=tool_defs,
-            credentials=[],
             allowed_modules=allowed_modules,
             secrets=secrets,
             external_sources=external_sources_data,
@@ -110,7 +111,7 @@ def get_source_service(db: AsyncSession = Depends(get_db)) -> ExternalMCPSourceS
     return ExternalMCPSourceService(db)
 
 
-def _source_to_response(source) -> dict:
+def _source_to_response(source: Any) -> dict[str, Any]:
     """Convert a source model to a response dict with computed fields."""
     from app.schemas.external_mcp_source import ExternalMCPSourceResponse
 
@@ -133,7 +134,7 @@ async def create_source(
     db: AsyncSession = Depends(get_db),
     server_service: ServerService = Depends(get_server_service),
     source_service: ExternalMCPSourceService = Depends(get_source_service),
-):
+) -> dict[str, Any]:
     """Create a new external MCP source for a server."""
     server = await server_service.get(server_id)
     if not server:
@@ -156,7 +157,7 @@ async def list_sources(
     server_id: UUID,
     server_service: ServerService = Depends(get_server_service),
     source_service: ExternalMCPSourceService = Depends(get_source_service),
-):
+) -> list[dict[str, Any]]:
     """List all external MCP sources for a server."""
     server = await server_service.get(server_id)
     if not server:
@@ -176,7 +177,7 @@ async def list_sources(
 async def get_source(
     source_id: UUID,
     source_service: ExternalMCPSourceService = Depends(get_source_service),
-):
+) -> dict[str, Any]:
     """Get an external MCP source by ID."""
     source = await source_service.get(source_id)
     if not source:
@@ -196,7 +197,7 @@ async def update_source(
     data: ExternalMCPSourceUpdate,
     db: AsyncSession = Depends(get_db),
     source_service: ExternalMCPSourceService = Depends(get_source_service),
-):
+) -> dict[str, Any]:
     """Update an external MCP source."""
     source = await source_service.update(source_id, data)
     if not source:
@@ -216,7 +217,7 @@ async def delete_source(
     source_id: UUID,
     db: AsyncSession = Depends(get_db),
     source_service: ExternalMCPSourceService = Depends(get_source_service),
-):
+) -> None:
     """Delete an external MCP source."""
     deleted = await source_service.delete(source_id)
     if not deleted:
@@ -239,7 +240,7 @@ async def discover_tools(
     db: AsyncSession = Depends(get_db),
     source_service: ExternalMCPSourceService = Depends(get_source_service),
     sandbox_client: SandboxClient = Depends(get_sandbox_client),
-):
+) -> DiscoverToolsResponse:
     """Discover available tools from an external MCP server.
 
     Connects to the external server via the sandbox, performs the MCP
@@ -285,7 +286,7 @@ async def discover_tools(
 async def get_cached_tools(
     source_id: UUID,
     source_service: ExternalMCPSourceService = Depends(get_source_service),
-):
+) -> DiscoverToolsResponse:
     """Get cached discovered tools for a source.
 
     Returns cached tools with already_imported computed dynamically against
@@ -320,7 +321,7 @@ async def import_tools(
     db: AsyncSession = Depends(get_db),
     source_service: ExternalMCPSourceService = Depends(get_source_service),
     server_service: ServerService = Depends(get_server_service),
-):
+) -> ImportToolsResponse:
     """Import selected tools from an external MCP source.
 
     Uses cached discovered tools instead of re-discovering. Admin imports
@@ -403,7 +404,7 @@ async def health_check_source(
     db: AsyncSession = Depends(get_db),
     source_service: ExternalMCPSourceService = Depends(get_source_service),
     sandbox_client: SandboxClient = Depends(get_sandbox_client),
-):
+) -> HealthCheckResponse:
     """Check connectivity to an external MCP server.
 
     Performs an MCP initialize handshake to verify the server is reachable
@@ -454,7 +455,7 @@ async def oauth_start(
     source_id: UUID,
     data: OAuthStartRequest,
     source_service: ExternalMCPSourceService = Depends(get_source_service),
-):
+) -> OAuthStartResponse:
     """Start the OAuth 2.1 authorization flow for an external MCP source.
 
     Discovers OAuth metadata from the external server, registers a client
@@ -503,7 +504,7 @@ async def oauth_exchange(
     data: OAuthExchangeRequest,
     db: AsyncSession = Depends(get_db),
     source_service: ExternalMCPSourceService = Depends(get_source_service),
-):
+) -> dict[str, Any]:
     """Exchange an OAuth authorization code for tokens.
 
     Called by the frontend after the admin completes authentication in

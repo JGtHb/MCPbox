@@ -39,7 +39,7 @@ function StepStatus({
         isComplete
           ? 'bg-foam text-base'
           : isCurrent
-            ? 'bg-iris text-base'
+            ? 'bg-rose text-base'
             : isPending
               ? 'bg-hl-med text-muted'
               : 'bg-hl-med text-muted'
@@ -874,14 +874,14 @@ export function CloudflareWizard() {
                               {policyEmails.map((email) => (
                                 <span
                                   key={email}
-                                  className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-iris/10 text-iris rounded-full"
+                                  className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-rose/10 text-rose rounded-full"
                                 >
                                   {email}
                                   <button
                                     type="button"
                                     onClick={() => handleRemovePolicyEmail(email)}
                                     aria-label={`Remove ${email}`}
-                                    className="text-iris hover:text-love rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-love"
+                                    className="text-rose/60 hover:text-love rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-love"
                                   >
                                     &times;
                                   </button>

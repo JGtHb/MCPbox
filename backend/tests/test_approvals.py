@@ -817,3 +817,618 @@ async def test_approval_endpoints_require_auth(
         if method == "GET":
             response = await async_client.get(path)
         assert response.status_code == 401, f"Expected 401 for {method} {path}"
+
+
+# =============================================================================
+# request_publish (MCP tool) Tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_request_publish_moves_draft_to_pending(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    draft_tool: Tool,
+    db_session: AsyncSession,
+):
+    """Test that mcpbox_request_publish moves a draft tool to pending_review."""
+    from app.services.approval import ApprovalService
+
+    service = ApprovalService(db_session)
+    tool = await service.request_publish(
+        tool_id=draft_tool.id,
+        notes="Ready for review",
+        requested_by="dev@example.com",
+    )
+
+    assert tool.approval_status == "pending_review"
+    assert tool.publish_notes == "Ready for review"
+    assert tool.approval_requested_at is not None
+
+
+@pytest.mark.asyncio
+async def test_request_publish_already_pending_raises(
+    db_session: AsyncSession,
+    pending_tool: Tool,
+):
+    """Test that request_publish on a pending tool raises ValueError."""
+    from app.services.approval import ApprovalService
+
+    service = ApprovalService(db_session)
+    with pytest.raises(ValueError, match="draft.*rejected"):
+        await service.request_publish(tool_id=pending_tool.id)
+
+
+@pytest.mark.asyncio
+async def test_request_publish_nonexistent_tool_raises(
+    db_session: AsyncSession,
+):
+    """Test that request_publish on missing tool raises ValueError."""
+    import uuid
+
+    from app.services.approval import ApprovalService
+
+    service = ApprovalService(db_session)
+    with pytest.raises(ValueError, match="not found"):
+        await service.request_publish(tool_id=uuid.uuid4())
+
+
+@pytest.mark.asyncio
+async def test_request_publish_auto_approve_mode(
+    db_session: AsyncSession,
+    draft_tool: Tool,
+):
+    """Test that request_publish auto-approves when mode is auto_approve."""
+    from app.services.approval import ApprovalService
+    from app.services.setting import SettingService
+
+    # Set auto_approve mode
+    setting_service = SettingService(db_session)
+    await setting_service.set_value("tool_approval_mode", "auto_approve")
+
+    service = ApprovalService(db_session)
+    tool = await service.request_publish(tool_id=draft_tool.id)
+
+    assert tool.approval_status == "approved"
+    assert tool.approved_by == "auto_approve"
+
+    # Clean up
+    await setting_service.set_value("tool_approval_mode", "require_approval")
+
+
+# =============================================================================
+# Revocation Tests
+# =============================================================================
+
+
+@pytest.fixture
+async def approved_tool(db_session: AsyncSession, test_server: Server) -> Tool:
+    """Create a tool that is already approved."""
+    from datetime import UTC, datetime
+
+    tool = Tool(
+        server_id=test_server.id,
+        name="approved_tool",
+        description="An already-approved tool",
+        python_code='async def main() -> str:\n    return "test"',
+        input_schema={"type": "object", "properties": {}},
+        approval_status="approved",
+        approved_by="admin@example.com",
+        approved_at=datetime.now(UTC),
+    )
+    db_session.add(tool)
+    await db_session.flush()
+    await db_session.refresh(tool)
+    return tool
+
+
+@pytest.fixture
+async def approved_module_request(db_session: AsyncSession, draft_tool: Tool) -> ModuleRequest:
+    """Create an already-approved module request."""
+    from datetime import UTC, datetime
+
+    request = ModuleRequest(
+        tool_id=draft_tool.id,
+        module_name="requests",
+        justification="Need requests for HTTP calls",
+        requested_by="dev@example.com",
+        status="approved",
+        reviewed_by="admin@example.com",
+        reviewed_at=datetime.now(UTC),
+    )
+    db_session.add(request)
+    await db_session.flush()
+    await db_session.refresh(request)
+    return request
+
+
+@pytest.fixture
+async def approved_network_request(
+    db_session: AsyncSession, draft_tool: Tool
+) -> NetworkAccessRequest:
+    """Create an already-approved network access request."""
+    from datetime import UTC, datetime
+
+    request = NetworkAccessRequest(
+        tool_id=draft_tool.id,
+        host="api.approved.com",
+        port=443,
+        justification="Need access",
+        requested_by="dev@example.com",
+        status="approved",
+        reviewed_by="admin@example.com",
+        reviewed_at=datetime.now(UTC),
+    )
+    db_session.add(request)
+    await db_session.flush()
+    await db_session.refresh(request)
+    return request
+
+
+@pytest.mark.asyncio
+async def test_revoke_tool_approval(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    approved_tool: Tool,
+    db_session: AsyncSession,
+):
+    """Test revoking an approved tool back to pending_review."""
+    response = await async_client.post(
+        f"/api/approvals/tools/{approved_tool.id}/revoke",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["status"] == "pending_review"
+
+    await db_session.refresh(approved_tool)
+    assert approved_tool.approval_status == "pending_review"
+    assert approved_tool.approved_by is None
+
+
+@pytest.mark.asyncio
+async def test_revoke_non_approved_tool_fails(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    pending_tool: Tool,
+):
+    """Test that revoking a non-approved tool returns 400."""
+    response = await async_client.post(
+        f"/api/approvals/tools/{pending_tool.id}/revoke",
+        headers=admin_headers,
+    )
+    assert response.status_code == 400
+    assert "status" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_revoke_module_request(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    approved_module_request: ModuleRequest,
+    db_session: AsyncSession,
+):
+    """Test revoking an approved module request back to pending."""
+    response = await async_client.post(
+        f"/api/approvals/modules/{approved_module_request.id}/revoke",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "pending"
+
+    await db_session.refresh(approved_module_request)
+    assert approved_module_request.status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_revoke_non_approved_module_fails(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    pending_module_request: ModuleRequest,
+):
+    """Test that revoking a non-approved module request returns 400."""
+    response = await async_client.post(
+        f"/api/approvals/modules/{pending_module_request.id}/revoke",
+        headers=admin_headers,
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_revoke_network_request(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    approved_network_request: NetworkAccessRequest,
+    db_session: AsyncSession,
+):
+    """Test revoking an approved network access request back to pending."""
+    response = await async_client.post(
+        f"/api/approvals/network/{approved_network_request.id}/revoke",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "pending"
+
+    await db_session.refresh(approved_network_request)
+    assert approved_network_request.status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_revoke_non_approved_network_request_fails(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    pending_network_request: NetworkAccessRequest,
+):
+    """Test that revoking a non-approved network request returns 400."""
+    response = await async_client.post(
+        f"/api/approvals/network/{pending_network_request.id}/revoke",
+        headers=admin_headers,
+    )
+    assert response.status_code == 400
+
+
+# =============================================================================
+# create_module_request / create_network_access_request Tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_create_module_request(
+    db_session: AsyncSession,
+    draft_tool: Tool,
+):
+    """Test creating a module request via service."""
+    from app.services.approval import ApprovalService
+
+    service = ApprovalService(db_session)
+    request = await service.create_module_request(
+        tool_id=draft_tool.id,
+        module_name="pandas",
+        justification="Need for data analysis",
+        requested_by="dev@example.com",
+    )
+
+    assert request.module_name == "pandas"
+    assert request.status == "pending"
+    assert request.tool_id == draft_tool.id
+
+
+@pytest.mark.asyncio
+async def test_create_module_request_nonexistent_tool_raises(
+    db_session: AsyncSession,
+):
+    """Test that creating a module request for missing tool raises ValueError."""
+    import uuid
+
+    from app.services.approval import ApprovalService
+
+    service = ApprovalService(db_session)
+    with pytest.raises(ValueError, match="not found"):
+        await service.create_module_request(
+            tool_id=uuid.uuid4(),
+            module_name="pandas",
+            justification="Need it",
+        )
+
+
+@pytest.mark.asyncio
+async def test_create_network_access_request(
+    db_session: AsyncSession,
+    draft_tool: Tool,
+):
+    """Test creating a network access request via service."""
+    from app.services.approval import ApprovalService
+
+    service = ApprovalService(db_session)
+    request = await service.create_network_access_request(
+        tool_id=draft_tool.id,
+        host="api.openai.com",
+        port=443,
+        justification="Need OpenAI access",
+        requested_by="dev@example.com",
+    )
+
+    assert request.host == "api.openai.com"
+    assert request.port == 443
+    assert request.status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_create_network_access_request_nonexistent_tool_raises(
+    db_session: AsyncSession,
+):
+    """Test that creating a network request for missing tool raises ValueError."""
+    import uuid
+
+    from app.services.approval import ApprovalService
+
+    service = ApprovalService(db_session)
+    with pytest.raises(ValueError, match="not found"):
+        await service.create_network_access_request(
+            tool_id=uuid.uuid4(),
+            host="api.example.com",
+            port=None,
+            justification="Need it",
+        )
+
+
+# =============================================================================
+# Status filtering Tests (status=all, status=approved, search)
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_get_tools_with_status_all(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    pending_tool: Tool,
+    approved_tool: Tool,
+):
+    """Test listing tools with status=all returns all statuses."""
+    response = await async_client.get(
+        "/api/approvals/tools",
+        params={"status": "all"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] >= 2
+    statuses = {item["approval_status"] for item in data["items"]}
+    assert "pending_review" in statuses
+    assert "approved" in statuses
+
+
+@pytest.mark.asyncio
+async def test_get_tools_with_status_approved(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    approved_tool: Tool,
+    pending_tool: Tool,
+):
+    """Test listing tools with status=approved returns only approved."""
+    response = await async_client.get(
+        "/api/approvals/tools",
+        params={"status": "approved"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] >= 1
+    for item in data["items"]:
+        assert item["approval_status"] == "approved"
+
+
+@pytest.mark.asyncio
+async def test_get_modules_with_status_all(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    pending_module_request: ModuleRequest,
+    approved_module_request: ModuleRequest,
+):
+    """Test listing module requests with status=all."""
+    response = await async_client.get(
+        "/api/approvals/modules",
+        params={"status": "all"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] >= 2
+
+
+@pytest.mark.asyncio
+async def test_get_network_requests_with_status_all(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    pending_network_request: NetworkAccessRequest,
+    approved_network_request: NetworkAccessRequest,
+):
+    """Test listing network requests with status=all."""
+    response = await async_client.get(
+        "/api/approvals/network",
+        params={"status": "all"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] >= 2
+
+
+@pytest.mark.asyncio
+async def test_search_module_requests(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    pending_module_request: ModuleRequest,
+):
+    """Test searching module requests by module name."""
+    response = await async_client.get(
+        "/api/approvals/modules",
+        params={"search": "pandas"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] >= 1
+    assert any(item["module_name"] == "pandas" for item in data["items"])
+
+
+@pytest.mark.asyncio
+async def test_search_network_requests(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    pending_network_request: NetworkAccessRequest,
+):
+    """Test searching network requests by host."""
+    response = await async_client.get(
+        "/api/approvals/network",
+        params={"search": "api.example.com"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] >= 1
+
+
+# =============================================================================
+# Server-scoped History Endpoint Tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_get_server_module_requests(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    approved_module_request: ModuleRequest,
+    test_server: Server,
+):
+    """Test getting module requests scoped to a specific server."""
+    response = await async_client.get(
+        f"/api/approvals/server/{test_server.id}/modules",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "items" in data
+    assert "total" in data
+
+
+@pytest.mark.asyncio
+async def test_get_server_module_requests_status_all(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    approved_module_request: ModuleRequest,
+    pending_module_request: ModuleRequest,
+    test_server: Server,
+):
+    """Test getting all module requests for a server with status=all."""
+    response = await async_client.get(
+        f"/api/approvals/server/{test_server.id}/modules",
+        params={"status": "all"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] >= 2
+
+
+@pytest.mark.asyncio
+async def test_get_server_network_requests(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    approved_network_request: NetworkAccessRequest,
+    test_server: Server,
+):
+    """Test getting network requests scoped to a specific server."""
+    response = await async_client.get(
+        f"/api/approvals/server/{test_server.id}/network",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "items" in data
+    assert "total" in data
+
+
+@pytest.mark.asyncio
+async def test_get_server_network_requests_status_all(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    approved_network_request: NetworkAccessRequest,
+    pending_network_request: NetworkAccessRequest,
+    test_server: Server,
+):
+    """Test getting all network requests for a server with status=all."""
+    response = await async_client.get(
+        f"/api/approvals/server/{test_server.id}/network",
+        params={"status": "all"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] >= 2
+
+
+# =============================================================================
+# Reject-nonexistent Tests (error path coverage)
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_reject_nonexistent_tool(
+    async_client: AsyncClient,
+    admin_headers: dict,
+):
+    """Test rejecting a tool that doesn't exist returns 400."""
+    fake_id = "00000000-0000-0000-0000-000000000001"
+    response = await async_client.post(
+        f"/api/approvals/tools/{fake_id}/action",
+        json={"action": "reject", "reason": "Bad code"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 400
+    assert "not found" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_reject_nonexistent_module_request(
+    async_client: AsyncClient,
+    admin_headers: dict,
+):
+    """Test rejecting a module request that doesn't exist returns 400."""
+    fake_id = "00000000-0000-0000-0000-000000000001"
+    response = await async_client.post(
+        f"/api/approvals/modules/{fake_id}/action",
+        json={"action": "reject", "reason": "Not allowed"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 400
+    assert "not found" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_approve_nonexistent_module_request(
+    async_client: AsyncClient,
+    admin_headers: dict,
+):
+    """Test approving a module request that doesn't exist returns 400."""
+    fake_id = "00000000-0000-0000-0000-000000000001"
+    response = await async_client.post(
+        f"/api/approvals/modules/{fake_id}/action",
+        json={"action": "approve"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_reject_nonexistent_network_request(
+    async_client: AsyncClient,
+    admin_headers: dict,
+):
+    """Test rejecting a network request that doesn't exist returns 400."""
+    fake_id = "00000000-0000-0000-0000-000000000001"
+    response = await async_client.post(
+        f"/api/approvals/network/{fake_id}/action",
+        json={"action": "reject", "reason": "Not allowed"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 400
+    assert "not found" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_approve_nonexistent_network_request(
+    async_client: AsyncClient,
+    admin_headers: dict,
+):
+    """Test approving a network request that doesn't exist returns 400."""
+    fake_id = "00000000-0000-0000-0000-000000000001"
+    response = await async_client.post(
+        f"/api/approvals/network/{fake_id}/action",
+        json={"action": "approve"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 400

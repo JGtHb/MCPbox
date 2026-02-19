@@ -24,7 +24,7 @@ import time
 from base64 import urlsafe_b64encode
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlencode, urlparse
 from uuid import UUID
 
@@ -515,7 +515,7 @@ def decrypt_tokens(encrypted: str) -> dict[str, Any]:
     Returns:
         Dict with token fields.
     """
-    return json.loads(decrypt_from_base64(encrypted, aad="oauth_tokens"))
+    return cast(dict[str, Any], json.loads(decrypt_from_base64(encrypted, aad="oauth_tokens")))
 
 
 def is_token_expired(tokens_json: dict[str, Any]) -> bool:

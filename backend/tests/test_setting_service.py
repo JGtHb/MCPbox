@@ -69,7 +69,7 @@ class TestSettingServiceGet:
         """Get encrypted setting value decrypts it."""
         from app.services.crypto import encrypt_to_base64
 
-        encrypted = encrypt_to_base64("secret_value")
+        encrypted = encrypt_to_base64("secret_value", aad="setting:encrypted_key")
         setting = Setting(key="encrypted_key", value=encrypted, encrypted=True)
         db_session.add(setting)
         await db_session.flush()
@@ -95,7 +95,7 @@ class TestSettingServiceGet:
         """InvalidKeyError is re-raised (needs fixing, not resilience)."""
         from app.services.crypto import encrypt_to_base64
 
-        encrypted = encrypt_to_base64("secret")
+        encrypted = encrypt_to_base64("secret", aad="setting:needs_key")
         setting = Setting(key="needs_key", value=encrypted, encrypted=True)
         db_session.add(setting)
         await db_session.flush()

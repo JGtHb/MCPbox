@@ -95,7 +95,7 @@ function SetValueModal({
               <button
                 type="submit"
                 disabled={isLoading || !value.trim()}
-                className="flex-1 px-4 py-2 text-sm font-medium text-base bg-iris rounded-md hover:bg-iris/80 transition-colors focus:outline-none focus:ring-2 focus:ring-iris disabled:opacity-50"
+                className="flex-1 px-4 py-2 text-sm font-medium text-base bg-rose rounded-md hover:bg-rose/80 transition-colors focus:outline-none focus:ring-2 focus:ring-iris disabled:opacity-50"
               >
                 {isLoading ? 'Setting...' : secret.has_value ? 'Update Value' : 'Set Value'}
               </button>
@@ -226,7 +226,7 @@ function CreateSecretModal({
               <button
                 type="submit"
                 disabled={isLoading || !keyName.trim()}
-                className="flex-1 px-4 py-2 text-sm font-medium text-base bg-iris rounded-md hover:bg-iris/80 transition-colors focus:outline-none focus:ring-2 focus:ring-iris disabled:opacity-50"
+                className="flex-1 px-4 py-2 text-sm font-medium text-base bg-rose rounded-md hover:bg-rose/80 transition-colors focus:outline-none focus:ring-2 focus:ring-iris disabled:opacity-50"
               >
                 {isLoading ? 'Creating...' : 'Create'}
               </button>
@@ -303,7 +303,7 @@ export function SecretsManager({ serverId }: SecretsManagerProps) {
             setMutationError(null)
             setShowCreateModal(true)
           }}
-          className="px-3 py-1.5 text-sm font-medium text-iris bg-iris/10 border border-iris rounded-md hover:bg-iris/20 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
+          className="px-3 py-1.5 text-sm font-medium text-rose bg-rose/10 border border-rose rounded-md hover:bg-rose/20 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
         >
           + Add Secret
         </button>

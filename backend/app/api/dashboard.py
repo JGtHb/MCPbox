@@ -121,10 +121,10 @@ async def get_dashboard(
     )
     enabled_tools = enabled_tools_result.scalar() or 0
 
-    # Get activity stats for period
+    # Get activity stats for period (only count mcp_request log type as "requests")
     activity_stats = await db.execute(
         select(
-            func.count(ActivityLog.id).label("total"),
+            func.count(ActivityLog.id).filter(ActivityLog.log_type == "mcp_request").label("total"),
             func.count(ActivityLog.id).filter(ActivityLog.level == "error").label("errors"),
             func.avg(ActivityLog.duration_ms)
             .filter(ActivityLog.duration_ms.isnot(None))
@@ -167,11 +167,12 @@ async def get_dashboard(
         for row in tool_counts_result  # [server_id, count]
     }
 
-    # Batch query: request counts per server
+    # Batch query: request counts per server (mcp_request only)
     request_counts_result = await db.execute(
         select(ActivityLog.server_id, func.count(ActivityLog.id).label("count"))
         .where(
             ActivityLog.server_id.in_(server_ids),
+            ActivityLog.log_type == "mcp_request",
             ActivityLog.created_at >= since,
         )
         .group_by(ActivityLog.server_id)
@@ -211,7 +212,7 @@ async def get_dashboard(
     # Get time series data (hourly buckets for 24h, 10-minute for shorter)
     bucket_minutes = 60 if period in ("24h", "7d") else 10
 
-    # Single query: count all requests grouped by time bucket
+    # Single query: count mcp_request entries grouped by time bucket
     bucket_expr = func.date_trunc("minute", ActivityLog.created_at)
     if bucket_minutes == 60:
         bucket_expr = func.date_trunc("hour", ActivityLog.created_at)
@@ -219,7 +220,7 @@ async def get_dashboard(
     request_series_query = (
         select(
             bucket_expr.label("bucket"),
-            func.count(ActivityLog.id).label("total"),
+            func.count(ActivityLog.id).filter(ActivityLog.log_type == "mcp_request").label("total"),
             func.count(ActivityLog.id).filter(ActivityLog.level == "error").label("errors"),
         )
         .where(ActivityLog.created_at >= since)

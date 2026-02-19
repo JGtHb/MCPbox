@@ -12,7 +12,7 @@ class TestListSettings:
     @pytest.mark.asyncio
     async def test_list_settings_empty(self, async_client: AsyncClient, admin_headers):
         """Test listing settings when none exist."""
-        response = await async_client.get("/api/settings/settings", headers=admin_headers)
+        response = await async_client.get("/api/settings", headers=admin_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -45,7 +45,7 @@ class TestListSettings:
         db_session.add(setting2)
         await db_session.flush()
 
-        response = await async_client.get("/api/settings/settings", headers=admin_headers)
+        response = await async_client.get("/api/settings", headers=admin_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -73,7 +73,7 @@ class TestListSettings:
         db_session.add(setting)
         await db_session.flush()
 
-        response = await async_client.get("/api/settings/settings", headers=admin_headers)
+        response = await async_client.get("/api/settings", headers=admin_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -107,7 +107,7 @@ class TestListSettings:
         db_session.add(setting)
         await db_session.flush()
 
-        response = await async_client.get("/api/settings/settings", headers=admin_headers)
+        response = await async_client.get("/api/settings", headers=admin_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -135,7 +135,7 @@ class TestListSettings:
         await db_session.flush()
         await db_session.refresh(setting)
 
-        response = await async_client.get("/api/settings/settings", headers=admin_headers)
+        response = await async_client.get("/api/settings", headers=admin_headers)
 
         assert response.status_code == 200
         data = response.json()

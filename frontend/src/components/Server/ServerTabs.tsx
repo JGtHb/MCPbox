@@ -90,7 +90,7 @@ export function ServerTabs({ activeTab, onTabChange }: ServerTabsProps) {
               onClick={() => onTabChange(tab.id)}
               className={`flex items-center gap-2 whitespace-nowrap py-3 px-1 border-b-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:ring-inset ${
                 isActive
-                  ? 'border-iris text-iris'
+                  ? 'border-rose text-rose'
                   : 'border-transparent text-subtle hover:text-on-base hover:border-hl-high'
               }`}
               aria-current={isActive ? 'page' : undefined}

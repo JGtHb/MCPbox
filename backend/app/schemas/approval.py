@@ -335,5 +335,8 @@ class ApprovalDashboardStats(BaseModel):
     pending_tools: int
     pending_module_requests: int
     pending_network_requests: int
+    approved_tools: int
+    approved_module_requests: int
+    approved_network_requests: int
     recently_approved: int
     recently_rejected: int

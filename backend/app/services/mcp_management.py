@@ -120,7 +120,7 @@ MCP_MANAGEMENT_TOOLS = [
     },
     {
         "name": "mcpbox_create_tool",
-        "description": "Create a new MCP tool in a server. Tools are created in 'draft' status and must be submitted for admin approval using mcpbox_request_publish before they become available. Write Python code with an async main() function.",
+        "description": "Create a new MCP tool in a server. Tools are created in 'draft' status and must be submitted for admin approval using mcpbox_request_publish before they become available. Write Python code with an async main() function. Note: after approval, MCP clients do not automatically refresh their tool list — the user must restart or refresh their client to see new tools.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1048,13 +1048,19 @@ class MCPManagementService:
         if server.status == "running":
             return {"error": "Server is already running"}
 
-        # Get tools for this server (only enabled ones)
+        # Get tools for this server and filter to approved + enabled
         tools, _total = await self._tool_service.list_by_server(server_id)
-        if not tools:
-            return {"error": "Server has no tools defined. Add tools first."}
-
-        # Build tool definitions for sandbox
         tool_defs = self._build_tool_definitions(tools)
+        if not tool_defs:
+            if not tools:
+                return {"error": "Server has no tools defined. Add tools first."}
+            return {
+                "error": (
+                    "Server has no approved and enabled tools. "
+                    "Use mcpbox_request_publish to submit tools for approval, "
+                    "then approve them in the admin UI."
+                )
+            }
 
         # Get secrets for injection
         from app.services.server_secret import ServerSecretService
@@ -1191,6 +1197,11 @@ class MCPManagementService:
     async def _test_code(self, args: dict, sandbox_client: SandboxClient) -> dict:
         """Test Python code execution.
 
+        Applies the same security constraints as production tool execution:
+        - Same module allowlist (DEFAULT_ALLOWED_MODULES from sandbox)
+        - Same per-server network host allowlist (if server_id provided)
+        - Same SSRF/private-IP protections
+
         Code should use the async def main() format (same as mcpbox_create_tool):
            async def main(x: int) -> int:
                return x * 2
@@ -1201,18 +1212,10 @@ class MCPManagementService:
 
         arguments = args.get("arguments", {})
 
-        # The sandbox /execute endpoint natively handles async def main() —
-        # it detects the function after exec(), creates an httpx client on the
-        # same event loop, and awaits main() directly. No wrapping needed.
-
-        # Get global allowed modules
-        from app.services.global_config import GlobalConfigService
-
-        config_service = GlobalConfigService(self.db)
-        allowed_modules = await config_service.get_allowed_modules()
-
-        # Get secrets if server_id is provided
+        # Get secrets and network allowlist if server_id provided — mirrors
+        # what _start_server does so test behaviour matches production exactly.
         secrets: dict[str, str] = {}
+        allowed_hosts: list[str] | None = None
         server_id_str = args.get("server_id")
         if server_id_str:
             try:
@@ -1221,16 +1224,21 @@ class MCPManagementService:
 
                 secret_service = ServerSecretService(self.db)
                 secrets = await secret_service.get_decrypted_for_injection(server_id)
+
+                # Enforce the same per-server network allowlist as production
+                server = await self._server_service.get(server_id)
+                if server and server.network_mode == "allowlist":
+                    allowed_hosts = server.allowed_hosts or []
             except (ValueError, TypeError):
-                pass  # Invalid server_id, skip secrets
+                pass  # Invalid server_id, skip secrets/allowlist
 
         try:
             result = await sandbox_client.execute_code(
                 code=code,
                 arguments=arguments,
                 timeout_seconds=30,
-                allowed_modules=allowed_modules,
                 secrets=secrets,
+                allowed_hosts=allowed_hosts,
             )
             return result
         except httpx.TimeoutException:
@@ -1266,11 +1274,30 @@ class MCPManagementService:
             )
 
             if tool.approval_status == "approved":
-                message = f"Tool '{tool.name}' has been auto-approved and is now active."
+                # Auto-approved: immediately re-register with sandbox so the tool
+                # is live without requiring a manual server restart.
+                from app.api.approvals import _refresh_server_registration
+                from app.services.tool import ToolService as _ToolService
+
+                tool_with_server = await _ToolService(self.db).get_with_server(tool_id)
+                if tool_with_server:
+                    await _refresh_server_registration(tool_with_server, self.db)
+                    from app.services.tool_change_notifier import fire_and_forget_notify
+
+                    fire_and_forget_notify()
+
+                message = (
+                    f"Tool '{tool.name}' has been auto-approved and registered with the sandbox. "
+                    "Important: MCP clients (Claude Desktop, Claude Web, mobile) do not currently "
+                    "support automatic tool list refresh. The user will need to restart or refresh "
+                    "their client to see the new tool."
+                )
             else:
                 message = (
                     f"Tool '{tool.name}' has been submitted for admin review. "
-                    "You will be notified when the admin approves or rejects it."
+                    "Once approved, the user will need to restart or refresh their MCP client "
+                    "to see the new tool, as clients do not currently support automatic tool "
+                    "list refresh."
                 )
 
             return {

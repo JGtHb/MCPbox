@@ -9,6 +9,7 @@ import asyncio
 import logging
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import async_session_maker
@@ -68,7 +69,7 @@ async def recover_running_servers() -> None:
         logger.error(f"Error during server recovery: {e}")
 
 
-async def _register_server(db, server: Server, sandbox_client: SandboxClient) -> None:
+async def _register_server(db: AsyncSession, server: Server, sandbox_client: SandboxClient) -> None:
     """Re-register a single server with the sandbox."""
     # Build tool definitions (only enabled + approved)
     tool_defs = []

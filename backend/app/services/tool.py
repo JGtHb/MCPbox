@@ -7,6 +7,7 @@ from uuid import UUID
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models import Tool, ToolVersion
 from app.schemas.tool import (
@@ -64,6 +65,13 @@ class ToolService:
     async def get(self, tool_id: UUID) -> Tool | None:
         """Get a tool by ID."""
         result = await self.db.execute(select(Tool).where(Tool.id == tool_id))
+        return result.scalar_one_or_none()
+
+    async def get_with_server(self, tool_id: UUID) -> Tool | None:
+        """Get a tool by ID with its server relationship eagerly loaded."""
+        result = await self.db.execute(
+            select(Tool).where(Tool.id == tool_id).options(selectinload(Tool.server))
+        )
         return result.scalar_one_or_none()
 
     async def list_by_server(

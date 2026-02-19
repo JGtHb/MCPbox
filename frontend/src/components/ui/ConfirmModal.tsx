@@ -125,7 +125,7 @@ export function ConfirmModal({
 
   const confirmButtonClasses = destructive
     ? 'bg-love hover:bg-love/80 focus:ring-love text-base'
-    : 'bg-iris hover:bg-iris/80 focus:ring-iris text-base'
+    : 'bg-rose hover:bg-rose/80 focus:ring-rose text-base'
 
   return (
     <div
@@ -171,9 +171,9 @@ export function ConfirmModal({
                 </svg>
               </div>
             ) : (
-              <div className="w-12 h-12 rounded-full bg-iris/10 flex items-center justify-center">
+              <div className="w-12 h-12 rounded-full bg-rose/10 flex items-center justify-center">
                 <svg
-                  className="w-6 h-6 text-iris"
+                  className="w-6 h-6 text-rose"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"

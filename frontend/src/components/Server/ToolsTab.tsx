@@ -248,7 +248,7 @@ function ToolRow({ tool, isExpanded, onToggle, onToggleEnabled, onRename, onDele
                 disabled={isUpdating || !isApproved}
                 className="sr-only peer"
               />
-              <div className="w-9 h-5 bg-hl-med peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-iris rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-surface after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-hl-med after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-iris peer-disabled:opacity-50" />
+              <div className="w-9 h-5 bg-hl-med peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-iris rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-surface after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-hl-med after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose peer-disabled:opacity-50" />
               <span className="ml-2 text-xs text-subtle">
                 {!isApproved ? 'Not approved' : tool.enabled ? 'Enabled' : 'Disabled'}
               </span>
@@ -332,7 +332,7 @@ function ToolDescription({ toolId, description }: ToolDescriptionProps) {
           <button
             onClick={handleSave}
             disabled={updateDescription.isPending}
-            className="px-2.5 py-1 text-xs font-medium bg-iris text-base rounded-lg hover:bg-iris/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
+            className="px-2.5 py-1 text-xs font-medium bg-rose text-base rounded-lg hover:bg-rose/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
           >
             {updateDescription.isPending ? 'Saving...' : 'Save'}
           </button>
@@ -367,7 +367,7 @@ function ToolDescription({ toolId, description }: ToolDescriptionProps) {
         </div>
         <button
           onClick={() => { setValue(description || ''); setIsEditing(true) }}
-          className="p-1 text-muted hover:text-iris rounded opacity-0 group-hover/desc:opacity-100 transition-opacity mt-4 focus:outline-none focus:ring-2 focus:ring-iris focus:opacity-100"
+          className="p-1 text-muted hover:text-rose rounded opacity-0 group-hover/desc:opacity-100 transition-opacity mt-4 focus:outline-none focus:ring-2 focus:ring-iris focus:opacity-100"
           aria-label="Edit description"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -455,7 +455,7 @@ function RenameToolModal({ tool, onClose }: RenameToolModalProps) {
             <button
               type="submit"
               disabled={!isValid || renameMutation.isPending}
-              className="px-4 py-2 bg-iris text-base text-sm font-medium rounded-lg hover:bg-iris/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
+              className="px-4 py-2 bg-rose text-base text-sm font-medium rounded-lg hover:bg-rose/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
             >
               {renameMutation.isPending ? 'Renaming...' : 'Rename'}
             </button>

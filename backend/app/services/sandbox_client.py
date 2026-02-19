@@ -549,19 +549,21 @@ class SandboxClient:
         code: str,
         arguments: dict[str, Any] | None = None,
         timeout_seconds: int = 30,
-        allowed_modules: list[str] | None = None,
         secrets: dict[str, str] | None = None,
+        allowed_hosts: list[str] | None = None,
     ) -> dict[str, Any]:
         """Execute Python code directly in the sandbox.
 
         This is used for testing code without registering it as a tool.
+        Applies identical security constraints to production tool execution.
 
         Args:
             code: Python code with async def main() or result assignment
             arguments: Arguments to pass to the code
             timeout_seconds: Execution timeout
-            allowed_modules: Custom list of allowed Python modules (None = use defaults)
             secrets: Dict of secret key→value pairs for injection into namespace
+            allowed_hosts: Per-server network allowlist (None = global SSRF only,
+                           [] = block all outbound, [hosts] = allowlist those hosts)
 
         Returns:
             Execution result with success, result, error, and stdout
@@ -576,8 +578,8 @@ class SandboxClient:
                     "timeout_seconds": timeout_seconds,
                     "secrets": secrets or {},
                 }
-                if allowed_modules is not None:
-                    payload["allowed_modules"] = allowed_modules
+                if allowed_hosts is not None:
+                    payload["allowed_hosts"] = allowed_hosts
                 response = await client.post(
                     f"{self.sandbox_url}/execute",
                     headers=self._get_headers(),
