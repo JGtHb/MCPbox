@@ -130,7 +130,7 @@ def get_admin_identity(
     JWT token, never from client-supplied headers. This prevents admin
     identity spoofing in approval audit logs.
     """
-    return current_user.username
+    return str(current_user.username)
 
 
 # =============================================================================
