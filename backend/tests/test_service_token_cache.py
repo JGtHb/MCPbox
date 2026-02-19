@@ -26,7 +26,9 @@ def cloudflare_config_factory(db_session):
             account_id="test-account-id",
             account_name="Test Account",
             status=status,
-            encrypted_service_token=encrypt_to_base64(service_token, aad="service_token") if service_token else None,
+            encrypted_service_token=encrypt_to_base64(service_token, aad="service_token")
+            if service_token
+            else None,
             completed_step=completed_step,
         )
         db_session.add(config)

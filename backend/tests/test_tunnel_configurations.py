@@ -24,7 +24,9 @@ def tunnel_config_factory(db_session):
             name=name,
             description=description,
             public_url=public_url,
-            tunnel_token=encrypt_to_base64(tunnel_token, aad="tunnel_token") if tunnel_token else None,
+            tunnel_token=encrypt_to_base64(tunnel_token, aad="tunnel_token")
+            if tunnel_token
+            else None,
             is_active=is_active,
         )
         db_session.add(config)
