@@ -24,7 +24,7 @@ def tunnel_config_factory(db_session):
         tunnel_token: str = "test-tunnel-token-12345",
         is_active: bool = False,
     ) -> TunnelConfiguration:
-        encrypted_token = encrypt_to_base64(tunnel_token) if tunnel_token else None
+        encrypted_token = encrypt_to_base64(tunnel_token, aad="tunnel_token") if tunnel_token else None
         config = TunnelConfiguration(
             name=name,
             tunnel_token=encrypted_token,
@@ -149,14 +149,14 @@ def cloudflare_config_factory(db_session):
         access_policy_email_domain: str | None = None,
     ) -> CloudflareConfig:
         config = CloudflareConfig(
-            encrypted_api_token=encrypt_to_base64("fake-api-token"),
+            encrypted_api_token=encrypt_to_base64("fake-api-token", aad="cloudflare_api_token"),
             account_id="test-account-id",
             account_name="Test Account",
             status=status,
             vpc_service_id=vpc_service_id,
             worker_name=worker_name,
             team_domain=team_domain,
-            encrypted_service_token=encrypt_to_base64("svc-token") if has_service_token else None,
+            encrypted_service_token=encrypt_to_base64("svc-token", aad="service_token") if has_service_token else None,
             completed_step=completed_step,
             kv_namespace_id=kv_namespace_id,
             access_policy_type=access_policy_type,
@@ -314,8 +314,8 @@ class TestWorkerDeployConfigOidc:
         """When OIDC credentials are set, endpoint returns OIDC endpoint URLs."""
         config = await cloudflare_config_factory()
         # Set OIDC credentials on the config
-        config.encrypted_access_client_id = encrypt_to_base64("test-client-id")
-        config.encrypted_access_client_secret = encrypt_to_base64("test-client-secret")
+        config.encrypted_access_client_id = encrypt_to_base64("test-client-id", aad="access_client_id")
+        config.encrypted_access_client_secret = encrypt_to_base64("test-client-secret", aad="access_client_secret")
 
         response = await async_client.get(
             "/internal/worker-deploy-config", headers=INTERNAL_AUTH_HEADER
