@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -199,6 +199,7 @@ class ApprovalService:
         from app.models import Server
 
         # Determine status filter
+        status_filter: ColumnElement[bool]
         if status and status != "pending_review":
             if status == "all":
                 status_filter = Tool.approval_status.in_(["pending_review", "approved", "rejected"])
@@ -470,6 +471,7 @@ class ApprovalService:
             Tuple of (items, total_count)
         """
         # Build base query conditions
+        conditions: list[ColumnElement[bool]]
         if status and status != "pending":
             if status == "all":
                 conditions = [ModuleRequest.status.in_(["pending", "approved", "rejected"])]
@@ -713,6 +715,7 @@ class ApprovalService:
             Tuple of (items, total_count)
         """
         # Build base query conditions
+        conditions: list[ColumnElement[bool]]
         if status and status != "pending":
             if status == "all":
                 conditions = [NetworkAccessRequest.status.in_(["pending", "approved", "rejected"])]

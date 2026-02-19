@@ -98,7 +98,6 @@ async def _refresh_server_registration(tool: Any, db: AsyncSession) -> bool:
             server_id=str(server.id),
             server_name=server.name,
             tools=tool_defs,
-            credentials=[],
             allowed_modules=allowed_modules,
             secrets=secrets,
             external_sources=external_sources_data,
