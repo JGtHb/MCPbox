@@ -256,7 +256,7 @@ function ToolsQueue() {
 
   const toggleSelection = (id: string) => {
     const newSet = new Set(selectedIds)
-    newSet.has(id) ? newSet.delete(id) : newSet.add(id)
+    if (newSet.has(id)) { newSet.delete(id) } else { newSet.add(id) }
     setSelectedIds(newSet)
   }
 
@@ -767,7 +767,7 @@ function ModuleRequestsQueue() {
 
   const toggleSelection = (id: string) => {
     const newSet = new Set(selectedIds)
-    newSet.has(id) ? newSet.delete(id) : newSet.add(id)
+    if (newSet.has(id)) { newSet.delete(id) } else { newSet.add(id) }
     setSelectedIds(newSet)
   }
 
@@ -1089,7 +1089,7 @@ function NetworkRequestsQueue() {
 
   const toggleSelection = (id: string) => {
     const newSet = new Set(selectedIds)
-    newSet.has(id) ? newSet.delete(id) : newSet.add(id)
+    if (newSet.has(id)) { newSet.delete(id) } else { newSet.add(id) }
     setSelectedIds(newSet)
   }
 

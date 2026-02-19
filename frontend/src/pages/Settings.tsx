@@ -522,8 +522,9 @@ export function Settings() {
   // Track pending timeouts for cleanup on unmount
   const pendingTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([])
   useEffect(() => {
+    const timeouts = pendingTimeoutsRef.current
     return () => {
-      pendingTimeoutsRef.current.forEach(clearTimeout)
+      timeouts.forEach(clearTimeout)
     }
   }, [])
 
