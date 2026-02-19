@@ -450,8 +450,9 @@ async def main(text: str) -> dict:
         )
 
         # Approve the tool — start_server only registers approved+enabled tools
-        from app.models.tool import Tool
         from sqlalchemy import select
+
+        from app.models.tool import Tool
 
         tool_row = (
             await db_session.execute(select(Tool).where(Tool.id == tool_result["id"]))

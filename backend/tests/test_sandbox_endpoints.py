@@ -1,7 +1,7 @@
 """Tests for sandbox API endpoints (backend side)."""
 
 from contextlib import contextmanager
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -343,7 +343,7 @@ class TestSecretSyncToSandbox:
         mock_client = MagicMock()
         mock_client.update_server_secrets = AsyncMock(return_value={"success": True})
 
-        with override_sandbox_client(mock_client):
+        with patch("app.api.server_secrets.get_sandbox_client", return_value=mock_client):
             response = await async_client.put(
                 f"/api/servers/{server.id}/secrets/API_KEY",
                 json={"value": "my-secret-value"},
@@ -381,7 +381,7 @@ class TestSecretSyncToSandbox:
         mock_client = MagicMock()
         mock_client.update_server_secrets = AsyncMock(return_value={"success": True})
 
-        with override_sandbox_client(mock_client):
+        with patch("app.api.server_secrets.get_sandbox_client", return_value=mock_client):
             response = await async_client.put(
                 f"/api/servers/{server.id}/secrets/API_KEY",
                 json={"value": "my-secret-value"},
@@ -406,7 +406,7 @@ class TestSecretSyncToSandbox:
             server_id=server.id,
             key_name="OLD_KEY",
             description="Key to delete",
-            encrypted_value=encrypt("old-value"),
+            encrypted_value=encrypt("old-value", aad=f"server_secret:{server.id}:OLD_KEY"),
         )
         db_session.add(secret)
         await db_session.flush()
@@ -414,7 +414,7 @@ class TestSecretSyncToSandbox:
         mock_client = MagicMock()
         mock_client.update_server_secrets = AsyncMock(return_value={"success": True})
 
-        with override_sandbox_client(mock_client):
+        with patch("app.api.server_secrets.get_sandbox_client", return_value=mock_client):
             response = await async_client.delete(
                 f"/api/servers/{server.id}/secrets/OLD_KEY",
                 headers=admin_headers,
