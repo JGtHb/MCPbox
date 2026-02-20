@@ -551,7 +551,7 @@ async def mcp_gateway(
                 if isinstance(response.error, dict)
                 else str(response.error)
             )
-        elif _is_tool_error:
+        elif _is_tool_error and response.result is not None:
             # Extract first text content from isError result for the log
             _content = response.result.get("content", [])
             if isinstance(_content, list) and _content:
@@ -794,9 +794,7 @@ async def _log_tool_execution(
 
             # Check for MCP isError tool execution failure in result
             raw_result = sandbox_response.get("result", {})
-            is_tool_error = (
-                isinstance(raw_result, dict) and raw_result.get("isError") is True
-            )
+            is_tool_error = isinstance(raw_result, dict) and raw_result.get("isError") is True
 
             if has_error:
                 # Protocol-level JSON-RPC error

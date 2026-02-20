@@ -26,9 +26,11 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: http://localhost:8000
+        MCPBOX_BACKEND_PORT: ${MCPBOX_BACKEND_PORT:-8000}
     ports:
       - "127.0.0.1:${MCPBOX_FRONTEND_PORT:-3000}:3000"
+    environment:
+      - MCPBOX_BACKEND_PORT=${MCPBOX_BACKEND_PORT:-8000}
     depends_on:
       - backend
     networks:
@@ -40,6 +42,7 @@ services:
       - /tmp:size=16M,uid=1000,gid=1000
       - /var/cache/nginx:size=32M,uid=1000,gid=1000
       - /var/run:size=1M,uid=1000,gid=1000
+      - /etc/nginx/conf.d:size=1M,uid=1000,gid=1000
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/nginx-health"]
       interval: 30s
@@ -76,9 +79,11 @@ services:
       - SANDBOX_URL=http://sandbox:8001
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_RETENTION_DAYS=${LOG_RETENTION_DAYS:-30}
-      - BACKEND_URL=${BACKEND_URL:-http://localhost:8000}
-      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
+      - MCPBOX_BACKEND_PORT=${MCPBOX_BACKEND_PORT:-8000}
+      - MCPBOX_FRONTEND_PORT=${MCPBOX_FRONTEND_PORT:-3000}
+      - BACKEND_URL=${BACKEND_URL:-}
+      - FRONTEND_URL=${FRONTEND_URL:-}
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
     security_opt:
       - no-new-privileges:true
     volumes:

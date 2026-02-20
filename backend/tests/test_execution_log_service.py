@@ -6,8 +6,6 @@ import pytest
 
 from app.services.execution_log import ExecutionLogService
 
-pytestmark = pytest.mark.asyncio
-
 
 class TestCreateLog:
     """Tests for ExecutionLogService.create_log()."""

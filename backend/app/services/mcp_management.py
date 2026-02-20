@@ -1202,12 +1202,13 @@ class MCPManagementService:
         """
         import time
 
+        from sqlalchemy import select
+
         from app.models import Tool
         from app.services.execution_log import ExecutionLogService
         from app.services.global_config import GlobalConfigService
         from app.services.server_secret import ServerSecretService
         from app.services.setting import SettingService
-        from sqlalchemy import select
 
         tool_id_str = args.get("tool_id")
         if not tool_id_str:

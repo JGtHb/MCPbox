@@ -8,8 +8,6 @@ from app.models import Setting
 from app.services.crypto import InvalidKeyError
 from app.services.setting import SettingService
 
-pytestmark = pytest.mark.asyncio
-
 
 class TestSettingServiceGet:
     """Tests for SettingService.get() and get_value()."""

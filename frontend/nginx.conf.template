@@ -1,0 +1,43 @@
+server {
+    listen 3000;
+    server_name localhost;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+    # HSTS - enforces HTTPS for 1 year (enabled for production behind Cloudflare)
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    # CSP - production policy for React SPA with Monaco Editor
+    # - script-src: 'self' + 'unsafe-inline' for React, blob: for Monaco workers
+    # - style-src: 'self' + 'unsafe-inline' for styled components
+    # - worker-src: blob: for Monaco Editor web workers
+    # - connect-src: 'self' + backend API + ws:/wss: for WebSocket
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' http://localhost:${MCPBOX_BACKEND_PORT} ws: wss:; worker-src 'self' blob:; frame-ancestors 'self';" always;
+
+    # Gzip compression
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
+
+    # SPA routing - fallback to index.html
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Cache static assets
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # Health check endpoint
+    location /nginx-health {
+        access_log off;
+        return 200 "healthy\n";
+        add_header Content-Type text/plain;
+    }
+}
