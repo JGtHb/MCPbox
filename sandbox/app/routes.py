@@ -763,7 +763,9 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
     # fetches this from the DB, so it reflects the live admin-approved list).
     # Fall back to DEFAULT_ALLOWED_MODULES when not provided.
     allowed_modules_set = (
-        set(body.allowed_modules) if body.allowed_modules is not None else DEFAULT_ALLOWED_MODULES
+        set(body.allowed_modules)
+        if body.allowed_modules is not None
+        else DEFAULT_ALLOWED_MODULES
     )
 
     # Create builtins using the shared function (single source of truth)

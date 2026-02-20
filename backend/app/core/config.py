@@ -18,7 +18,7 @@ loaded at startup by ServiceTokenCache. No .env configuration needed.
 from functools import lru_cache
 from typing import Any
 
-from pydantic import PostgresDsn, field_validator
+from pydantic import PostgresDsn, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -74,8 +74,13 @@ class Settings(BaseSettings):
 
         return v
 
+    # Port configuration — used to derive URLs when not explicitly set
+    mcpbox_backend_port: int = 8000
+    mcpbox_frontend_port: int = 3000
+
     # CORS - for local admin panel access
-    cors_origins: str = "http://localhost:3000"
+    # Empty string = auto-derive from mcpbox_frontend_port
+    cors_origins: str = ""
 
     # MCP CORS - separate from admin panel, for tunnel-exposed MCP gateway
     # Defaults to Claude AI origins; add other AI service origins as needed
@@ -130,9 +135,9 @@ class Settings(BaseSettings):
             raise ValueError("rate_limit_requests_per_minute must be at least 1")
         return v
 
-    # URLs
-    backend_url: str = "http://localhost:8000"
-    frontend_url: str = "http://localhost:3000"
+    # URLs — empty string = auto-derive from port settings
+    backend_url: str = ""
+    frontend_url: str = ""
 
     # Cloudflare Worker deployment settings
     cf_worker_compatibility_date: str = "2025-03-01"
@@ -161,7 +166,13 @@ class Settings(BaseSettings):
     @field_validator("cors_origins")
     @classmethod
     def validate_cors_origins(cls, v: str) -> str:
-        """Validate CORS origins are valid URLs."""
+        """Validate CORS origins are valid URLs.
+
+        Empty string is allowed — model_validator will derive from port settings.
+        """
+        if not v:
+            return v
+
         from urllib.parse import urlparse
 
         origins = [origin.strip() for origin in v.split(",") if origin.strip()]
@@ -208,6 +219,21 @@ class Settings(BaseSettings):
         if v < 1:
             raise ValueError("log_retention_days must be at least 1")
         return v
+
+    @model_validator(mode="after")
+    def derive_urls_from_ports(self) -> "Settings":
+        """Derive URL settings from port numbers when not explicitly set.
+
+        This allows users to just set MCPBOX_BACKEND_PORT and MCPBOX_FRONTEND_PORT
+        and have all URL-based settings automatically configured.
+        """
+        if not self.backend_url:
+            self.backend_url = f"http://localhost:{self.mcpbox_backend_port}"
+        if not self.frontend_url:
+            self.frontend_url = f"http://localhost:{self.mcpbox_frontend_port}"
+        if not self.cors_origins:
+            self.cors_origins = f"http://localhost:{self.mcpbox_frontend_port}"
+        return self
 
     def check_security_configuration(self) -> list[str]:
         """Check for security configuration issues."""
