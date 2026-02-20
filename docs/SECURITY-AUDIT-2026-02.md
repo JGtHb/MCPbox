@@ -70,7 +70,7 @@ registry.execute_tool()
   → _execute_passthrough_tool()
     → mcp_session_pool.call_tool()
       → MCPClient._send_request()
-        → curl_cffi POST to external URL
+        → httpx POST to external URL
 ```
 
 This path has **none** of the sandbox protections:
@@ -89,7 +89,7 @@ If an external MCP server is compromised (or was malicious from the start), it c
 - Receive sensitive data sent by the LLM as tool arguments
 - Change tool behavior without MCPbox visibility (the external server controls execution)
 
-The MCPClient in `sandbox/app/mcp_client.py` uses `curl_cffi` which does **not** go through the SSRF-protected path, meaning the external MCP server URL itself is not validated against private IPs. While the URL was set by the admin, if the DNS for that URL changes, or if the server was originally on a public IP that later becomes private via VPN/tunnel, requests could reach internal infrastructure.
+The MCPClient in `sandbox/app/mcp_client.py` uses `httpx.AsyncClient` with `follow_redirects=False`, which prevents SSRF via redirect chains. However, the external MCP server URL itself is not validated against private IPs at call time. While the URL was set by the admin, if the DNS for that URL changes, or if the server was originally on a public IP that later becomes private via VPN/tunnel, requests could reach internal infrastructure.
 
 ### Recommendation
 

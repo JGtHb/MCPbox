@@ -1,8 +1,8 @@
 """MCP Client - connects to external MCP servers for tool discovery and proxying.
 
-Implements the MCP Streamable HTTP client protocol using curl_cffi.
-Uses browser TLS fingerprint impersonation (JA3/JA4) to avoid Cloudflare
-bot detection that blocks standard Python HTTP clients like httpx/requests.
+Implements the MCP Streamable HTTP client protocol using httpx.
+Sets a custom User-Agent to avoid Cloudflare's User-Agent blocklist
+(which blocks known library signatures like python-httpx, python-requests).
 """
 
 import logging
@@ -10,8 +10,7 @@ import re
 import uuid
 from typing import Any
 
-from curl_cffi.requests import AsyncSession
-from curl_cffi.requests.exceptions import RequestException, Timeout as CurlTimeout
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -21,13 +20,12 @@ MCP_PROTOCOL_VERSION = "2025-03-26"
 # Fallback protocol versions if the server doesn't support our preferred version
 MCP_FALLBACK_VERSIONS = ["2024-11-05"]
 
-# Browser to impersonate for TLS fingerprint.
-# Cloudflare uses JA3/JA4 TLS fingerprinting to distinguish real browsers from
-# HTTP libraries. Python's httpx/requests have distinctive non-browser TLS
-# fingerprints that trigger Cloudflare's "Just a moment..." challenge page.
-# curl_cffi impersonates real browser TLS handshakes at the protocol level,
-# making requests indistinguishable from a real Chrome browser at the TLS layer.
-IMPERSONATE_BROWSER = "chrome"
+# User-Agent for MCP requests.
+# Cloudflare blocks known bot/library User-Agent patterns (python-httpx/*,
+# python-requests/*, curl/*, Go-http-client/*, node-fetch/*). A custom
+# application-level User-Agent avoids the blocklist while being honest
+# about what we are.
+USER_AGENT = "MCPbox/1.0 (MCP Client)"
 
 # Patterns that indicate a Cloudflare bot-detection challenge page
 _CF_CHALLENGE_PATTERNS = [
@@ -48,13 +46,13 @@ class CloudflareChallengeError(MCPClientError):
     """Raised when the external server returns a Cloudflare bot-detection challenge.
 
     This means the target MCP server is behind Cloudflare with JavaScript
-    challenge protection that even browser TLS impersonation cannot bypass.
+    challenge protection that cannot be bypassed by an HTTP client.
     """
 
     pass
 
 
-def _is_cloudflare_challenge(response: Any) -> bool:
+def _is_cloudflare_challenge(response: httpx.Response) -> bool:
     """Detect whether a response is a Cloudflare JavaScript challenge page."""
     content_type = response.headers.get("content-type", "")
     if "text/html" not in content_type:
@@ -79,11 +77,6 @@ class MCPClient:
 
     Supports Streamable HTTP transport (POST with JSON-RPC 2.0).
     Handles initialize handshake, tool discovery, and tool execution.
-
-    Uses curl_cffi with browser TLS impersonation to pass Cloudflare's
-    JA3/JA4 fingerprint checks that block standard Python HTTP clients.
-    The MCP JSON-RPC handshake still honestly identifies as "MCPbox" at
-    the application layer.
     """
 
     def __init__(
@@ -96,43 +89,41 @@ class MCPClient:
         self.auth_headers = auth_headers or {}
         self.timeout = timeout
         self._session_id: str | None = None
-        self._session: AsyncSession | None = None
+        self._client: httpx.AsyncClient | None = None
 
     async def open(self) -> "MCPClient":
         """Open the HTTP session. Can be used directly or via async with."""
-        if not self._session:
-            self._session = AsyncSession(
+        if not self._client:
+            self._client = httpx.AsyncClient(
                 timeout=self.timeout,
-                impersonate=IMPERSONATE_BROWSER,
+                follow_redirects=False,
+                headers={"User-Agent": USER_AGENT},
             )
         return self
 
-    def close(self) -> None:
+    async def close(self) -> None:
         """Close the HTTP session and reset state."""
-        if self._session:
-            # Best-effort session termination is skipped here;
-            # use __aexit__ (async with) for graceful MCP session cleanup.
-            self._session.close()
-            self._session = None
+        if self._client:
+            await self._client.aclose()
+            self._client = None
         self._session_id = None
 
     async def __aenter__(self) -> "MCPClient":
         return await self.open()
 
     async def __aexit__(self, *args: Any) -> None:
-        if self._session:
+        if self._client:
             # Try to send session termination if we have a session
             if self._session_id:
                 try:
-                    await self._session.delete(
+                    await self._client.delete(
                         self.url,
                         headers=self._request_headers(),
-                        allow_redirects=False,
                     )
                 except Exception:
                     pass  # Best-effort cleanup
-            self._session.close()
-            self._session = None
+            await self._client.aclose()
+            self._client = None
 
     def _request_headers(self) -> dict[str, str]:
         """Build headers for MCP requests."""
@@ -150,22 +141,24 @@ class MCPClient:
 
         Handles both direct JSON responses and SSE streams.
         """
-        if not self._session:
+        if not self._client:
             raise MCPClientError("Client not initialized. Use async with.")
 
         try:
-            # SECURITY: Disable redirects to prevent SSRF bypass (SEC-007).
-            # A malicious external MCP server could redirect to internal IPs.
-            response = await self._session.post(
+            # SECURITY: follow_redirects=False set on client to prevent
+            # SSRF bypass (SEC-007). A malicious external MCP server could
+            # redirect to internal IPs.
+            response = await self._client.post(
                 self.url,
                 json=request,
                 headers=self._request_headers(),
-                allow_redirects=False,
             )
-        except CurlTimeout as e:
+        except httpx.TimeoutException as e:
             raise MCPClientError(f"Request timed out: {e}") from e
-        except RequestException as e:
+        except httpx.ConnectError as e:
             raise MCPClientError(f"Connection failed: {e}") from e
+        except httpx.HTTPError as e:
+            raise MCPClientError(f"HTTP error: {e}") from e
 
         # Capture session ID from response headers
         session_id = response.headers.get("mcp-session-id")
@@ -177,8 +170,6 @@ class MCPClient:
                 raise CloudflareChallengeError(
                     f"HTTP {response.status_code}: The external MCP server is behind "
                     f"Cloudflare bot protection that requires browser JavaScript execution. "
-                    f"Even with TLS fingerprint impersonation, this Cloudflare configuration "
-                    f"cannot be bypassed automatically. "
                     f"Options: (1) use the OAuth auth type to authenticate via browser, "
                     f"(2) use an API key / Bearer token if the server provides one, "
                     f"(3) contact the MCP server operator to whitelist "
@@ -251,12 +242,11 @@ class MCPClient:
                 "jsonrpc": "2.0",
                 "method": "notifications/initialized",
             }
-            if self._session:
-                await self._session.post(
+            if self._client:
+                await self._client.post(
                     self.url,
                     json=notification,
                     headers=self._request_headers(),
-                    allow_redirects=False,
                 )
         except Exception:
             pass  # Notification is best-effort

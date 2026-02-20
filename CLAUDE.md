@@ -8,7 +8,7 @@ MCPbox is a self-extending MCP platform where LLMs create their own tools. The L
 |-----------|-------|-----------------|
 | Backend | Python 3.11+, FastAPI 0.128.8 | SQLAlchemy (asyncpg), cryptography, argon2-cffi, httpx, PyJWT |
 | Frontend | React 18, TypeScript, Vite | TanStack Query, React Router, Tailwind CSS |
-| Sandbox | Python 3.11+, FastAPI | httpx, curl_cffi, regex |
+| Sandbox | Python 3.11+, FastAPI | httpx, regex |
 | Worker | TypeScript, Cloudflare Workers | @cloudflare/workers-oauth-provider |
 | Database | PostgreSQL 16 | Alembic (migrations) |
 | Infra | Docker Compose | 6 services, 4 networks |
