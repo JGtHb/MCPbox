@@ -962,6 +962,7 @@ def create_safe_builtins(
         if name not in allowed_modules and base_module not in allowed_modules:
             raise ImportError(
                 f"Import of '{name}' is not allowed. "
+                f"Use mcpbox_request_module to request it be whitelisted. "
                 f"Allowed modules: {sorted(allowed_modules)}"
             )
 
@@ -1293,6 +1294,7 @@ class ErrorDetail:
         code_context: Optional[list[str]] = None,
         traceback_lines: Optional[list[str]] = None,
         source_file: str = "<tool>",
+        http_info: Optional[dict[str, Any]] = None,
     ):
         self.message = message
         self.error_type = error_type
@@ -1300,10 +1302,11 @@ class ErrorDetail:
         self.code_context = code_context or []
         self.traceback_lines = traceback_lines or []
         self.source_file = source_file
+        self.http_info = http_info
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
-        return {
+        result = {
             "message": self.message,
             "error_type": self.error_type,
             "line_number": self.line_number,
@@ -1311,6 +1314,9 @@ class ErrorDetail:
             "traceback": self.traceback_lines,
             "source_file": self.source_file,
         }
+        if self.http_info:
+            result["http_info"] = self.http_info
+        return result
 
     def __str__(self) -> str:
         if self.line_number:
@@ -1441,6 +1447,9 @@ def extract_error_detail(
         if "sandbox/app" not in line and "__builtins__" not in line:
             clean_tb.append(line.rstrip())
 
+    # Extract structured HTTP info from httpx exceptions
+    http_info = _extract_http_info(exception)
+
     return ErrorDetail(
         message=message,
         error_type=error_type,
@@ -1448,7 +1457,61 @@ def extract_error_detail(
         code_context=code_context,
         traceback_lines=clean_tb,
         source_file=source_file,
+        http_info=http_info,
     )
+
+
+def _extract_http_info(exception: Exception) -> Optional[dict[str, Any]]:
+    """Extract structured HTTP info from httpx exceptions.
+
+    When a tool crashes with an httpx.HTTPStatusError, this extracts the
+    status code, request URL, key response headers, and a body preview so
+    the caller can distinguish "tool crashed before HTTP" from "HTTP 403
+    from rate limiting" from "HTTP 403 from wrong User-Agent".
+    """
+    try:
+        import httpx as _httpx
+    except ImportError:
+        return None
+
+    if isinstance(exception, _httpx.HTTPStatusError):
+        resp = exception.response
+        info: dict[str, Any] = {
+            "status_code": resp.status_code,
+            "url": str(exception.request.url),
+        }
+        # Key headers for debugging rate limits and bot detection
+        header_keys = [
+            "content-type",
+            "retry-after",
+            "x-ratelimit-remaining",
+            "x-ratelimit-limit",
+            "x-ratelimit-reset",
+            "x-deny-reason",
+        ]
+        headers = {}
+        for key in header_keys:
+            val = resp.headers.get(key)
+            if val:
+                headers[key] = val
+        if headers:
+            info["response_headers"] = headers
+        # Body preview — enough to distinguish HTML error page from JSON error
+        try:
+            body = resp.text[:500]
+            if body:
+                info["body_preview"] = body
+        except Exception:
+            pass
+        return info
+
+    if isinstance(exception, _httpx.ConnectError):
+        return {"error_type": "ConnectError", "detail": str(exception)}
+
+    if isinstance(exception, _httpx.TimeoutException):
+        return {"error_type": "TimeoutException", "detail": str(exception)}
+
+    return None
 
 
 # --- SSRF Prevention for Python Code Mode ---

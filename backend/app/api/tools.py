@@ -3,14 +3,17 @@
 Accessible without authentication (Option B architecture - admin panel is local-only).
 """
 
+import time
 from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import get_db
+from app.models import Tool
 from app.schemas.tool import (
     ToolCreate,
     ToolListPaginatedResponse,
@@ -24,8 +27,12 @@ from app.schemas.tool import (
     extract_input_schema_from_python,
     validate_python_code,
 )
+from app.services.execution_log import ExecutionLogService
+from app.services.global_config import GlobalConfigService
 from app.services.sandbox_client import SandboxClient, get_sandbox_client
 from app.services.server import ServerService
+from app.services.server_secret import ServerSecretService
+from app.services.setting import SettingService
 from app.services.tool import ToolService
 
 router = APIRouter(tags=["tools"])
@@ -65,65 +72,23 @@ class CodeValidationResponse(BaseModel):
 
 
 class TestCodeRequest(BaseModel):
-    """Request schema for testing Python code execution."""
+    """Request schema for testing a saved tool's code execution."""
 
-    code: str = Field(..., max_length=100000, description="Python code to test")
+    tool_id: UUID = Field(..., description="UUID of the tool to test")
     arguments: dict[str, Any] = Field(
         default_factory=dict,
         description="Arguments to pass to main() function",
     )
-    debug_mode: bool = Field(
-        default=False,
-        description="Enable debug mode for detailed execution info",
-    )
-
-
-class ErrorDetail(BaseModel):
-    """Detailed error information for debugging."""
-
-    message: str = Field(..., description="Error message")
-    error_type: str = Field(..., description="Type of error (e.g., ValueError, SyntaxError)")
-    line_number: int | None = Field(None, description="Line number where error occurred")
-    code_context: list[str] = Field(
-        default_factory=list, description="Lines of code around the error"
-    )
-    traceback: list[str] = Field(default_factory=list, description="Cleaned traceback lines")
-    source_file: str = Field(default="<tool>", description="Source file name")
-
-
-class HttpCallInfo(BaseModel):
-    """Information about an HTTP call made during execution."""
-
-    method: str
-    url: str
-    status_code: int | None = None
-    duration_ms: int = 0
-    request_headers: dict[str, str] | None = None
-    response_preview: str | None = None
-    error: str | None = None
-
-
-class DebugInfo(BaseModel):
-    """Debug information captured during execution."""
-
-    http_calls: list[HttpCallInfo] = Field(default_factory=list)
-    timing_breakdown: dict[str, int] = Field(default_factory=dict)
 
 
 class TestCodeResponse(BaseModel):
-    """Response schema for Python code test execution."""
+    """Response schema for tool test execution."""
 
     success: bool = Field(..., description="Whether execution succeeded")
     result: Any = Field(default=None, description="Return value from main() function")
     error: str | None = Field(default=None, description="Error message if execution failed")
-    error_detail: ErrorDetail | None = Field(
-        default=None, description="Detailed error info with line numbers"
-    )
     stdout: str | None = Field(default=None, description="Captured stdout output")
     duration_ms: int | None = Field(default=None, description="Execution time in milliseconds")
-    debug_info: DebugInfo | None = Field(
-        default=None, description="Debug info (when debug_mode=true)"
-    )
 
 
 @router.post(
@@ -169,117 +134,114 @@ async def validate_code(data: CodeValidationRequest) -> CodeValidationResponse:
 @router.post(
     "/tools/test-code",
     response_model=TestCodeResponse,
-    summary="Test Python code execution in sandbox",
+    summary="Test a saved tool's code in the sandbox",
     description="""
-    Execute Python code in the sandbox for testing purposes.
+    Execute a saved tool's code in the sandbox for testing purposes.
 
     This endpoint:
-    - Validates the code first
-    - Executes main() with provided arguments
+    - Requires an existing tool_id (tool must be saved first)
+    - Enforces the approval gate (blocks testing of unapproved tools when require_approval mode is active)
+    - Runs the tool's actual code with its real server secrets and network config
+    - Logs the test run in the tool's execution history (labeled as a test)
     - Returns result, stdout, and timing information
-    - Does NOT save anything to the database
-
-    Use this to test code before creating/updating a tool.
-    Note: Code runs without credentials in test mode.
     """,
 )
 async def test_code(
     data: TestCodeRequest,
+    db: AsyncSession = Depends(get_db),
     sandbox_client: SandboxClient = Depends(get_sandbox_client),
 ) -> TestCodeResponse:
-    """Test Python code execution in the sandbox.
+    """Test a saved tool's code in the sandbox.
 
-    Executes the code in a sandboxed environment without saving to database.
-    Useful for iterating on code before committing it to a tool.
+    Fetches the tool from the database and runs it with the same environment
+    (secrets, network allowlist, approved modules) as production execution.
     """
-    # First validate the code
-    validation = validate_python_code(data.code)
-    if not validation["valid"]:
+    # Fetch the tool
+    tool_result = await db.execute(select(Tool).where(Tool.id == data.tool_id))
+    tool = tool_result.scalar_one_or_none()
+    if not tool:
         return TestCodeResponse(
             success=False,
-            error=f"Syntax error: {validation['error']}",
+            error=f"Tool {data.tool_id} not found",
         )
-    if not validation["has_main"]:
+
+    if not tool.python_code:
         return TestCodeResponse(
             success=False,
-            error="Code must contain an async main() function",
+            error="Tool has no code to test",
         )
 
-    # Register a temporary test tool, execute, then clean up
-    test_server_id = "__test__"
-    test_tool_name = "test_tool"
+    # Enforce admin approval gate
+    setting_service = SettingService(db)
+    approval_mode = await setting_service.get_value(
+        "tool_approval_mode", default="require_approval"
+    )
+    if approval_mode == "require_approval" and tool.approval_status != "approved":
+        return TestCodeResponse(
+            success=False,
+            error=(
+                f"Tool '{tool.name}' cannot be tested until it is approved "
+                f"(current status: {tool.approval_status}). "
+                "Submit it for review or ask the admin to set tool_approval_mode to 'auto_approve'."
+            ),
+        )
 
+    # Fetch live admin-approved modules and server context
+    config_service = GlobalConfigService(db)
+    allowed_modules = await config_service.get_allowed_modules()
+
+    server_service = ServerService(db)
+    server = await server_service.get(tool.server_id)
+    secret_service = ServerSecretService(db)
+    secrets = await secret_service.get_decrypted_for_injection(tool.server_id)
+    allowed_hosts: list[str] | None = None
+    if server and server.network_mode == "allowlist":
+        allowed_hosts = server.allowed_hosts or []
+
+    start_ms = time.monotonic()
     try:
-        # Register a temporary server with the test tool
-        tool_def = {
-            "name": test_tool_name,
-            "description": "Test execution",
-            "parameters": {},
-            "python_code": data.code,
-            "timeout_ms": 30000,
-        }
-
-        reg_result = await sandbox_client.register_server(
-            server_id=test_server_id,
-            server_name="Test Server",
-            tools=[tool_def],
+        result = await sandbox_client.execute_code(
+            code=tool.python_code,
+            arguments=data.arguments,
+            timeout_seconds=30,
+            secrets=secrets,
+            allowed_hosts=allowed_hosts,
+            allowed_modules=allowed_modules,
         )
-
-        if not reg_result.get("success"):
-            return TestCodeResponse(
-                success=False,
-                error=f"Failed to register test: {reg_result.get('error')}",
-            )
-
-        # Execute the tool
-        full_tool_name = f"test_server__{test_tool_name}"
-        result = await sandbox_client.call_tool(
-            full_tool_name,
-            data.arguments,
-            debug_mode=data.debug_mode,
-        )
-
-        # Build error_detail if present
-        error_detail = None
-        if result.get("error_detail"):
-            ed = result["error_detail"]
-            error_detail = ErrorDetail(
-                message=ed.get("message", ""),
-                error_type=ed.get("error_type", "Error"),
-                line_number=ed.get("line_number"),
-                code_context=ed.get("code_context", []),
-                traceback=ed.get("traceback", []),
-                source_file=ed.get("source_file", "<tool>"),
-            )
-
-        # Build debug_info if present
-        debug_info = None
-        if result.get("debug_info"):
-            di = result["debug_info"]
-            http_calls = [HttpCallInfo(**call) for call in di.get("http_calls", [])]
-            debug_info = DebugInfo(
-                http_calls=http_calls,
-                timing_breakdown=di.get("timing_breakdown", {}),
-            )
-
-        return TestCodeResponse(
-            success=result.get("success", False),
-            result=result.get("result"),
-            error=result.get("error"),
-            error_detail=error_detail,
-            stdout=result.get("stdout"),
-            duration_ms=result.get("duration_ms"),
-            debug_info=debug_info,
-        )
-
     except Exception as e:
         return TestCodeResponse(
             success=False,
             error=f"Test execution failed: {e!s}",
         )
-    finally:
-        # Clean up the test server
-        await sandbox_client.unregister_server(test_server_id)
+
+    duration_ms = int((time.monotonic() - start_ms) * 1000)
+
+    # Log the test run — same table as production, just flagged is_test=True
+    try:
+        log_service = ExecutionLogService(db)
+        await log_service.create_log(
+            tool_id=tool.id,
+            server_id=tool.server_id,
+            tool_name=tool.name,
+            input_args={"arguments": data.arguments},
+            result=result.get("result"),
+            error=result.get("error"),
+            stdout=result.get("stdout"),
+            duration_ms=duration_ms,
+            success=result.get("success", False),
+            is_test=True,
+        )
+        await db.commit()
+    except Exception:
+        pass  # Never fail the test run due to logging errors
+
+    return TestCodeResponse(
+        success=result.get("success", False),
+        result=result.get("result"),
+        error=result.get("error"),
+        stdout=result.get("stdout"),
+        duration_ms=result.get("duration_ms"),
+    )
 
 
 @router.post(

@@ -40,6 +40,11 @@ export function LogDetail({ log }: { log: ExecutionLog }) {
           <span className="px-2 py-0.5 text-xs font-medium rounded bg-iris/10 text-iris whitespace-nowrap">
             {log.tool_name}
           </span>
+          {log.is_test && (
+            <span className="px-2 py-0.5 text-xs font-medium rounded bg-gold/10 text-gold whitespace-nowrap">
+              Test
+            </span>
+          )}
           <span className="text-sm text-subtle whitespace-nowrap">
             {formatTime(log.created_at)}
           </span>

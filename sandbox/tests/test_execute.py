@@ -171,6 +171,21 @@ result = {
         data = response.json()
         assert data["success"] is False
 
+    def test_blocked_import_hints_request_module(self, client):
+        """Blocked imports include mcpbox_request_module hint so the LLM knows what to do."""
+        response = client.post(
+            "/execute",
+            json={
+                "code": "import asyncio\nresult = 'ok'",
+                "arguments": {},
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+        assert "asyncio" in data["error"]
+        assert "mcpbox_request_module" in data["error"]
+
     def test_execute_with_list_comprehension(self, client):
         """Test list comprehensions work."""
         response = client.post(
@@ -343,23 +358,53 @@ class TestSecretsSecurity:
 
 
 class TestAllowedModulesNotOverridable:
-    """Tests that /execute ignores client-provided allowed_modules (SEC-015)."""
+    """Tests for SEC-015: allowed_modules on /execute is backend-controlled."""
 
-    def test_allowed_modules_field_ignored(self, client):
-        """SEC-015: /execute must not accept allowed_modules override."""
-        # Even if the request body includes allowed_modules, it should be ignored.
-        # The os module should NOT become available.
+    def test_backend_supplied_modules_are_used(self, client):
+        """SEC-015: backend-supplied allowed_modules list is respected."""
+        # The backend passes the admin-approved list; modules in it should work.
         response = client.post(
             "/execute",
             json={
-                "code": "result = os.getcwd()",
+                "code": "import math\nresult = math.pi",
                 "arguments": {},
-                "allowed_modules": ["os"],
+                "allowed_modules": ["math"],
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+
+    def test_module_not_in_backend_list_is_blocked(self, client):
+        """SEC-015: modules absent from the backend-supplied list are blocked."""
+        # Even if os is technically importable by the sandbox process,
+        # it must not be available when the backend does not include it.
+        response = client.post(
+            "/execute",
+            json={
+                "code": "import os\nresult = os.getcwd()",
+                "arguments": {},
+                "allowed_modules": ["math"],  # os intentionally absent
             },
         )
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is False
+        assert "os" in data["error"]
+
+    def test_default_modules_used_when_not_supplied(self, client):
+        """SEC-015: falls back to DEFAULT_ALLOWED_MODULES when not supplied."""
+        # json is in DEFAULT_ALLOWED_MODULES, so it should work without a list.
+        response = client.post(
+            "/execute",
+            json={
+                "code": "import json\nresult = json.dumps({'ok': True})",
+                "arguments": {},
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
 
 
 class TestErrorSanitization:
@@ -410,6 +455,34 @@ class TestErrorSanitization:
         # Must NOT leak the connection string
         assert "postgres://" not in data["error"]
         assert "RuntimeError" not in data["error"]
+
+    def test_network_block_returns_actionable_error(self, client):
+        """Network blocks surface the hostname and mcpbox_request_network_access hint.
+
+        When allowed_hosts is set (even to an empty list), any HTTP request to an
+        unapproved host raises SSRFError.  The LLM must see the specific hostname
+        and the hint to call mcpbox_request_network_access — not a generic
+        'internal error' message — so it can request access without guessing.
+        """
+        code = """
+async def main():
+    response = await http.get("https://example.com")
+    return response.status_code
+"""
+        response = client.post(
+            "/execute",
+            json={
+                "code": code,
+                "arguments": {},
+                "allowed_hosts": [],  # Empty allowlist blocks all outbound requests
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+        assert "Network access blocked" in data["error"]
+        assert "example.com" in data["error"]
+        assert "mcpbox_request_network_access" in data["error"]
 
 
 class TestUpdateServerSecrets:
@@ -503,3 +576,134 @@ class TestUpdateServerSecrets:
         # The tool can read secrets internally, but returning them exposes them
         # in MCP responses and execution logs.
         assert data["result"] == "[REDACTED]"
+
+
+class TestMCPEndpointErrorDetail:
+    """Tests for error detail surfacing in the /mcp endpoint."""
+
+    def test_mcp_tools_call_error_includes_detail(self, client):
+        """When a tool fails, the MCP error response includes error_detail and stdout."""
+        # Register a tool that prints then crashes
+        reg_resp = client.post(
+            "/servers/register",
+            json={
+                "server_id": "err-srv",
+                "server_name": "ErrSrv",
+                "tools": [
+                    {
+                        "name": "crash_tool",
+                        "description": "Crashes on purpose",
+                        "parameters": {},
+                        "python_code": (
+                            "async def main():\n"
+                            "    print('debug output before crash')\n"
+                            "    raise ValueError('something broke')\n"
+                        ),
+                    }
+                ],
+            },
+        )
+        assert reg_resp.json()["success"] is True
+
+        response = client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "ErrSrv__crash_tool", "arguments": {}},
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        # Per MCP spec, tool execution errors use result with isError:true
+        assert "result" in data
+        assert "error" not in data  # NOT a JSON-RPC error
+        assert data["result"]["isError"] is True
+
+        error_text = data["result"]["content"][0]["text"]
+        assert "ValueError" in error_text
+        assert "something broke" in error_text
+        assert "debug output before crash" in error_text
+        assert "Error type: ValueError" in error_text
+
+    def test_mcp_tools_call_success_has_isError_false(self, client):
+        """Successful tool calls return isError: false."""
+        client.post(
+            "/servers/register",
+            json={
+                "server_id": "ok-srv",
+                "server_name": "OkSrv",
+                "tools": [
+                    {
+                        "name": "ok_tool",
+                        "description": "Works fine",
+                        "parameters": {},
+                        "python_code": 'async def main():\n    return "all good"\n',
+                    }
+                ],
+            },
+        )
+
+        response = client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {"name": "OkSrv__ok_tool", "arguments": {}},
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        assert "result" in data
+        assert "error" not in data
+        assert data["result"]["isError"] is False
+        assert data["result"]["content"][0]["text"] == "all good"
+
+
+class TestHTTPErrorInfoExtraction:
+    """Tests for structured HTTP error info in error_detail."""
+
+    def test_extract_http_info_from_httpx_status_error(self):
+        """HTTPStatusError should produce http_info with status_code, url, and body preview."""
+        from app.executor import _extract_http_info
+
+        import httpx
+
+        request = httpx.Request("GET", "https://api.example.com/data")
+        response = httpx.Response(
+            403,
+            text='{"error": "rate_limited"}',
+            headers={"content-type": "application/json", "retry-after": "60"},
+            request=request,
+        )
+        exc = httpx.HTTPStatusError("Client error", request=request, response=response)
+
+        info = _extract_http_info(exc)
+        assert info is not None
+        assert info["status_code"] == 403
+        assert info["url"] == "https://api.example.com/data"
+        assert info["response_headers"]["content-type"] == "application/json"
+        assert info["response_headers"]["retry-after"] == "60"
+        assert "rate_limited" in info["body_preview"]
+
+    def test_extract_http_info_connect_error(self):
+        """ConnectError should produce http_info with error_type."""
+        from app.executor import _extract_http_info
+
+        import httpx
+
+        exc = httpx.ConnectError("Connection refused")
+        info = _extract_http_info(exc)
+        assert info is not None
+        assert info["error_type"] == "ConnectError"
+
+    def test_extract_http_info_non_http_error(self):
+        """Non-HTTP exceptions should return None."""
+        from app.executor import _extract_http_info
+
+        info = _extract_http_info(ValueError("not http"))
+        assert info is None

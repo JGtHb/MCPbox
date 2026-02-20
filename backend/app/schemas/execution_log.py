@@ -22,6 +22,7 @@ class ExecutionLogResponse(BaseModel):
     stdout: str | None = None
     duration_ms: int | None = None
     success: bool
+    is_test: bool = False
     executed_by: str | None = None
     created_at: datetime
 

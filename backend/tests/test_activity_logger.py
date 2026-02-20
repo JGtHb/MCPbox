@@ -252,10 +252,10 @@ async def test_broadcast_buffer_max_size(activity_logger):
 
 @pytest.mark.asyncio
 async def test_log_mcp_request(activity_logger):
-    """Test logging an MCP request."""
+    """Test logging an MCP request (tools/call only)."""
     request_id = await activity_logger.log_mcp_request(
-        method="tools/list",
-        params={"foo": "bar"},
+        method="tools/call",
+        params={"name": "some_tool", "arguments": {}},
     )
 
     assert request_id is not None
@@ -263,7 +263,7 @@ async def test_log_mcp_request(activity_logger):
 
     recent = activity_logger.get_recent_logs(1)
     assert recent[0]["log_type"] == "mcp_request"
-    assert recent[0]["details"]["method"] == "tools/list"
+    assert recent[0]["details"]["method"] == "tools/call"
 
 
 @pytest.mark.asyncio

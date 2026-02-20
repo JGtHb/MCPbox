@@ -3,13 +3,14 @@
 import json
 from unittest.mock import AsyncMock, Mock, patch
 
+import httpx
 import pytest
 
 from app.mcp_client import (
     MCPClient,
     MCPClientError,
     CloudflareChallengeError,
-    IMPERSONATE_BROWSER,
+    USER_AGENT,
     _is_cloudflare_challenge,
     discover_tools,
     call_external_tool,
@@ -17,10 +18,10 @@ from app.mcp_client import (
 
 
 def _mock_response(status_code=200, json_data=None, text=None, headers=None):
-    """Create a mock response compatible with curl_cffi."""
-    response = Mock()
+    """Create a mock httpx.Response."""
+    response = Mock(spec=httpx.Response)
     response.status_code = status_code
-    response.headers = headers or {}
+    response.headers = httpx.Headers(headers or {})
     if json_data is not None:
         response.json.return_value = json_data
         response.text = json.dumps(json_data)
@@ -53,11 +54,11 @@ class TestMCPClient:
             headers={"mcp-session-id": "session-123"},
         )
 
-        with patch("app.mcp_client.AsyncSession") as MockSession:
-            mock_session = AsyncMock()
-            mock_session.post.return_value = mock_response
-            mock_session.close = Mock()
-            MockSession.return_value = mock_session
+        with patch("app.mcp_client.httpx.AsyncClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.aclose = AsyncMock()
+            MockClient.return_value = mock_client
 
             async with MCPClient("https://example.com/mcp") as client:
                 result = await client.initialize()
@@ -66,7 +67,7 @@ class TestMCPClient:
             assert client._session_id == "session-123"
 
             # Verify the initialize request was sent correctly
-            call_args = mock_session.post.call_args_list[0]
+            call_args = mock_client.post.call_args_list[0]
             body = call_args.kwargs.get("json") or call_args[1].get("json")
             assert body["method"] == "initialize"
             assert body["params"]["clientInfo"]["name"] == "MCPbox"
@@ -99,12 +100,12 @@ class TestMCPClient:
             json_data={"jsonrpc": "2.0", "id": "2", "result": {"tools": tools_data}},
         )
 
-        with patch("app.mcp_client.AsyncSession") as MockSession:
-            mock_session = AsyncMock()
-            mock_session.post.side_effect = [init_response, AsyncMock(), tools_response]
-            mock_session.close = Mock()
-            mock_session.delete = AsyncMock(return_value=_mock_response(200))
-            MockSession.return_value = mock_session
+        with patch("app.mcp_client.httpx.AsyncClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.post.side_effect = [init_response, AsyncMock(), tools_response]
+            mock_client.aclose = AsyncMock()
+            mock_client.delete = AsyncMock(return_value=_mock_response(200))
+            MockClient.return_value = mock_client
 
             async with MCPClient("https://example.com/mcp") as client:
                 await client.initialize()
@@ -127,9 +128,9 @@ class TestMCPClient:
             },
         )
 
-        with patch("app.mcp_client.AsyncSession") as MockSession:
-            mock_session = AsyncMock()
-            mock_session.post.side_effect = [
+        with patch("app.mcp_client.httpx.AsyncClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.post.side_effect = [
                 _mock_response(
                     200,
                     json_data={
@@ -142,9 +143,9 @@ class TestMCPClient:
                 AsyncMock(),  # initialized notification
                 call_response,
             ]
-            mock_session.close = Mock()
-            mock_session.delete = AsyncMock(return_value=_mock_response(200))
-            MockSession.return_value = mock_session
+            mock_client.aclose = AsyncMock()
+            mock_client.delete = AsyncMock(return_value=_mock_response(200))
+            MockClient.return_value = mock_client
 
             async with MCPClient("https://example.com/mcp") as client:
                 await client.initialize()
@@ -165,9 +166,9 @@ class TestMCPClient:
             },
         )
 
-        with patch("app.mcp_client.AsyncSession") as MockSession:
-            mock_session = AsyncMock()
-            mock_session.post.side_effect = [
+        with patch("app.mcp_client.httpx.AsyncClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.post.side_effect = [
                 _mock_response(
                     200,
                     json_data={
@@ -180,9 +181,9 @@ class TestMCPClient:
                 AsyncMock(),
                 error_response,
             ]
-            mock_session.close = Mock()
-            mock_session.delete = AsyncMock(return_value=_mock_response(200))
-            MockSession.return_value = mock_session
+            mock_client.aclose = AsyncMock()
+            mock_client.delete = AsyncMock(return_value=_mock_response(200))
+            MockClient.return_value = mock_client
 
             async with MCPClient("https://example.com/mcp") as client:
                 await client.initialize()
@@ -194,13 +195,11 @@ class TestMCPClient:
     @pytest.mark.asyncio
     async def test_connection_error_raises(self):
         """Connection failure raises MCPClientError."""
-        from curl_cffi.requests.exceptions import RequestException
-
-        with patch("app.mcp_client.AsyncSession") as MockSession:
-            mock_session = AsyncMock()
-            mock_session.post.side_effect = RequestException("Connection refused")
-            mock_session.close = Mock()
-            MockSession.return_value = mock_session
+        with patch("app.mcp_client.httpx.AsyncClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.post.side_effect = httpx.ConnectError("Connection refused")
+            mock_client.aclose = AsyncMock()
+            MockClient.return_value = mock_client
 
             async with MCPClient("https://unreachable.example.com/mcp") as client:
                 with pytest.raises(MCPClientError, match="Connection failed"):
@@ -209,13 +208,11 @@ class TestMCPClient:
     @pytest.mark.asyncio
     async def test_timeout_error_raises(self):
         """Timeout raises MCPClientError with timeout message."""
-        from curl_cffi.requests.exceptions import Timeout
-
-        with patch("app.mcp_client.AsyncSession") as MockSession:
-            mock_session = AsyncMock()
-            mock_session.post.side_effect = Timeout("Operation timed out")
-            mock_session.close = Mock()
-            MockSession.return_value = mock_session
+        with patch("app.mcp_client.httpx.AsyncClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.post.side_effect = httpx.TimeoutException("Operation timed out")
+            mock_client.aclose = AsyncMock()
+            MockClient.return_value = mock_client
 
             async with MCPClient("https://slow.example.com/mcp") as client:
                 with pytest.raises(MCPClientError, match="timed out"):
@@ -224,11 +221,11 @@ class TestMCPClient:
     @pytest.mark.asyncio
     async def test_http_error_raises(self):
         """HTTP error responses raise MCPClientError."""
-        with patch("app.mcp_client.AsyncSession") as MockSession:
-            mock_session = AsyncMock()
-            mock_session.post.return_value = _mock_response(401, text="Unauthorized")
-            mock_session.close = Mock()
-            MockSession.return_value = mock_session
+        with patch("app.mcp_client.httpx.AsyncClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = _mock_response(401, text="Unauthorized")
+            mock_client.aclose = AsyncMock()
+            MockClient.return_value = mock_client
 
             async with MCPClient("https://example.com/mcp") as client:
                 with pytest.raises(MCPClientError, match="HTTP 401"):
@@ -247,9 +244,9 @@ class TestMCPClient:
             headers={"content-type": "text/event-stream"},
         )
 
-        with patch("app.mcp_client.AsyncSession") as MockSession:
-            mock_session = AsyncMock()
-            mock_session.post.side_effect = [
+        with patch("app.mcp_client.httpx.AsyncClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.post.side_effect = [
                 _mock_response(
                     200,
                     json_data={
@@ -262,9 +259,9 @@ class TestMCPClient:
                 AsyncMock(),
                 sse_response,
             ]
-            mock_session.close = Mock()
-            mock_session.delete = AsyncMock(return_value=_mock_response(200))
-            MockSession.return_value = mock_session
+            mock_client.aclose = AsyncMock()
+            mock_client.delete = AsyncMock(return_value=_mock_response(200))
+            MockClient.return_value = mock_client
 
             async with MCPClient("https://example.com/mcp") as client:
                 await client.initialize()
@@ -276,9 +273,9 @@ class TestMCPClient:
     @pytest.mark.asyncio
     async def test_auth_headers_sent(self):
         """Auth headers are included in requests."""
-        with patch("app.mcp_client.AsyncSession") as MockSession:
-            mock_session = AsyncMock()
-            mock_session.post.return_value = _mock_response(
+        with patch("app.mcp_client.httpx.AsyncClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = _mock_response(
                 200,
                 json_data={
                     "jsonrpc": "2.0",
@@ -287,8 +284,8 @@ class TestMCPClient:
                 },
                 headers={"mcp-session-id": "s1"},
             )
-            mock_session.close = Mock()
-            MockSession.return_value = mock_session
+            mock_client.aclose = AsyncMock()
+            MockClient.return_value = mock_client
 
             async with MCPClient(
                 "https://example.com/mcp",
@@ -297,7 +294,7 @@ class TestMCPClient:
                 await client.initialize()
 
             # Check headers include auth
-            call_args = mock_session.post.call_args_list[0]
+            call_args = mock_client.post.call_args_list[0]
             headers = call_args.kwargs.get("headers") or call_args[1].get("headers")
             assert headers["Authorization"] == "Bearer test-token"
 
@@ -446,11 +443,11 @@ class TestCloudflareDetection:
             headers={"content-type": "text/html", "server": "cloudflare"},
         )
 
-        with patch("app.mcp_client.AsyncSession") as MockSession:
-            mock_session = AsyncMock()
-            mock_session.post.return_value = cf_response
-            mock_session.close = Mock()
-            MockSession.return_value = mock_session
+        with patch("app.mcp_client.httpx.AsyncClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = cf_response
+            mock_client.aclose = AsyncMock()
+            MockClient.return_value = mock_client
 
             async with MCPClient("https://example.com/mcp") as client:
                 with pytest.raises(CloudflareChallengeError, match="bot protection"):
@@ -461,39 +458,11 @@ class TestRedirectPrevention:
     """Tests for SSRF redirect prevention (SEC-007)."""
 
     @pytest.mark.asyncio
-    async def test_send_request_disables_redirects(self):
-        """All POST requests must use allow_redirects=False to prevent SSRF."""
-        mock_response = _mock_response(
-            200,
-            json_data={
-                "jsonrpc": "2.0",
-                "id": "1",
-                "result": {"protocolVersion": "2025-03-26"},
-            },
-            headers={"mcp-session-id": "s1"},
-        )
-
-        with patch("app.mcp_client.AsyncSession") as MockSession:
-            mock_session = AsyncMock()
-            mock_session.post.return_value = mock_response
-            mock_session.close = Mock()
-            MockSession.return_value = mock_session
-
-            async with MCPClient("https://example.com/mcp") as client:
-                await client.initialize()
-
-            # Every POST call must have allow_redirects=False
-            for call in mock_session.post.call_args_list:
-                assert call.kwargs.get("allow_redirects") is False, (
-                    f"POST call missing allow_redirects=False: {call}"
-                )
-
-    @pytest.mark.asyncio
-    async def test_delete_disables_redirects(self):
-        """DELETE request (session cleanup) must use allow_redirects=False."""
-        with patch("app.mcp_client.AsyncSession") as MockSession:
-            mock_session = AsyncMock()
-            mock_session.post.return_value = _mock_response(
+    async def test_client_created_with_follow_redirects_false(self):
+        """httpx.AsyncClient is created with follow_redirects=False."""
+        with patch("app.mcp_client.httpx.AsyncClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = _mock_response(
                 200,
                 json_data={
                     "jsonrpc": "2.0",
@@ -502,29 +471,26 @@ class TestRedirectPrevention:
                 },
                 headers={"mcp-session-id": "s1"},
             )
-            mock_session.close = Mock()
-            mock_session.delete = AsyncMock(return_value=_mock_response(200))
-            MockSession.return_value = mock_session
+            mock_client.aclose = AsyncMock()
+            MockClient.return_value = mock_client
 
             async with MCPClient("https://example.com/mcp") as client:
                 await client.initialize()
-                # __aexit__ will send DELETE
 
-            # Verify DELETE had allow_redirects=False
-            if mock_session.delete.called:
-                delete_call = mock_session.delete.call_args
-                assert delete_call.kwargs.get("allow_redirects") is False
+            # Verify AsyncClient was created with follow_redirects=False
+            init_kwargs = MockClient.call_args.kwargs
+            assert init_kwargs["follow_redirects"] is False
 
 
-class TestBrowserImpersonation:
-    """Tests for browser TLS fingerprint impersonation."""
+class TestUserAgent:
+    """Tests for User-Agent configuration."""
 
     @pytest.mark.asyncio
-    async def test_session_uses_browser_impersonation(self):
-        """AsyncSession is created with browser impersonation."""
-        with patch("app.mcp_client.AsyncSession") as MockSession:
-            mock_session = AsyncMock()
-            mock_session.post.return_value = _mock_response(
+    async def test_client_uses_custom_user_agent(self):
+        """httpx.AsyncClient is created with MCPbox User-Agent."""
+        with patch("app.mcp_client.httpx.AsyncClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = _mock_response(
                 200,
                 json_data={
                     "jsonrpc": "2.0",
@@ -533,23 +499,36 @@ class TestBrowserImpersonation:
                 },
                 headers={"mcp-session-id": "s1"},
             )
-            mock_session.close = Mock()
-            MockSession.return_value = mock_session
+            mock_client.aclose = AsyncMock()
+            MockClient.return_value = mock_client
 
             async with MCPClient("https://example.com/mcp") as client:
                 await client.initialize()
 
-            # Verify AsyncSession was created with impersonation
-            init_kwargs = MockSession.call_args.kwargs
-            assert init_kwargs["impersonate"] == IMPERSONATE_BROWSER
-            assert init_kwargs["timeout"] == 30.0
+            # Verify User-Agent is set in client headers
+            init_kwargs = MockClient.call_args.kwargs
+            assert init_kwargs["headers"]["User-Agent"] == USER_AGENT
+
+    def test_user_agent_does_not_contain_library_name(self):
+        """User-Agent must not match Cloudflare's known bot library patterns."""
+        blocked_patterns = [
+            "python-httpx",
+            "python-requests",
+            "Go-http-client",
+            "node-fetch",
+        ]
+        ua_lower = USER_AGENT.lower()
+        for pattern in blocked_patterns:
+            assert pattern.lower() not in ua_lower, (
+                f"USER_AGENT '{USER_AGENT}' contains blocked pattern '{pattern}'"
+            )
 
     @pytest.mark.asyncio
     async def test_mcp_headers_sent_per_request(self):
         """MCP-specific headers (Content-Type, Accept) are sent per-request."""
-        with patch("app.mcp_client.AsyncSession") as MockSession:
-            mock_session = AsyncMock()
-            mock_session.post.return_value = _mock_response(
+        with patch("app.mcp_client.httpx.AsyncClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = _mock_response(
                 200,
                 json_data={
                     "jsonrpc": "2.0",
@@ -558,14 +537,14 @@ class TestBrowserImpersonation:
                 },
                 headers={"mcp-session-id": "s1"},
             )
-            mock_session.close = Mock()
-            MockSession.return_value = mock_session
+            mock_client.aclose = AsyncMock()
+            MockClient.return_value = mock_client
 
             async with MCPClient("https://example.com/mcp") as client:
                 await client.initialize()
 
             # Check request-level headers contain MCP headers
-            call_args = mock_session.post.call_args_list[0]
+            call_args = mock_client.post.call_args_list[0]
             headers = call_args.kwargs.get("headers") or call_args[1].get("headers")
             assert headers["Content-Type"] == "application/json"
             assert "application/json" in headers["Accept"]
@@ -574,9 +553,9 @@ class TestBrowserImpersonation:
     @pytest.mark.asyncio
     async def test_auth_headers_merge_with_mcp_headers(self):
         """Auth headers merge with MCP headers per-request."""
-        with patch("app.mcp_client.AsyncSession") as MockSession:
-            mock_session = AsyncMock()
-            mock_session.post.return_value = _mock_response(
+        with patch("app.mcp_client.httpx.AsyncClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = _mock_response(
                 200,
                 json_data={
                     "jsonrpc": "2.0",
@@ -585,8 +564,8 @@ class TestBrowserImpersonation:
                 },
                 headers={"mcp-session-id": "s1"},
             )
-            mock_session.close = Mock()
-            MockSession.return_value = mock_session
+            mock_client.aclose = AsyncMock()
+            MockClient.return_value = mock_client
 
             async with MCPClient(
                 "https://example.com/mcp",
@@ -594,7 +573,7 @@ class TestBrowserImpersonation:
             ) as client:
                 await client.initialize()
 
-            call_args = mock_session.post.call_args_list[0]
+            call_args = mock_client.post.call_args_list[0]
             headers = call_args.kwargs.get("headers") or call_args[1].get("headers")
             assert headers["Authorization"] == "Bearer token123"
             assert headers["Content-Type"] == "application/json"

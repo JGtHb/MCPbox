@@ -46,6 +46,7 @@ class ToolExecutionLog(BaseModel):
     # Execution metadata
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     success: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_test: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     # Actor
     executed_by: Mapped[str | None] = mapped_column(
@@ -75,6 +76,7 @@ class ToolExecutionLog(BaseModel):
             "stdout": self.stdout,
             "duration_ms": self.duration_ms,
             "success": self.success,
+            "is_test": self.is_test,
             "executed_by": self.executed_by,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

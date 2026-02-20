@@ -344,11 +344,15 @@ async def mcp_gateway(
                 detail="Session not found or expired. Send a new InitializeRequest.",
             )
 
-    # Log incoming request
-    request_id = await activity_logger.log_mcp_request(
-        method=method,
-        params=params,
-    )
+    # Only log tools/call as mcp_request — protocol overhead (initialize,
+    # notifications/*, tools/list) is not counted as a "request" in stats.
+    if method == "tools/call":
+        request_id = await activity_logger.log_mcp_request(
+            method=method,
+            params=params,
+        )
+    else:
+        request_id = str(uuid.uuid4())[:8]
 
     try:
         response_result = None
@@ -532,19 +536,38 @@ async def mcp_gateway(
                 result=response_result,
             )
 
-        # Log response
+        # Log response — detect both protocol errors and MCP isError results
         duration_ms = int((time.time() - start_time) * 1000)
-        is_success = response.error is None
+        _is_tool_error = (
+            isinstance(response.result, dict) and response.result.get("isError") is True
+        )
+        is_success = response.error is None and not _is_tool_error
+
+        # Extract error message for activity log
+        _log_error: str | None = None
+        if response.error:
+            _log_error = (
+                response.error.get("message")
+                if isinstance(response.error, dict)
+                else str(response.error)
+            )
+        elif _is_tool_error:
+            # Extract first text content from isError result for the log
+            _content = response.result.get("content", [])
+            if isinstance(_content, list) and _content:
+                _texts = [
+                    c.get("text", "")
+                    for c in _content
+                    if isinstance(c, dict) and c.get("type") == "text"
+                ]
+                _log_error = _texts[0][:500] if _texts else "Tool execution failed"
+
         await activity_logger.log_mcp_response(
             request_id=request_id,
             success=is_success,
             duration_ms=duration_ms,
             method=method,
-            error=response.error.get("message")
-            if isinstance(response.error, dict)
-            else str(response.error)
-            if response.error
-            else None,
+            error=_log_error,
         )
 
         # Return response, excluding None fields for cleaner JSON-RPC
@@ -761,26 +784,46 @@ async def _log_tool_execution(
                 logger.debug(f"Tool {short_name} not found for execution logging")
                 return
 
-            # Parse sandbox response
+            # Parse sandbox response — handles both:
+            # 1. JSON-RPC error (protocol-level: unknown tool, server error)
+            # 2. MCP isError result (tool execution failure per MCP spec)
             has_error = "error" in sandbox_response
             error_msg = None
             tool_result = None
             stdout = None
 
+            # Check for MCP isError tool execution failure in result
+            raw_result = sandbox_response.get("result", {})
+            is_tool_error = (
+                isinstance(raw_result, dict) and raw_result.get("isError") is True
+            )
+
             if has_error:
+                # Protocol-level JSON-RPC error
                 error_data = sandbox_response["error"]
                 error_msg = (
                     error_data.get("message", str(error_data))
                     if isinstance(error_data, dict)
                     else str(error_data)
                 )
+            elif is_tool_error:
+                # MCP tool execution error — extract error text from content
+                content = raw_result.get("content", [])
+                if isinstance(content, list) and content:
+                    texts = [
+                        c.get("text", "")
+                        for c in content
+                        if isinstance(c, dict) and c.get("type") == "text"
+                    ]
+                    error_msg = "\n".join(texts) if texts else "Tool execution failed"
+                else:
+                    error_msg = "Tool execution failed"
+                has_error = True
             else:
-                raw_result = sandbox_response.get("result", {})
-                # MCP tools/call result has content array
+                # Successful result
                 if isinstance(raw_result, dict) and "content" in raw_result:
                     content = raw_result["content"]
                     if isinstance(content, list) and content:
-                        # Extract text content
                         texts = [
                             c.get("text", "")
                             for c in content

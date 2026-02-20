@@ -9,9 +9,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.main import app
 from app.services.sandbox_client import get_sandbox_client
+from app.services.setting import SettingService
 
 
 @contextmanager
@@ -577,39 +579,85 @@ async def test_version_list_pagination(async_client: AsyncClient, test_server, a
 
 
 @pytest.mark.asyncio
-async def test_test_code_invalid_syntax(async_client: AsyncClient, admin_headers):
-    """Test code execution with invalid syntax."""
+async def test_test_code_tool_not_found(async_client: AsyncClient, admin_headers):
+    """Test that testing a non-existent tool returns an error."""
+    import uuid
+
     response = await async_client.post(
         "/api/tools/test-code",
-        json={"code": "def main(:\n    pass"},
+        json={"tool_id": str(uuid.uuid4())},
         headers=admin_headers,
     )
     assert response.status_code == 200
     data = response.json()
     assert data["success"] is False
-    assert "syntax error" in data["error"].lower()
+    assert "not found" in data["error"].lower()
 
 
 @pytest.mark.asyncio
-async def test_test_code_missing_main(async_client: AsyncClient, admin_headers):
-    """Test code execution without main() function."""
+async def test_test_code_blocked_when_require_approval(
+    async_client: AsyncClient,
+    admin_headers,
+    test_server,
+    db_session: AsyncSession,
+):
+    """Test that testing is blocked for unapproved tools when require_approval mode is active."""
+    # Create a tool (starts as pending_review by default)
+    resp = await async_client.post(
+        f"/api/servers/{test_server['id']}/tools",
+        json={
+            "name": "blocked_test_tool",
+            "description": "A tool to test the approval gate",
+            "python_code": 'async def main() -> str:\n    return "hi"',
+        },
+        headers=admin_headers,
+    )
+    assert resp.status_code == 201
+    tool_id = resp.json()["id"]
+
+    # Ensure require_approval mode is active (the default)
+    setting_service = SettingService(db_session)
+    await setting_service.set_value("tool_approval_mode", "require_approval")
+
     response = await async_client.post(
         "/api/tools/test-code",
-        json={"code": "def helper(): return 42"},
+        json={"tool_id": tool_id},
         headers=admin_headers,
     )
     assert response.status_code == 200
     data = response.json()
     assert data["success"] is False
-    assert "main()" in data["error"]
+    assert "cannot be tested" in data["error"]
+    assert "approved" in data["error"]
 
 
 @pytest.mark.asyncio
-async def test_test_code_success(async_client: AsyncClient, admin_headers):
-    """Test successful code execution via sandbox mock."""
+async def test_test_code_success(
+    async_client: AsyncClient,
+    admin_headers,
+    test_server,
+    db_session: AsyncSession,
+):
+    """Test successful code execution for an approved tool."""
+    # Create and approve a tool
+    resp = await async_client.post(
+        f"/api/servers/{test_server['id']}/tools",
+        json={
+            "name": "success_test_tool",
+            "description": "A tool that runs successfully",
+            "python_code": 'async def main() -> str:\n    return "Hello, world!"',
+        },
+        headers=admin_headers,
+    )
+    assert resp.status_code == 201
+    tool_id = resp.json()["id"]
+
+    # Switch to auto_approve so we can test without admin approval flow
+    setting_service = SettingService(db_session)
+    await setting_service.set_value("tool_approval_mode", "auto_approve")
+
     mock_client = MagicMock()
-    mock_client.register_server = AsyncMock(return_value={"success": True})
-    mock_client.call_tool = AsyncMock(
+    mock_client.execute_code = AsyncMock(
         return_value={
             "success": True,
             "result": "Hello, world!",
@@ -617,78 +665,128 @@ async def test_test_code_success(async_client: AsyncClient, admin_headers):
             "duration_ms": 50,
         }
     )
-    mock_client.unregister_server = AsyncMock(return_value={"success": True})
 
     with override_sandbox_client(mock_client):
         response = await async_client.post(
             "/api/tools/test-code",
-            json={
-                "code": 'async def main() -> str:\n    return "Hello, world!"',
-                "arguments": {},
-            },
+            json={"tool_id": tool_id, "arguments": {}},
             headers=admin_headers,
         )
+
+    # Restore default approval mode
+    await setting_service.set_value("tool_approval_mode", "require_approval")
+
     assert response.status_code == 200
     data = response.json()
     assert data["success"] is True
     assert data["result"] == "Hello, world!"
 
+    # Confirm execute_code was called (not the old register_server pattern)
+    mock_client.execute_code.assert_called_once()
+
 
 @pytest.mark.asyncio
-async def test_test_code_sandbox_registration_failure(async_client: AsyncClient, admin_headers):
-    """Test code execution when sandbox registration fails."""
-    mock_client = MagicMock()
-    mock_client.register_server = AsyncMock(
-        return_value={"success": False, "error": "Sandbox unavailable"}
+async def test_test_code_logs_test_run(
+    async_client: AsyncClient,
+    admin_headers,
+    test_server,
+    db_session: AsyncSession,
+):
+    """Test that a test run is saved to execution history with is_test=True."""
+    from sqlalchemy import select
+
+    from app.models.tool_execution_log import ToolExecutionLog
+
+    resp = await async_client.post(
+        f"/api/servers/{test_server['id']}/tools",
+        json={
+            "name": "logged_test_tool",
+            "description": "A tool to verify test logging",
+            "python_code": 'async def main() -> str:\n    return "logged"',
+        },
+        headers=admin_headers,
     )
-    mock_client.unregister_server = AsyncMock(return_value={"success": True})
+    assert resp.status_code == 201
+    tool_id = resp.json()["id"]
 
-    with override_sandbox_client(mock_client):
-        response = await async_client.post(
-            "/api/tools/test-code",
-            json={
-                "code": 'async def main() -> str:\n    return "test"',
-            },
-            headers=admin_headers,
-        )
-    assert response.status_code == 200
-    data = response.json()
-    assert data["success"] is False
-    assert "failed to register" in data["error"].lower()
+    setting_service = SettingService(db_session)
+    await setting_service.set_value("tool_approval_mode", "auto_approve")
 
-
-@pytest.mark.asyncio
-async def test_test_code_with_error_detail(async_client: AsyncClient, admin_headers):
-    """Test code execution that returns error detail."""
     mock_client = MagicMock()
-    mock_client.register_server = AsyncMock(return_value={"success": True})
-    mock_client.call_tool = AsyncMock(
+    mock_client.execute_code = AsyncMock(
         return_value={
-            "success": False,
-            "error": "NameError: name 'undefined_var' is not defined",
-            "error_detail": {
-                "message": "name 'undefined_var' is not defined",
-                "error_type": "NameError",
-                "line_number": 2,
-                "code_context": ["    return undefined_var"],
-                "traceback": [],
-            },
+            "success": True,
+            "result": "logged",
+            "stdout": "",
             "duration_ms": 10,
         }
     )
-    mock_client.unregister_server = AsyncMock(return_value={"success": True})
 
     with override_sandbox_client(mock_client):
         response = await async_client.post(
             "/api/tools/test-code",
-            json={
-                "code": "async def main() -> str:\n    return undefined_var",
-            },
+            json={"tool_id": tool_id},
             headers=admin_headers,
         )
+
+    await setting_service.set_value("tool_approval_mode", "require_approval")
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+
+    # Verify the execution log was written with is_test=True
+    from uuid import UUID
+
+    logs_result = await db_session.execute(
+        select(ToolExecutionLog).where(ToolExecutionLog.tool_id == UUID(tool_id))
+    )
+    logs = logs_result.scalars().all()
+    assert len(logs) == 1
+    assert logs[0].is_test is True
+
+
+@pytest.mark.asyncio
+async def test_test_code_failure_returns_error(
+    async_client: AsyncClient,
+    admin_headers,
+    test_server,
+    db_session: AsyncSession,
+):
+    """Test that a failed execution returns error in the response."""
+    resp = await async_client.post(
+        f"/api/servers/{test_server['id']}/tools",
+        json={
+            "name": "error_test_tool",
+            "description": "A tool that raises an error",
+            "python_code": "async def main() -> str:\n    return undefined_var",
+        },
+        headers=admin_headers,
+    )
+    assert resp.status_code == 201
+    tool_id = resp.json()["id"]
+
+    setting_service = SettingService(db_session)
+    await setting_service.set_value("tool_approval_mode", "auto_approve")
+
+    mock_client = MagicMock()
+    mock_client.execute_code = AsyncMock(
+        return_value={
+            "success": False,
+            "error": "NameError: name 'undefined_var' is not defined",
+            "duration_ms": 10,
+        }
+    )
+
+    with override_sandbox_client(mock_client):
+        response = await async_client.post(
+            "/api/tools/test-code",
+            json={"tool_id": tool_id},
+            headers=admin_headers,
+        )
+
+    await setting_service.set_value("tool_approval_mode", "require_approval")
+
     assert response.status_code == 200
     data = response.json()
     assert data["success"] is False
-    assert data["error_detail"] is not None
-    assert data["error_detail"]["error_type"] == "NameError"
-    assert data["error_detail"]["line_number"] == 2
+    assert "NameError" in data["error"]

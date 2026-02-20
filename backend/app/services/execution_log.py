@@ -65,11 +65,14 @@ class ExecutionLogService:
         duration_ms: int | None = None,
         success: bool = False,
         executed_by: str | None = None,
+        is_test: bool = False,
     ) -> ToolExecutionLog:
         """Create a new execution log entry.
 
         Input args are redacted for sensitive keys.
         Result and stdout are truncated if too large.
+        Set is_test=True for mcpbox_test_code runs so they appear labelled
+        differently from production executions in the history UI.
         """
         log = ToolExecutionLog(
             tool_id=tool_id,
@@ -81,6 +84,7 @@ class ExecutionLogService:
             stdout=stdout[:MAX_STDOUT_SIZE] if stdout else None,
             duration_ms=duration_ms,
             success=success,
+            is_test=is_test,
             executed_by=executed_by,
         )
         self.db.add(log)
