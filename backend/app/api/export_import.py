@@ -128,6 +128,7 @@ class ImportResult(BaseModel):
     servers_created: int
     tools_created: int
     errors: list[str]
+    warnings: list[str] = []
 
 
 @router.get("/servers", response_model=ExportResponse)
@@ -154,6 +155,7 @@ async def export_all_servers(
                 input_schema=tool.input_schema,
             )
             for tool in server.tools
+            if tool.tool_type == "python_code"
         ]
 
         exported_servers.append(
@@ -209,6 +211,7 @@ async def export_server(
             input_schema=tool.input_schema,
         )
         for tool in server.tools
+        if tool.tool_type == "python_code"
     ]
 
     return ExportedServer(
@@ -265,6 +268,7 @@ async def import_servers(
         )
 
     errors = []
+    warnings = []
     servers_created = 0
     tools_created = 0
 
@@ -292,10 +296,12 @@ async def import_servers(
                 server_tools_created = 0
                 for tool_data in server_data.tools:
                     if not tool_data.python_code:
-                        errors.append(
-                            f"Tool '{tool_data.name}' in server '{server_data.name}' has no python_code"
+                        # Skip tools without code (e.g. mcp_passthrough tools from older exports)
+                        warnings.append(
+                            f"Skipped tool '{tool_data.name}' in server "
+                            f"'{server_data.name}': no python_code (external MCP tool)"
                         )
-                        raise ValueError("Tool has no python_code")
+                        continue
                     tool_create = ToolCreate(
                         name=tool_data.name,
                         description=tool_data.description,
@@ -324,6 +330,7 @@ async def import_servers(
         servers_created=servers_created,
         tools_created=tools_created,
         errors=errors,
+        warnings=warnings,
     )
 
 

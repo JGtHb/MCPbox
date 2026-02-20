@@ -1222,6 +1222,13 @@ export function Settings() {
                                 ))}
                               </ul>
                             )}
+                            {importResult.warnings?.length > 0 && (
+                              <ul className="mt-2 text-sm list-disc list-inside text-gold">
+                                {importResult.warnings.map((warn, i) => (
+                                  <li key={i}>{warn}</li>
+                                ))}
+                              </ul>
+                            )}
                           </div>
                         </div>
                       </div>

@@ -33,6 +33,7 @@ export interface ImportResult {
   servers_created: number
   tools_created: number
   errors: string[]
+  warnings: string[]
 }
 
 // API functions

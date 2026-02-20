@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { ServerDetail } from '../../api/servers'
-import { useDeleteServer } from '../../api/servers'
+import { useDeleteServer, useUpdateServer } from '../../api/servers'
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard'
 import { ConfirmModal } from '../ui'
 
@@ -13,9 +13,72 @@ export function SettingsTab({ server }: SettingsTabProps) {
   const navigate = useNavigate()
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const deleteMutation = useDeleteServer()
+  const updateMutation = useUpdateServer()
   const { copied: idCopied, copy: copyId } = useCopyToClipboard()
 
+  // Inline edit state
+  const [editingField, setEditingField] = useState<'name' | 'description' | null>(null)
+  const [editValue, setEditValue] = useState('')
+  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null)
+
   const isRunning = server.status === 'running'
+
+  useEffect(() => {
+    if (editingField && inputRef.current) {
+      inputRef.current.focus()
+      if (inputRef.current instanceof HTMLInputElement) {
+        inputRef.current.select()
+      }
+    }
+  }, [editingField])
+
+  const startEdit = (field: 'name' | 'description') => {
+    setEditingField(field)
+    setEditValue(field === 'name' ? server.name : server.description || '')
+  }
+
+  const cancelEdit = () => {
+    setEditingField(null)
+    setEditValue('')
+  }
+
+  const saveEdit = () => {
+    if (!editingField) return
+
+    const trimmed = editValue.trim()
+
+    // Validate name is not empty
+    if (editingField === 'name' && !trimmed) return
+
+    // Skip if unchanged
+    const currentValue = editingField === 'name' ? server.name : (server.description || '')
+    if (trimmed === currentValue) {
+      cancelEdit()
+      return
+    }
+
+    updateMutation.mutate(
+      {
+        id: server.id,
+        data: { [editingField]: editingField === 'description' && !trimmed ? null : trimmed },
+      },
+      { onSuccess: () => cancelEdit() },
+    )
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && editingField === 'name') {
+      e.preventDefault()
+      saveEdit()
+    }
+    if (e.key === 'Enter' && e.metaKey && editingField === 'description') {
+      e.preventDefault()
+      saveEdit()
+    }
+    if (e.key === 'Escape') {
+      cancelEdit()
+    }
+  }
 
   const handleDeleteConfirm = () => {
     deleteMutation.mutate(server.id, {
@@ -45,16 +108,106 @@ export function SettingsTab({ server }: SettingsTabProps) {
               </button>
             </dd>
           </div>
+
+          {/* Name (editable) */}
           <div className="sm:flex sm:justify-between sm:items-start">
             <dt className="text-sm font-medium text-subtle">Name</dt>
-            <dd className="mt-1 sm:mt-0 text-sm text-on-base">{server.name}</dd>
+            <dd className="mt-1 sm:mt-0 text-sm text-on-base">
+              {editingField === 'name' ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={inputRef as React.RefObject<HTMLInputElement>}
+                    type="text"
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    onBlur={cancelEdit}
+                    maxLength={255}
+                    className="w-48 px-2 py-1 text-sm border border-hl-med rounded-lg bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
+                    aria-label="Server name"
+                  />
+                  <button
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={saveEdit}
+                    disabled={updateMutation.isPending || !editValue.trim()}
+                    className="text-xs text-foam hover:text-foam/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-iris rounded-md"
+                  >
+                    {updateMutation.isPending ? 'Saving...' : 'Save'}
+                  </button>
+                  <button
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={cancelEdit}
+                    className="text-xs text-muted hover:text-subtle transition-colors focus:outline-none focus:ring-2 focus:ring-iris rounded-md"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <span className="group flex items-center gap-2">
+                  {server.name}
+                  <button
+                    onClick={() => startEdit('name')}
+                    className="text-xs text-pine hover:text-pine/80 opacity-0 group-hover:opacity-100 transition-all focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-iris rounded-md"
+                    aria-label="Edit server name"
+                  >
+                    Edit
+                  </button>
+                </span>
+              )}
+            </dd>
           </div>
+
+          {/* Description (editable) */}
           <div className="sm:flex sm:justify-between sm:items-start">
             <dt className="text-sm font-medium text-subtle">Description</dt>
             <dd className="mt-1 sm:mt-0 text-sm text-on-base">
-              {server.description || <span className="text-muted italic">No description</span>}
+              {editingField === 'description' ? (
+                <div className="flex flex-col gap-2">
+                  <textarea
+                    ref={inputRef as React.RefObject<HTMLTextAreaElement>}
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    onBlur={cancelEdit}
+                    rows={3}
+                    maxLength={2000}
+                    className="w-64 px-2 py-1 text-sm border border-hl-med rounded-lg bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris resize-y"
+                    aria-label="Server description"
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={saveEdit}
+                      disabled={updateMutation.isPending}
+                      className="text-xs text-foam hover:text-foam/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-iris rounded-md"
+                    >
+                      {updateMutation.isPending ? 'Saving...' : 'Save'}
+                    </button>
+                    <button
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={cancelEdit}
+                      className="text-xs text-muted hover:text-subtle transition-colors focus:outline-none focus:ring-2 focus:ring-iris rounded-md"
+                    >
+                      Cancel
+                    </button>
+                    <span className="text-xs text-muted">Cmd+Enter to save</span>
+                  </div>
+                </div>
+              ) : (
+                <span className="group flex items-center gap-2">
+                  {server.description || <span className="text-muted italic">No description</span>}
+                  <button
+                    onClick={() => startEdit('description')}
+                    className="text-xs text-pine hover:text-pine/80 opacity-0 group-hover:opacity-100 transition-all focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-iris rounded-md"
+                    aria-label="Edit server description"
+                  >
+                    Edit
+                  </button>
+                </span>
+              )}
             </dd>
           </div>
+
           <div className="sm:flex sm:justify-between sm:items-start">
             <dt className="text-sm font-medium text-subtle">Network Mode</dt>
             <dd className="mt-1 sm:mt-0 text-sm text-on-base capitalize">{server.network_mode}</dd>
@@ -76,11 +229,6 @@ export function SettingsTab({ server }: SettingsTabProps) {
             </dd>
           </div>
         </dl>
-        <p className="mt-4 text-xs text-subtle">
-          Server configuration is managed via MCP tools. Use{' '}
-          <code className="bg-overlay px-1 rounded">mcpbox_create_server</code> to create servers
-          and <code className="bg-overlay px-1 rounded">mcpbox_update_tool</code> to manage tools.
-        </p>
       </div>
 
       {/* Danger Zone */}
