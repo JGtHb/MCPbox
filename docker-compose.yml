@@ -78,11 +78,8 @@ services:
       - SANDBOX_API_KEY=${SANDBOX_API_KEY:?SANDBOX_API_KEY is required}
       - SANDBOX_URL=http://sandbox:8001
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - LOG_RETENTION_DAYS=${LOG_RETENTION_DAYS:-30}
       - MCPBOX_BACKEND_PORT=${MCPBOX_BACKEND_PORT:-8000}
       - MCPBOX_FRONTEND_PORT=${MCPBOX_FRONTEND_PORT:-3000}
-      - BACKEND_URL=${BACKEND_URL:-}
-      - FRONTEND_URL=${FRONTEND_URL:-}
       - CORS_ORIGINS=${CORS_ORIGINS:-}
     security_opt:
       - no-new-privileges:true
@@ -132,7 +129,6 @@ services:
       - SANDBOX_API_KEY=${SANDBOX_API_KEY:?SANDBOX_API_KEY is required}
       - SANDBOX_URL=http://sandbox:8001
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - LOG_RETENTION_DAYS=${LOG_RETENTION_DAYS:-30}
       - MCP_CORS_ORIGINS=${MCP_CORS_ORIGINS:-https://mcp.claude.ai,https://claude.ai}
     security_opt:
       - no-new-privileges:true

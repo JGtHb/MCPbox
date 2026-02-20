@@ -141,43 +141,12 @@ class TestSecretUniquenessValidation:
             assert not any("same value" in w for w in warnings)
 
 
-class TestLogRetentionValidation:
-    """Tests for log retention days validation."""
+class TestLogRetentionSetting:
+    """Tests for log_retention_days as a database-only setting.
 
-    def test_valid_log_retention_accepted(self):
-        """Test that valid log retention days is accepted."""
-        with patch.dict(
-            os.environ,
-            {
-                "MCPBOX_ENCRYPTION_KEY": "0" * 64,
-                "SANDBOX_API_KEY": "0" * 32,
-                "LOG_RETENTION_DAYS": "90",
-            },
-            clear=False,
-        ):
-            from importlib import reload
+    log_retention_days is managed via the admin panel (/api/settings/security-policy)
+    and loaded from the database at startup. It is no longer an environment variable.
+    See test_settings_api.py for the full API-level tests.
+    """
 
-            import app.core.config as config_module
-
-            reload(config_module)
-            assert config_module.settings.log_retention_days == 90
-
-    def test_invalid_log_retention_rejected(self):
-        """Test that invalid log retention (< 1) is rejected."""
-        with patch.dict(
-            os.environ,
-            {
-                "MCPBOX_ENCRYPTION_KEY": "0" * 64,
-                "SANDBOX_API_KEY": "0" * 32,
-                "LOG_RETENTION_DAYS": "0",
-            },
-            clear=False,
-        ):
-            from importlib import reload
-
-            import app.core.config as config_module
-
-            with pytest.raises(Exception) as exc_info:
-                reload(config_module)
-
-            assert "at least 1" in str(exc_info.value)
+    pass
