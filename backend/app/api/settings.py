@@ -199,11 +199,16 @@ async def update_security_policy(
 
     await db.commit()
 
-    # If MCP rate limit was changed, update the in-memory rate limiter
+    # Hot-reload in-memory services when their settings change
     if "mcp_rate_limit_rpm" in updates:
         from app.middleware.rate_limit import RateLimiter
 
         RateLimiter.get_instance().update_mcp_config(int(updates["mcp_rate_limit_rpm"]))
+
+    if "log_retention_days" in updates:
+        from app.services.log_retention import LogRetentionService
+
+        LogRetentionService.get_instance().retention_days = int(updates["log_retention_days"])
 
     # Return the full current state
     return await get_security_policy(setting_service=setting_service)

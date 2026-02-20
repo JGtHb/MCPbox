@@ -135,17 +135,10 @@ class Settings(BaseSettings):
             raise ValueError("rate_limit_requests_per_minute must be at least 1")
         return v
 
-    # URLs — empty string = auto-derive from port settings
-    backend_url: str = ""
-    frontend_url: str = ""
-
     # Cloudflare Worker deployment settings
     cf_worker_compatibility_date: str = "2025-03-01"
     cf_worker_compatibility_flags: str = "nodejs_compat"
     mcp_gateway_port: int = 8002
-
-    # Log retention settings
-    log_retention_days: int = 30
 
     # Alerting - optional webhook URL for critical alerts (Discord, Slack, etc.)
     alert_webhook_url: str = ""
@@ -212,25 +205,9 @@ class Settings(BaseSettings):
 
         return hashlib.sha256((self.mcpbox_encryption_key + "_jwt_secret").encode()).hexdigest()
 
-    @field_validator("log_retention_days")
-    @classmethod
-    def validate_log_retention_days(cls, v: int) -> int:
-        """Validate log retention days is positive."""
-        if v < 1:
-            raise ValueError("log_retention_days must be at least 1")
-        return v
-
     @model_validator(mode="after")
-    def derive_urls_from_ports(self) -> "Settings":
-        """Derive URL settings from port numbers when not explicitly set.
-
-        This allows users to just set MCPBOX_BACKEND_PORT and MCPBOX_FRONTEND_PORT
-        and have all URL-based settings automatically configured.
-        """
-        if not self.backend_url:
-            self.backend_url = f"http://localhost:{self.mcpbox_backend_port}"
-        if not self.frontend_url:
-            self.frontend_url = f"http://localhost:{self.mcpbox_frontend_port}"
+    def derive_cors_from_port(self) -> "Settings":
+        """Derive CORS origins from frontend port when not explicitly set."""
         if not self.cors_origins:
             self.cors_origins = f"http://localhost:{self.mcpbox_frontend_port}"
         return self
@@ -245,11 +222,6 @@ class Settings(BaseSettings):
         if self.rate_limit_requests_per_minute > 500:
             warnings.append(
                 f"Rate limit is set to {self.rate_limit_requests_per_minute}/min which is high."
-            )
-
-        if self.log_retention_days > 365:
-            warnings.append(
-                f"Log retention is set to {self.log_retention_days} days - may consume significant disk space."
             )
 
         # SECURITY: Warn when JWT secret is derived from encryption key (SEC-011)

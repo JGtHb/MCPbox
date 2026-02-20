@@ -66,11 +66,13 @@ async def common_startup(logger: logging.Logger) -> list[asyncio.Task]:
     service_token_cache = ServiceTokenCache.get_instance()
     await service_token_cache.load()
 
-    # Load MCP rate limit from database (falls back to default 300 if not set)
+    # Load settings from database (falls back to defaults if not set)
     async with async_session_maker() as db:
         from app.services.setting import SettingService
 
         setting_service = SettingService(db)
+
+        # MCP rate limit
         mcp_rpm_str = await setting_service.get_value("mcp_rate_limit_rpm", default="300")
         mcp_rpm = int(mcp_rpm_str)  # type: ignore[arg-type]
 
@@ -79,14 +81,19 @@ async def common_startup(logger: logging.Logger) -> list[asyncio.Task]:
         RateLimiter.get_instance().update_mcp_config(mcp_rpm)
         _logger.info(f"MCP rate limit loaded from settings: {mcp_rpm} rpm")
 
+        # Log retention days
+        retention_str = await setting_service.get_value("log_retention_days", default="30")
+        retention_days = int(retention_str)  # type: ignore[arg-type]
+
     # Check security configuration
     security_warnings = settings.check_security_configuration()
     for warning in security_warnings:
         logger.warning(f"SECURITY: {warning}")
 
-    # Start log retention service
+    # Start log retention service (uses DB setting, not env var)
     log_retention_service = LogRetentionService.get_instance()
-    log_retention_service.retention_days = settings.log_retention_days
+    log_retention_service.retention_days = retention_days
+    _logger.info(f"Log retention loaded from settings: {retention_days} days")
     await log_retention_service.start()
 
     # Background tasks (returned so callers can extend + cancel on shutdown)
