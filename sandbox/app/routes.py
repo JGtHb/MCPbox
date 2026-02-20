@@ -25,6 +25,7 @@ from app.executor import (
     validate_code_safety,
 )
 from app.registry import tool_registry
+from app.ssrf import SSRFError
 from app.ssrf import SSRFProtectedAsyncHttpClient
 from app.ssrf import SSRFProtectedHttpx as _BaseSsrfProtectedHttpx
 
@@ -490,16 +491,65 @@ async def mcp_endpoint(request: Request, body: dict[str, Any]):
                             "type": "text",
                             "text": str(result.get("result", "")),
                         }
-                    ]
+                    ],
+                    "isError": False,
                 },
             }
         else:
+            # Per MCP spec, tool execution failures MUST be returned as
+            # result with isError:true (not JSON-RPC error). Only JSON-RPC
+            # errors are for protocol-level issues (unknown tool, malformed
+            # request). Clients SHOULD show isError results to the LLM.
+            error_parts = []
+
+            # Primary error message
+            error_msg = result.get("error", "Unknown error")
+            error_parts.append(error_msg)
+
+            # Append stdout if present (tool may have printed debug info)
+            stdout = result.get("stdout", "")
+            if stdout and stdout.strip():
+                error_parts.append(f"\n--- stdout ---\n{stdout.strip()}")
+
+            # Append structured error detail if present
+            error_detail = result.get("error_detail")
+            if error_detail:
+                detail_lines = []
+                if error_detail.get("error_type"):
+                    detail_lines.append(f"Error type: {error_detail['error_type']}")
+                if error_detail.get("line_number"):
+                    detail_lines.append(f"Line: {error_detail['line_number']}")
+                if error_detail.get("code_context"):
+                    detail_lines.append("Context:")
+                    for ctx_line in error_detail["code_context"]:
+                        detail_lines.append(f"  {ctx_line}")
+                if error_detail.get("http_info"):
+                    hi = error_detail["http_info"]
+                    if hi.get("status_code"):
+                        detail_lines.append(
+                            f"HTTP {hi['status_code']} from {hi.get('url', 'unknown')}"
+                        )
+                    if hi.get("response_headers"):
+                        for k, v in hi["response_headers"].items():
+                            detail_lines.append(f"  {k}: {v}")
+                    if hi.get("body_preview"):
+                        detail_lines.append(
+                            f"Response preview: {hi['body_preview'][:300]}"
+                        )
+                if detail_lines:
+                    error_parts.append("\n--- detail ---\n" + "\n".join(detail_lines))
+
             return {
                 "jsonrpc": "2.0",
                 "id": request_id,
-                "error": {
-                    "code": -32000,
-                    "message": result.get("error", "Unknown error"),
+                "result": {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "\n".join(error_parts),
+                        }
+                    ],
+                    "isError": True,
                 },
             }
 
@@ -617,9 +667,11 @@ class ExecuteCodeRequest(BaseModel):
     arguments: dict[str, Any] = {}
     credentials: dict[str, str] = {}
     timeout_seconds: int = 30
-    # SECURITY: allowed_modules removed — /execute always uses admin-configured
-    # DEFAULT_ALLOWED_MODULES. Per-server overrides are only available via
-    # /servers/register (SEC-015).
+    # Admin-configured module allowlist injected by the backend (SEC-015).
+    # The LLM cannot set this directly — the backend fetches it from the DB
+    # and passes it here, so test_code always reflects the live approved list.
+    # None = fall back to DEFAULT_ALLOWED_MODULES (safe default).
+    allowed_modules: Optional[list[str]] = None
     secrets: dict[str, str] = {}  # Key-value secrets for injection into namespace
     # Per-server network host allowlist — mirrors production tool execution.
     # None = global SSRF protection only (any public host allowed).
@@ -707,8 +759,12 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
     # Validate timeout bounds (1 second to 5 minutes max)
     timeout_seconds = max(1, min(body.timeout_seconds, 300))
 
-    # SECURITY: Always use admin-configured module whitelist (SEC-015)
-    allowed_modules_set = DEFAULT_ALLOWED_MODULES
+    # Use backend-supplied module list when provided (SEC-015: the backend
+    # fetches this from the DB, so it reflects the live admin-approved list).
+    # Fall back to DEFAULT_ALLOWED_MODULES when not provided.
+    allowed_modules_set = (
+        set(body.allowed_modules) if body.allowed_modules is not None else DEFAULT_ALLOWED_MODULES
+    )
 
     # Create builtins using the shared function (single source of truth)
     safe_builtins_with_import = create_safe_builtins(
@@ -774,6 +830,15 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
             return ExecuteCodeResponse(
                 success=False,
                 error=f"Execution timed out after {timeout_seconds} seconds",
+                stdout=stdout_capture.getvalue()[:10000],
+            )
+        except SSRFError as e:
+            # Network access blocked — surface the specific host and hint so the
+            # LLM can immediately call mcpbox_request_network_access rather than
+            # guessing why the HTTP call failed silently.
+            return ExecuteCodeResponse(
+                success=False,
+                error=f"Network access blocked: {e}",
                 stdout=stdout_capture.getvalue()[:10000],
             )
         except (

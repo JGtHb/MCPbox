@@ -414,68 +414,6 @@ class SandboxClient:
             logger.warning(f"Error listing tools: {e}")
             return []
 
-    async def call_tool(
-        self,
-        tool_name: str,
-        arguments: dict[str, Any],
-        debug_mode: bool = False,
-    ) -> dict[str, Any]:
-        """Execute a tool in the sandbox.
-
-        Args:
-            tool_name: Full tool name (servername__toolname)
-            arguments: Tool arguments
-            debug_mode: If True, capture detailed debug info
-
-        Returns:
-            Execution result with optional debug info
-        """
-        try:
-
-            async def do_call() -> dict[str, Any]:
-                client = await self._get_client()
-                response = await client.post(
-                    f"{self.sandbox_url}/tools/{tool_name}/call",
-                    headers=self._get_headers(),
-                    json={
-                        "arguments": arguments,
-                        "debug_mode": debug_mode,
-                    },
-                )
-                # Check status before parsing JSON
-                if response.status_code >= 500:
-                    logger.error(f"Sandbox server error on tool call: {response.status_code}")
-                    return {
-                        "success": False,
-                        "error": f"Sandbox server error: {response.status_code}",
-                    }
-                try:
-                    result: dict[str, Any] = response.json()
-                    return result
-                except ValueError as e:
-                    logger.error(f"Invalid JSON response from tool call: {e}")
-                    return {"success": False, "error": "Invalid JSON response from sandbox"}
-
-            result: dict[str, Any] = await retry_async(
-                do_call,
-                config=SANDBOX_RETRY_CONFIG,
-                circuit_breaker=self._circuit_breaker,
-            )
-            return result
-
-        except CircuitBreakerOpen as e:
-            logger.error(f"Cannot call tool - circuit breaker open: {e}")
-            return {
-                "success": False,
-                "error": f"Sandbox temporarily unavailable: {e}",
-            }
-        except Exception as e:
-            logger.exception(f"Error calling tool {tool_name}: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-            }
-
     async def mcp_request(self, request: dict[str, Any]) -> dict[str, Any]:
         """Send an MCP JSON-RPC request to the sandbox.
 
@@ -551,6 +489,7 @@ class SandboxClient:
         timeout_seconds: int = 30,
         secrets: dict[str, str] | None = None,
         allowed_hosts: list[str] | None = None,
+        allowed_modules: list[str] | None = None,
     ) -> dict[str, Any]:
         """Execute Python code directly in the sandbox.
 
@@ -564,6 +503,8 @@ class SandboxClient:
             secrets: Dict of secret key→value pairs for injection into namespace
             allowed_hosts: Per-server network allowlist (None = global SSRF only,
                            [] = block all outbound, [hosts] = allowlist those hosts)
+            allowed_modules: Admin-approved module list from the DB (None = sandbox
+                             defaults). Should be fetched from GlobalConfigService.
 
         Returns:
             Execution result with success, result, error, and stdout
@@ -580,6 +521,8 @@ class SandboxClient:
                 }
                 if allowed_hosts is not None:
                     payload["allowed_hosts"] = allowed_hosts
+                if allowed_modules is not None:
+                    payload["allowed_modules"] = allowed_modules
                 response = await client.post(
                     f"{self.sandbox_url}/execute",
                     headers=self._get_headers(),

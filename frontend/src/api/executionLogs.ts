@@ -13,6 +13,7 @@ export interface ExecutionLog {
   stdout: string | null
   duration_ms: number | null
   success: boolean
+  is_test: boolean
   executed_by: string | null
   created_at: string
 }

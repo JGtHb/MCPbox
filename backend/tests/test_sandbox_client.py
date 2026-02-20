@@ -344,68 +344,6 @@ class TestSandboxClientUpdateSecrets:
             assert "error" in result
 
 
-class TestSandboxClientCallTool:
-    """Tests for tool execution."""
-
-    def setup_method(self):
-        """Reset singleton before each test."""
-        SandboxClient._instance = None
-        CircuitBreaker._instances = {}
-
-    @pytest.mark.asyncio
-    async def test_call_tool_success(self):
-        """Test successful tool call."""
-        client = SandboxClient()
-
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "success": True,
-            "result": {"data": "test result"},
-        }
-
-        with patch.object(client, "_get_client") as mock_get_client:
-            mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
-            mock_get_client.return_value = mock_client
-
-            result = await client.call_tool(
-                tool_name="server__tool",
-                arguments={"param": "value"},
-            )
-
-            assert result["success"] is True
-            assert result["result"]["data"] == "test result"
-
-    @pytest.mark.asyncio
-    async def test_call_tool_with_debug_mode(self):
-        """Test tool call with debug mode enabled."""
-        client = SandboxClient()
-
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "success": True,
-            "result": "test",
-            "debug_info": {"http_calls": []},
-        }
-
-        with patch.object(client, "_get_client") as mock_get_client:
-            mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
-            mock_get_client.return_value = mock_client
-
-            await client.call_tool(
-                tool_name="server__tool",
-                arguments={},
-                debug_mode=True,
-            )
-
-            # Verify debug_mode was passed in request
-            call_args = mock_client.post.call_args
-            assert call_args.kwargs["json"]["debug_mode"] is True
-
-
 class TestSandboxClientMCPRequest:
     """Tests for MCP JSON-RPC requests."""
 

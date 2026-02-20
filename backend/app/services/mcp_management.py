@@ -190,24 +190,20 @@ MCP_MANAGEMENT_TOOLS = [
     },
     {
         "name": "mcpbox_test_code",
-        "description": "Test Python code execution without saving. Use the 'async def main()' format (same as mcpbox_create_tool) and pass arguments via the arguments parameter. Returns result, stdout, and any errors.",
+        "description": "Test a saved tool by running its current code against the sandbox. Requires a tool_id — use mcpbox_create_tool or mcpbox_update_tool first, then test here. The test run is saved to the tool's execution history labelled as a test. Testing is blocked if the admin requires approval and the tool has not yet been approved.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "code": {
+                "tool_id": {
                     "type": "string",
-                    "description": "Python code with 'async def main(param: str) -> type: return value' entry point",
+                    "description": "UUID of the tool to test",
                 },
                 "arguments": {
                     "type": "object",
-                    "description": "Arguments available in the 'arguments' dict variable (optional)",
-                },
-                "server_id": {
-                    "type": "string",
-                    "description": "UUID of the server to use for module whitelist (optional). If not specified, uses default modules.",
+                    "description": "Arguments to pass to the tool's main() function (optional)",
                 },
             },
-            "required": ["code"],
+            "required": ["tool_id"],
         },
     },
     {
@@ -1195,52 +1191,82 @@ class MCPManagementService:
         }
 
     async def _test_code(self, args: dict, sandbox_client: SandboxClient) -> dict:
-        """Test Python code execution.
+        """Test a saved tool by running its current code in the sandbox.
 
-        Applies the same security constraints as production tool execution:
-        - Same module allowlist (DEFAULT_ALLOWED_MODULES from sandbox)
-        - Same per-server network host allowlist (if server_id provided)
-        - Same SSRF/private-IP protections
+        Fetches the tool's code, secrets, and network config from the DB so the
+        test environment is identical to production. Blocked if tool_approval_mode
+        is 'require_approval' and the tool has not yet been approved, ensuring the
+        admin retains control over what code runs even during development.
 
-        Code should use the async def main() format (same as mcpbox_create_tool):
-           async def main(x: int) -> int:
-               return x * 2
+        Always logs the test run in the tool's execution history with is_test=True.
         """
-        code = args.get("code")
-        if not code:
-            return {"error": "code is required"}
+        import time
+
+        from app.models import Tool
+        from app.services.execution_log import ExecutionLogService
+        from app.services.global_config import GlobalConfigService
+        from app.services.server_secret import ServerSecretService
+        from app.services.setting import SettingService
+        from sqlalchemy import select
+
+        tool_id_str = args.get("tool_id")
+        if not tool_id_str:
+            return {"error": "tool_id is required"}
+
+        try:
+            tool_id = UUID(tool_id_str)
+        except (ValueError, TypeError):
+            return {"error": "Invalid tool_id"}
+
+        # Fetch the tool — code, approval status, and server linkage
+        tool_result = await self.db.execute(select(Tool).where(Tool.id == tool_id))
+        tool = tool_result.scalar_one_or_none()
+        if not tool:
+            return {"error": f"Tool {tool_id_str} not found"}
+
+        if not tool.python_code:
+            return {"error": "Tool has no code to test"}
+
+        # Enforce admin approval gate: if require_approval mode is active,
+        # block testing of unapproved tools so the admin controls what runs.
+        setting_service = SettingService(self.db)
+        approval_mode = await setting_service.get_value(
+            "tool_approval_mode", default="require_approval"
+        )
+        if approval_mode == "require_approval" and tool.approval_status != "approved":
+            return {
+                "error": (
+                    f"Tool '{tool.name}' cannot be tested until it is approved "
+                    f"(current status: {tool.approval_status}). "
+                    "Use mcpbox_request_publish to submit it for admin review, "
+                    "or ask the admin to set tool_approval_mode to 'auto_approve'."
+                )
+            }
 
         arguments = args.get("arguments", {})
 
-        # Get secrets and network allowlist if server_id provided — mirrors
-        # what _start_server does so test behaviour matches production exactly.
-        secrets: dict[str, str] = {}
+        # Fetch global allowed modules (live admin-approved list)
+        config_service = GlobalConfigService(self.db)
+        allowed_modules = await config_service.get_allowed_modules()
+
+        # Fetch server secrets and network allowlist — same as production execution
+        server = await self._server_service.get(tool.server_id)
+        secret_service = ServerSecretService(self.db)
+        secrets = await secret_service.get_decrypted_for_injection(tool.server_id)
         allowed_hosts: list[str] | None = None
-        server_id_str = args.get("server_id")
-        if server_id_str:
-            try:
-                server_id = UUID(server_id_str)
-                from app.services.server_secret import ServerSecretService
+        if server and server.network_mode == "allowlist":
+            allowed_hosts = server.allowed_hosts or []
 
-                secret_service = ServerSecretService(self.db)
-                secrets = await secret_service.get_decrypted_for_injection(server_id)
-
-                # Enforce the same per-server network allowlist as production
-                server = await self._server_service.get(server_id)
-                if server and server.network_mode == "allowlist":
-                    allowed_hosts = server.allowed_hosts or []
-            except (ValueError, TypeError):
-                pass  # Invalid server_id, skip secrets/allowlist
-
+        start_time = time.monotonic()
         try:
             result = await sandbox_client.execute_code(
-                code=code,
+                code=tool.python_code,
                 arguments=arguments,
                 timeout_seconds=30,
                 secrets=secrets,
                 allowed_hosts=allowed_hosts,
+                allowed_modules=allowed_modules,
             )
-            return result
         except httpx.TimeoutException:
             return {"error": "Code execution timed out"}
         except httpx.RequestError as e:
@@ -1248,6 +1274,30 @@ class MCPManagementService:
         except Exception as e:
             logger.exception(f"Test execution failed: {e}")
             return {"error": "Test execution failed due to an internal error"}
+
+        duration_ms = int((time.monotonic() - start_time) * 1000)
+
+        # Always log the test run — full visibility for admin and LLM alike
+        try:
+            log_service = ExecutionLogService(self.db)
+            await log_service.create_log(
+                tool_id=tool.id,
+                server_id=tool.server_id,
+                tool_name=tool.name,
+                input_args={"arguments": arguments},
+                result=result.get("result"),
+                error=result.get("error"),
+                stdout=result.get("stdout"),
+                duration_ms=duration_ms,
+                success=result.get("success", False),
+                is_test=True,
+            )
+            await self.db.commit()
+        except Exception as e:
+            logger.warning(f"Failed to save test execution log: {e}")
+            # Never fail the test run itself due to logging errors
+
+        return result
 
     # =========================================================================
     # Approval Workflow Handlers
