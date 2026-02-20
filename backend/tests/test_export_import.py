@@ -452,6 +452,223 @@ class TestExportSignature:
         assert "not signed" in response.json()["detail"].lower()
 
 
+class TestMCPPassthroughTools:
+    """Tests for export/import behavior with mcp_passthrough tools."""
+
+    async def test_export_excludes_mcp_passthrough_tools(
+        self, async_client: AsyncClient, db_session, server_factory, tool_factory, admin_headers
+    ):
+        """Test that mcp_passthrough tools are excluded from export."""
+        from app.models.tool import Tool
+
+        server = await server_factory(name="Mixed Server")
+        # Create a regular python_code tool via factory
+        await tool_factory(
+            server=server,
+            name="python_tool",
+            description="Regular tool",
+            python_code='async def main() -> str:\n    return "ok"',
+        )
+
+        # Create an mcp_passthrough tool directly (factory defaults python_code)
+        passthrough_tool = Tool(
+            server_id=server.id,
+            name="external_tool",
+            description="Proxied from external MCP",
+            tool_type="mcp_passthrough",
+            python_code=None,
+            input_schema={"type": "object", "properties": {"query": {"type": "string"}}},
+            approval_status="approved",
+            current_version=1,
+        )
+        db_session.add(passthrough_tool)
+        await db_session.flush()
+
+        response = await async_client.get("/api/export/servers", headers=admin_headers)
+        assert response.status_code == 200
+        data = response.json()
+
+        assert len(data["servers"]) == 1
+        exported_tools = data["servers"][0]["tools"]
+        assert len(exported_tools) == 1
+        assert exported_tools[0]["name"] == "python_tool"
+
+    async def test_export_single_server_excludes_mcp_passthrough(
+        self, async_client: AsyncClient, db_session, server_factory, tool_factory, admin_headers
+    ):
+        """Test that single-server export also excludes mcp_passthrough tools."""
+        from app.models.tool import Tool
+
+        server = await server_factory(name="Single Mixed")
+        await tool_factory(
+            server=server,
+            name="code_tool",
+            python_code='async def main() -> str:\n    return "yes"',
+        )
+        passthrough = Tool(
+            server_id=server.id,
+            name="proxy_tool",
+            description="External",
+            tool_type="mcp_passthrough",
+            python_code=None,
+            input_schema=None,
+            approval_status="approved",
+            current_version=1,
+        )
+        db_session.add(passthrough)
+        await db_session.flush()
+
+        response = await async_client.get(f"/api/export/servers/{server.id}", headers=admin_headers)
+        assert response.status_code == 200
+        data = response.json()
+
+        assert len(data["tools"]) == 1
+        assert data["tools"][0]["name"] == "code_tool"
+
+    async def test_import_skips_tools_without_python_code(
+        self, async_client: AsyncClient, admin_headers
+    ):
+        """Test that importing tools without python_code skips them with a warning."""
+        import_data = _sign_import_data(
+            {
+                "version": "1.0",
+                "servers": [
+                    {
+                        "name": "Server With Mixed Tools",
+                        "description": "Has both types",
+                        "tools": [
+                            {
+                                "name": "good_tool",
+                                "description": "Has code",
+                                "enabled": True,
+                                "timeout_ms": 5000,
+                                "python_code": 'async def main() -> str:\n    return "ok"',
+                                "input_schema": None,
+                            },
+                            {
+                                "name": "no_code_tool",
+                                "description": "External tool without code",
+                                "enabled": True,
+                                "timeout_ms": None,
+                                "python_code": None,
+                                "input_schema": None,
+                            },
+                        ],
+                    }
+                ],
+            }
+        )
+        response = await async_client.post(
+            "/api/export/import",
+            json=import_data,
+            headers=admin_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        # Server should be created successfully with the valid tool
+        assert data["success"] is True
+        assert data["servers_created"] == 1
+        assert data["tools_created"] == 1
+        assert data["errors"] == []
+        # The skipped tool should appear as a warning, not an error
+        assert len(data["warnings"]) == 1
+        assert "no_code_tool" in data["warnings"][0]
+
+    async def test_import_server_with_only_passthrough_tools_still_created(
+        self, async_client: AsyncClient, admin_headers
+    ):
+        """Test that a server with only passthrough tools is still created (empty)."""
+        import_data = _sign_import_data(
+            {
+                "version": "1.0",
+                "servers": [
+                    {
+                        "name": "All External Server",
+                        "description": "Only external tools",
+                        "tools": [
+                            {
+                                "name": "ext_tool_1",
+                                "description": "External",
+                                "enabled": True,
+                                "timeout_ms": None,
+                                "python_code": None,
+                                "input_schema": None,
+                            },
+                        ],
+                    }
+                ],
+            }
+        )
+        response = await async_client.post(
+            "/api/export/import",
+            json=import_data,
+            headers=admin_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        # Server created, but no tools
+        assert data["success"] is True
+        assert data["servers_created"] == 1
+        assert data["tools_created"] == 0
+        assert len(data["warnings"]) == 1
+
+    async def test_roundtrip_with_mixed_tools(
+        self,
+        async_client: AsyncClient,
+        db_session,
+        server_factory,
+        tool_factory,
+        admin_headers,
+    ):
+        """Test full roundtrip: export server with mixed tools, import preserves python_code tools."""
+        from app.models.tool import Tool
+
+        server = await server_factory(name="Roundtrip Mixed", description="Mixed tools")
+        await tool_factory(
+            server=server,
+            name="native_tool",
+            description="Native python tool",
+            python_code='async def main() -> str:\n    return "native"',
+        )
+        passthrough = Tool(
+            server_id=server.id,
+            name="passthrough_tool",
+            description="External proxy",
+            tool_type="mcp_passthrough",
+            python_code=None,
+            input_schema=None,
+            approval_status="approved",
+            current_version=1,
+        )
+        db_session.add(passthrough)
+        await db_session.flush()
+
+        # Export
+        export_response = await async_client.get("/api/export/servers", headers=admin_headers)
+        assert export_response.status_code == 200
+        export_data = export_response.json()
+
+        # Verify passthrough was excluded from export
+        assert len(export_data["servers"][0]["tools"]) == 1
+
+        # Delete original server
+        await async_client.delete(f"/api/servers/{server.id}", headers=admin_headers)
+
+        # Import
+        import_response = await async_client.post(
+            "/api/export/import",
+            json=export_data,
+            headers=admin_headers,
+        )
+        assert import_response.status_code == 200
+        result = import_response.json()
+        assert result["success"] is True
+        assert result["servers_created"] == 1
+        assert result["tools_created"] == 1
+
+
 class TestDownloadExport:
     """Tests for GET /api/export/download/servers endpoint."""
 

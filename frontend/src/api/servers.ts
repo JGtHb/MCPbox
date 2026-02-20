@@ -22,7 +22,14 @@ export interface ServerDetail extends Server {
 // NOTE: ModuleConfigResponse, ModuleConfigUpdate, DefaultModulesResponse removed
 // Module configuration is now global - see api/settings.ts
 
-// NOTE: ServerCreate, ServerUpdate removed - server creation/updates done via MCP tools
+// NOTE: ServerCreate removed - server creation done via MCP tools
+
+export interface ServerUpdate {
+  name?: string
+  description?: string | null
+  network_mode?: 'isolated' | 'allowlist'
+  default_timeout_ms?: number
+}
 
 export interface ContainerStatus {
   server_id: string
@@ -59,6 +66,10 @@ export async function fetchServers(): Promise<Server[]> {
 
 export async function fetchServer(id: string): Promise<ServerDetail> {
   return api.get<ServerDetail>(`/api/servers/${id}`)
+}
+
+export async function updateServer(id: string, data: ServerUpdate): Promise<ServerDetail> {
+  return api.patch<ServerDetail>(`/api/servers/${id}`, data)
 }
 
 export async function deleteServer(id: string): Promise<void> {
@@ -109,7 +120,19 @@ export function useServerStatus(id: string, enabled = true) {
   })
 }
 
-// NOTE: useCreateServer, useUpdateServer removed - server creation/updates done via MCP tools
+// NOTE: useCreateServer removed - server creation done via MCP tools
+
+export function useUpdateServer() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: ServerUpdate }) => updateServer(id, data),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: serverKeys.detail(id) })
+      queryClient.invalidateQueries({ queryKey: serverKeys.lists() })
+    },
+  })
+}
 
 export function useDeleteServer() {
   const queryClient = useQueryClient()
