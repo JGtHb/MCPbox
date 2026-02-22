@@ -406,10 +406,10 @@ class TestExportSignature:
         result = import_response.json()
         assert result["success"] is True
 
-    async def test_import_with_invalid_signature_fails(
+    async def test_import_with_invalid_signature_warns(
         self, async_client: AsyncClient, admin_headers
     ):
-        """Test that import with tampered signature fails."""
+        """Test that import with tampered signature succeeds with warning."""
         response = await async_client.post(
             "/api/export/import",
             json={
@@ -425,13 +425,16 @@ class TestExportSignature:
             },
             headers=admin_headers,
         )
-        assert response.status_code == 400
-        assert "signature" in response.json()["detail"].lower()
+        assert response.status_code == 200
+        result = response.json()
+        assert result["success"] is True
+        assert result["servers_created"] == 1
+        assert any("signature" in w.lower() for w in result["warnings"])
 
-    async def test_import_without_signature_rejected(
+    async def test_import_without_signature_warns(
         self, async_client: AsyncClient, admin_headers
     ):
-        """Test that import without signature is rejected."""
+        """Test that import without signature succeeds with warning."""
         response = await async_client.post(
             "/api/export/import",
             json={
@@ -447,9 +450,12 @@ class TestExportSignature:
             },
             headers=admin_headers,
         )
-        # Should be rejected - unsigned imports not allowed
-        assert response.status_code == 400
-        assert "not signed" in response.json()["detail"].lower()
+        # Should succeed with warning - unsigned imports allowed but flagged
+        assert response.status_code == 200
+        result = response.json()
+        assert result["success"] is True
+        assert result["servers_created"] == 1
+        assert any("not signed" in w.lower() for w in result["warnings"])
 
 
 class TestMCPPassthroughTools:

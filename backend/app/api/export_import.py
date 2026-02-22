@@ -239,7 +239,10 @@ async def import_servers(
     Each server import uses a savepoint for atomic server+tools creation.
     If any tool fails, the entire server import is rolled back.
     """
-    # Verify signature to ensure data integrity
+    errors = []
+    warnings = []
+
+    # Verify signature for data integrity (warn if invalid, don't block)
     import_data = {
         "version": data.version,
         "servers": [
@@ -252,23 +255,19 @@ async def import_servers(
         ],
     }
 
-    # Add signature to data for verification
     if data.signature:
         import_data["signature"] = data.signature
         if not _verify_export_signature(import_data):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid export signature. The export file may have been "
-                "tampered with or was created by a different MCPbox instance.",
+            warnings.append(
+                "Export signature is invalid — the file may have been modified "
+                "or was exported from a different MCPbox instance. "
+                "All imported tools will require approval before use."
             )
     else:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Export file is not signed. Only signed exports can be imported.",
+        warnings.append(
+            "Export file is not signed. "
+            "All imported tools will require approval before use."
         )
-
-    errors = []
-    warnings = []
     servers_created = 0
     tools_created = 0
 
