@@ -13,8 +13,7 @@ RUN npm ci --legacy-peer-deps
 # Copy source
 COPY . .
 
-# Build without baked-in API URL — injected at runtime by docker-entrypoint.sh
-# via window.__MCPBOX_CONFIG__ so port changes don't require a rebuild
+# Build the React app (API calls use same-origin relative paths via nginx proxy)
 RUN npm run build
 
 # Production stage
@@ -34,7 +33,7 @@ RUN adduser -D -u 1000 mcpbox && \
     touch /var/run/nginx.pid && \
     chown -R mcpbox:mcpbox /var/run/nginx.pid
 
-# Copy nginx config template (processed at runtime by entrypoint)
+# Copy nginx config (includes reverse proxy to backend)
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 
 # Copy built files from builder stage
@@ -55,5 +54,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD wget -q --spider http://localhost:3000/nginx-health || exit 1
 
-# Entrypoint processes nginx config template then starts nginx
+# Entrypoint copies nginx config and starts nginx
 ENTRYPOINT ["/docker-entrypoint.sh"]

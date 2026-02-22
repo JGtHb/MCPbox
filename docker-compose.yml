@@ -27,8 +27,6 @@ services:
       dockerfile: Dockerfile
     ports:
       - "127.0.0.1:${MCPBOX_FRONTEND_PORT:-3000}:3000"
-    environment:
-      - MCPBOX_BACKEND_PORT=${MCPBOX_BACKEND_PORT:-8000}
     depends_on:
       - backend
     networks:

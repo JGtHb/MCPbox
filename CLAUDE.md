@@ -41,20 +41,28 @@ cd backend && alembic upgrade head
 ## Architecture Overview
 
 ```
-frontend:3000 (React, local-only) ──► backend:8000 (FastAPI, local-only)
-                                          │
-                                          ├──► sandbox:8001 (code execution, internal)
-                                          ├──► postgres:5432 (internal)
-                                          │
+                         browser
+                           │
+               ┌───────────┴───────────┐
+               ▼                       ▼ (Traefik / reverse proxy)
+frontend:3000 (React + nginx)    or direct access
+      │ nginx proxies /api/*, /auth/*, /health
+      ▼
+backend:8000 (FastAPI)
+      │
+      ├──► sandbox:8001 (code execution, internal)
+      ├──► postgres:5432 (internal)
+      │
 mcp-gateway:8002 (FastAPI, /mcp only) ◄── cloudflared (tunnel, optional)
-                                          │
-                                   Workers VPC (private)
-                                          │
-                              Cloudflare Worker (OAuth 2.1 + OIDC)
-                                          │
-                                     Claude Web
+                                            │
+                                     Workers VPC (private)
+                                            │
+                                Cloudflare Worker (OAuth 2.1 + OIDC)
+                                            │
+                                       Claude Web
 ```
 
+- **frontend** (`nginx.conf.template`): React SPA + nginx reverse proxy to backend for `/api/*`, `/auth/*`, `/health`
 - **backend** (`app/main.py`): Admin API, all `/api/*` routes, JWT auth
 - **mcp-gateway** (`app/mcp_only.py`): MCP Streamable HTTP, `/mcp` only, `--workers 1`
 - **sandbox**: Hardened Python executor, restricted builtins, SSRF prevention
