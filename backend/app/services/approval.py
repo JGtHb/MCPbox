@@ -202,7 +202,7 @@ class ApprovalService:
         status_filter: ColumnElement[bool]
         if status and status != "pending_review":
             if status == "all":
-                status_filter = Tool.approval_status.in_(["pending_review", "approved", "rejected"])
+                status_filter = Tool.approval_status.in_(["draft", "pending_review", "approved", "rejected"])
             else:
                 status_filter = Tool.approval_status == status
         else:

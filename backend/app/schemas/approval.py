@@ -23,11 +23,11 @@ class ToolApprovalRequest(BaseModel):
 class ToolApprovalAction(BaseModel):
     """Schema for admin approval/rejection action."""
 
-    action: str = Field(..., pattern="^(approve|reject)$")
+    action: str = Field(..., pattern="^(approve|reject|submit_for_review)$")
     reason: str | None = Field(
         None,
         max_length=2000,
-        description="Required for rejection, optional for approval",
+        description="Required for rejection, optional for approval/submit",
     )
 
 

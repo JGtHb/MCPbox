@@ -195,7 +195,7 @@ async def take_tool_action(
     service: ApprovalService = Depends(get_approval_service),
     admin_identity: str = Depends(get_admin_identity),
 ) -> dict[str, Any]:
-    """Approve or reject a tool.
+    """Approve, reject, or submit a tool for review.
 
     The admin must provide a reason for rejection.
     Admin identity is extracted from verified JWT token.
@@ -223,6 +223,32 @@ async def take_tool_action(
                 "message": (
                     f"Tool '{tool.name}' has been approved and registered with the sandbox. "
                     "Users will need to restart or refresh their MCP client to see the new tool."
+                ),
+                "tool_id": str(tool.id),
+                "status": tool.approval_status,
+                "server_refreshed": refreshed,
+            }
+        elif action.action == "submit_for_review":
+            tool = await service.request_publish(
+                tool_id=tool_id,
+                notes=action.reason,
+                requested_by=admin_identity,
+            )
+
+            # If auto-approved, refresh server registration
+            refreshed = False
+            if tool.approval_status == "approved":
+                refreshed = await _refresh_server_registration(tool, db)
+                from app.services.tool_change_notifier import fire_and_forget_notify
+
+                fire_and_forget_notify()
+
+            return {
+                "success": True,
+                "message": (
+                    f"Tool '{tool.name}' has been auto-approved"
+                    if tool.approval_status == "approved"
+                    else f"Tool '{tool.name}' has been submitted for review"
                 ),
                 "tool_id": str(tool.id),
                 "status": tool.approval_status,

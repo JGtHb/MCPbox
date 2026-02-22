@@ -82,5 +82,29 @@ class ServerListPaginatedResponse(BaseModel):
     pages: int
 
 
+# ============================================================================
+# Allowed Hosts Management Schemas
+# ============================================================================
+
+
+class AddHostRequest(BaseModel):
+    """Schema for adding a host to a server's allowlist."""
+
+    host: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        description="Hostname or IP address to add (e.g., 'api.github.com')",
+    )
+
+
+class AllowedHostsResponse(BaseModel):
+    """Schema for allowed hosts response after add/remove."""
+
+    server_id: UUID
+    network_mode: str
+    allowed_hosts: list[str]
+
+
 # NOTE: Module configuration schemas removed.
 # Module whitelist is now global - see /api/settings/modules

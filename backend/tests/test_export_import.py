@@ -254,6 +254,48 @@ class TestImportServers:
         assert data["servers_created"] == 1
         assert data["tools_created"] == 2
 
+    async def test_imported_tools_are_pending_review(
+        self, async_client: AsyncClient, admin_headers
+    ):
+        """Test that imported tools are set to pending_review for admin approval."""
+        import_data = _sign_import_data(
+            {
+                "version": "1.0",
+                "servers": [
+                    {
+                        "name": "Approval Test Server",
+                        "description": "Tools should need approval",
+                        "tools": [
+                            {
+                                "name": "needs_approval",
+                                "description": "Should be pending_review",
+                                "enabled": True,
+                                "timeout_ms": 10000,
+                                "python_code": "async def main() -> str:\n    return 'ok'",
+                                "input_schema": None,
+                            },
+                        ],
+                    }
+                ],
+            }
+        )
+        response = await async_client.post(
+            "/api/export/import",
+            json=import_data,
+            headers=admin_headers,
+        )
+        assert response.status_code == 200
+
+        # Verify the tool shows up in the approval queue
+        approval_response = await async_client.get(
+            "/api/approvals/tools?status=pending_review",
+            headers=admin_headers,
+        )
+        assert approval_response.status_code == 200
+        items = approval_response.json()["items"]
+        tool_names = [item["name"] for item in items]
+        assert "needs_approval" in tool_names
+
     async def test_import_duplicate_name_gets_suffix(
         self, async_client: AsyncClient, server_factory, admin_headers
     ):

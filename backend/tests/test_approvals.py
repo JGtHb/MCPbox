@@ -1432,3 +1432,116 @@ async def test_approve_nonexistent_network_request(
         headers=admin_headers,
     )
     assert response.status_code == 400
+
+
+# =============================================================================
+# Admin State Transition Tests (submit_for_review via action endpoint)
+# =============================================================================
+
+
+@pytest.fixture
+async def rejected_tool(db_session: AsyncSession, test_server: Server) -> Tool:
+    """Create a tool in rejected status."""
+    tool = Tool(
+        server_id=test_server.id,
+        name="rejected_tool",
+        description="A tool that was rejected",
+        python_code='async def main() -> str:\n    return "test"',
+        input_schema={"type": "object", "properties": {}},
+        approval_status="rejected",
+        rejection_reason="Security concerns",
+    )
+    db_session.add(tool)
+    await db_session.flush()
+    await db_session.refresh(tool)
+    return tool
+
+
+@pytest.mark.asyncio
+async def test_submit_draft_tool_for_review(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    draft_tool: Tool,
+    db_session: AsyncSession,
+):
+    """Test that admin can submit a draft tool for review via action endpoint."""
+    response = await async_client.post(
+        f"/api/approvals/tools/{draft_tool.id}/action",
+        json={"action": "submit_for_review"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["status"] == "pending_review"
+    assert "submitted" in data["message"].lower() or "review" in data["message"].lower()
+
+    # Verify in database
+    await db_session.refresh(draft_tool)
+    assert draft_tool.approval_status == "pending_review"
+    assert draft_tool.approval_requested_at is not None
+
+
+@pytest.mark.asyncio
+async def test_submit_rejected_tool_for_review(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    rejected_tool: Tool,
+    db_session: AsyncSession,
+):
+    """Test that admin can re-submit a rejected tool for review."""
+    response = await async_client.post(
+        f"/api/approvals/tools/{rejected_tool.id}/action",
+        json={"action": "submit_for_review"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["status"] == "pending_review"
+
+    await db_session.refresh(rejected_tool)
+    assert rejected_tool.approval_status == "pending_review"
+
+
+@pytest.mark.asyncio
+async def test_submit_already_pending_tool_fails(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    pending_tool: Tool,
+):
+    """Test that submitting an already pending tool for review fails."""
+    response = await async_client.post(
+        f"/api/approvals/tools/{pending_tool.id}/action",
+        json={"action": "submit_for_review"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 400
+    # request_publish raises ValueError for non-draft/non-rejected tools
+    assert "draft" in response.json()["detail"].lower() or "rejected" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_get_all_tools_includes_drafts(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    draft_tool: Tool,
+    pending_tool: Tool,
+):
+    """Test that status=all filter includes draft tools."""
+    response = await async_client.get(
+        "/api/approvals/tools",
+        params={"status": "all"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+
+    tool_ids = [item["id"] for item in data["items"]]
+    # Both draft and pending_review tools should appear
+    assert str(draft_tool.id) in tool_ids
+    assert str(pending_tool.id) in tool_ids
+
+    # Verify we actually see draft status
+    statuses = {item["approval_status"] for item in data["items"]}
+    assert "draft" in statuses
