@@ -13,9 +13,8 @@ RUN npm ci --legacy-peer-deps
 # Copy source
 COPY . .
 
-# Build with backend port — derives VITE_API_URL automatically
-ARG MCPBOX_BACKEND_PORT=8000
-ENV VITE_API_URL=http://localhost:${MCPBOX_BACKEND_PORT}
+# Build without baked-in API URL — injected at runtime by docker-entrypoint.sh
+# via window.__MCPBOX_CONFIG__ so port changes don't require a rebuild
 RUN npm run build
 
 # Production stage
