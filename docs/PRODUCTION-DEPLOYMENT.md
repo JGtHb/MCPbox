@@ -115,6 +115,8 @@ Increase pool size if you see connection timeouts under load.
 
 MCPbox should always run behind an HTTPS reverse proxy in production.
 
+The frontend container's built-in nginx already reverse-proxies `/api/*`, `/auth/*`, and `/health` to the backend over the Docker network. Your external reverse proxy only needs to route all traffic to the frontend — it handles the rest.
+
 ### Using Nginx
 
 ```nginx
@@ -125,30 +127,36 @@ server {
     ssl_certificate /path/to/cert.pem;
     ssl_certificate_key /path/to/key.pem;
 
-    # Frontend
+    # Route everything to the frontend container.
+    # The frontend's built-in nginx proxies /api/*, /auth/*, and /health
+    # to the backend internally over the Docker network.
     location / {
         proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    # Backend API
-    location /api {
-        proxy_pass http://localhost:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    # Health checks
-    location /health {
-        proxy_pass http://localhost:8000;
     }
 }
 ```
+
+### Using Traefik
+
+With Traefik, add labels to the `frontend` service in your compose file:
+
+```yaml
+labels:
+  - "traefik.enable=true"
+  - "traefik.http.routers.mcpbox.rule=Host(`mcpbox.example.com`)"
+  - "traefik.http.routers.mcpbox.entrypoints=websecure"
+  - "traefik.http.routers.mcpbox.tls.certresolver=letsencrypt"
+  - "traefik.http.services.mcpbox.loadbalancer.server.port=3000"
+```
+
+No labels are needed on the backend — the frontend handles API routing internally.
 
 ### Using Cloudflare Tunnel
 

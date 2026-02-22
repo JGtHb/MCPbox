@@ -65,13 +65,14 @@ MCPbox uses a **hybrid architecture** - local-first with optional remote access 
 |  +---------------------------------------------------------------------+  |
 |  |                         MCPbox (Docker Compose)                      |  |
 |  |                                                                      |  |
-|  |   LOCAL ONLY (127.0.0.1)                    PRIVATE TUNNEL           |  |
+|  |   LOCAL / REVERSE PROXY                    PRIVATE TUNNEL           |  |
 |  |   +----------+  +--------------+           +--------------+         |  |
-|  |   | Frontend |  |   Backend    |           | MCP Gateway  |         |  |
-|  |   | (React)  |<-|  (FastAPI)   |           | (FastAPI)    |<-- cloudflared
+|  |   | Frontend |->|   Backend    |           | MCP Gateway  |         |  |
+|  |   | (nginx)  |  |  (FastAPI)   |           | (FastAPI)    |<-- cloudflared
 |  |   | :3000    |  |  :8000       |           | :8002        |   (no public URL)
 |  |   +----------+  |  /api/*      |           | /mcp ONLY    |         |  |
-|  |                  +------+------+           +------+-------+         |  |
+|  |   nginx proxies  +------+------+           +------+-------+         |  |
+|  |   /api,/auth,/health    |                         |                 |  |
 |  |                         |                         |                 |  |
 |  |                         +---------+---------------+                 |  |
 |  |                                   |                                 |  |
@@ -82,7 +83,7 @@ MCPbox uses a **hybrid architecture** - local-first with optional remote access 
 |  |                                                                      |  |
 |  +----------------------------------------------------------------------+  |
 |                                                                            |
-|  LOCAL ACCESS ONLY: Admin panel (frontend + /api/*) bound to 127.0.0.1    |
+|  Admin panel: frontend proxies /api/* to backend (works behind reverse proxy) |
 |                                                                            |
 +---------------------------------------------------------------------------+
                                         |
@@ -612,8 +613,9 @@ All tools use Python code with `async def main()` entry points. A previous "API 
 
 MCPbox uses a **hybrid authentication model**:
 
-**Admin Panel (Local Only):**
-- Ports bound to `127.0.0.1` (localhost only)
+**Admin Panel:**
+- Ports bound to `127.0.0.1` by default (localhost access)
+- Works behind external reverse proxies (Traefik, Caddy, nginx) — frontend nginx proxies `/api/*`, `/auth/*`, `/health` to the backend internally
 - JWT authentication with Argon2id password hashing (defense-in-depth)
 
 **MCP Gateway:**

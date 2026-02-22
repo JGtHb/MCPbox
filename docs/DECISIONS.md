@@ -31,7 +31,7 @@
 - **Date**: Inferred (Epic 4: Cloudflare Tunnel)
 - **Status**: Active
 - **Context**: Users need both local access (Claude Desktop) and remote access (Claude Web). Public tunnel exposure creates security risk.
-- **Decision**: Admin panel bound to `127.0.0.1` (local-only). MCP gateway optionally exposed via Cloudflare Workers VPC (no public hostname). Worker provides OAuth 2.1 + OIDC authentication layer.
+- **Decision**: Admin panel bound to `127.0.0.1` by default, with built-in nginx reverse proxy for deployment behind external proxies (Traefik, Caddy, etc.). MCP gateway optionally exposed via Cloudflare Workers VPC (no public hostname). Worker provides OAuth 2.1 + OIDC authentication layer.
 - **Rationale**: Workers VPC eliminates public attack surface — tunnel has no URL, only Worker can access it. Local mode requires zero configuration. Remote mode adds 10 security layers.
 - **Consequences**: Complex authentication stack (OAuth 2.1 + OIDC + service token). Cloudflare dependency for remote access. Setup wizard needed (6 steps). Two auth modes to maintain and test.
 - **Affected modules**: `worker/src/index.ts`, `worker/src/access-handler.ts`, `backend/app/api/cloudflare.py`, `cloudflared/`
