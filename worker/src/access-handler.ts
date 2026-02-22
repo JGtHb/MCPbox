@@ -223,7 +223,7 @@ async function handleCallback(
   const userName = typeof claims.name === 'string' ? claims.name : undefined;
   const userSub = typeof claims.sub === 'string' ? claims.sub : 'mcpbox-user';
 
-  console.log(`OIDC callback: verified user ${userEmail} (sub: ${userSub})`);
+  console.log(`OIDC callback: verified user (has_email: ${!!userEmail}, sub_length: ${userSub.length})`);
 
   // Complete the OAuth authorization — issue a Worker token to the MCP client
   const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
@@ -335,6 +335,17 @@ async function fetchAccessPublicKey(
         false, ['verify'],
       );
     }
+    // SECURITY: Cache is fresh but kid not found — negative-cache without
+    // re-fetching to prevent JWKS fetch amplification attacks where an
+    // attacker sends tokens with many fabricated kid values.
+    console.warn(`Key ${kid} not in fresh JWKS cache, negative-caching without re-fetch`);
+    missingKidCache.set(kid, now);
+    if (missingKidCache.size > 100) {
+      for (const [k, t] of missingKidCache) {
+        if (now - t >= MISSING_KID_CACHE_TTL_MS) missingKidCache.delete(k);
+      }
+    }
+    return null;
   }
 
   // Fetch fresh JWKS
@@ -391,8 +402,11 @@ async function verifyIdToken(
     const [headerB64, payloadB64, signatureB64] = parts;
     const header = JSON.parse(atob(headerB64.replace(/-/g, '+').replace(/_/g, '/')));
 
-    // Require RS256 algorithm (prevent algorithm confusion attacks)
-    if (header.alg && header.alg !== 'RS256') {
+    // Require RS256 algorithm explicitly (prevent algorithm confusion attacks)
+    if (!header.alg) {
+      return { ok: false, reason: 'missing alg in JWT header' };
+    }
+    if (header.alg !== 'RS256') {
       return { ok: false, reason: `unexpected algorithm ${header.alg}` };
     }
 
@@ -433,18 +447,22 @@ async function verifyIdToken(
       return { ok: false, reason: `token not yet valid (nbf=${payload.nbf}, now=${now})` };
     }
 
-    // Validate issuer — must match Cloudflare Access OIDC issuer
+    // Validate issuer — must match Cloudflare Access OIDC issuer (fail-closed: reject if we can't derive expected issuer)
     const expectedIssuer = getExpectedIssuer(env);
-    if (expectedIssuer && payload.iss !== expectedIssuer) {
+    if (!expectedIssuer) {
+      return { ok: false, reason: 'cannot derive expected issuer from ACCESS_AUTHORIZATION_URL' };
+    }
+    if (payload.iss !== expectedIssuer) {
       return { ok: false, reason: `issuer mismatch (got ${payload.iss}, expected ${expectedIssuer})` };
     }
 
-    // Validate audience — must match our OIDC client_id
-    if (payload.aud) {
-      const audList = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
-      if (!audList.includes(env.ACCESS_CLIENT_ID)) {
-        return { ok: false, reason: `audience mismatch (got ${payload.aud}, expected ${env.ACCESS_CLIENT_ID})` };
-      }
+    // Validate audience — must match our OIDC client_id (fail-closed: reject if missing)
+    if (!payload.aud) {
+      return { ok: false, reason: 'missing aud claim' };
+    }
+    const audList = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+    if (!audList.includes(env.ACCESS_CLIENT_ID)) {
+      return { ok: false, reason: `audience mismatch (got ${payload.aud}, expected ${env.ACCESS_CLIENT_ID})` };
     }
 
     // Validate nonce (prevents replay attacks in OIDC flow)

@@ -137,7 +137,7 @@ const apiHandler = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext & { props: Props }): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
-    console.log(`apiHandler: ${request.method} ${path} (OAuth validated, props: ${JSON.stringify(ctx.props)})`);
+    console.log(`apiHandler: ${request.method} ${path} (OAuth validated, has_email: ${!!ctx.props?.email})`);
     const requestOrigin = request.headers.get('Origin');
     const corsOrigin = getCorsOrigin(env, requestOrigin);
     const corsHeaders = getCorsHeaders(corsOrigin);
@@ -179,16 +179,27 @@ const apiHandler = {
 
     // Build headers for MCPbox Gateway
     const headers = new Headers(request.headers);
+
+    // SECURITY: Strip ALL client-supplied X-MCPbox-* headers before setting
+    // trusted values. This prevents injection of any current or future trusted
+    // headers that the gateway might read.
+    const headersToDelete: string[] = [];
+    for (const [name] of headers) {
+      if (name.toLowerCase().startsWith('x-mcpbox-')) {
+        headersToDelete.push(name);
+      }
+    }
+    for (const name of headersToDelete) {
+      headers.delete(name);
+    }
+
+    // Set trusted headers from verified auth results only
     headers.set('X-MCPbox-Service-Token', env.MCPBOX_SERVICE_TOKEN);
     headers.set('X-Forwarded-Host', url.host);
     headers.set('X-Forwarded-Proto', 'https');
-
-    // SECURITY: Strip client-supplied headers, set from verified auth results only
-    headers.delete('X-MCPbox-User-Email');
     if (userEmail) {
       headers.set('X-MCPbox-User-Email', userEmail);
     }
-    headers.delete('X-MCPbox-Auth-Method');
     headers.set('X-MCPbox-Auth-Method', 'oidc');
 
     // Proxy to MCPbox MCP Gateway
@@ -267,7 +278,7 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const originalPathname = url.pathname;
-    console.log(`Worker request: ${request.method} ${url.pathname}${url.search} [${request.headers.get('User-Agent') || 'no-ua'}]`);
+    console.log(`Worker request: ${request.method} ${url.pathname} [${request.headers.get('User-Agent') || 'no-ua'}]`);
 
     const corsOrigin = getCorsOrigin(env, request.headers.get('Origin'));
     const corsHeaders = getCorsHeaders(corsOrigin);
