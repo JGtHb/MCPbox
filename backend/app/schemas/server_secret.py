@@ -16,7 +16,7 @@ class SecretCreate(BaseModel):
 class SecretSetValue(BaseModel):
     """Schema for setting a secret value (admin only)."""
 
-    value: str = Field(..., min_length=1)
+    value: str = Field(..., min_length=1, max_length=10000)
 
 
 class SecretResponse(BaseModel):

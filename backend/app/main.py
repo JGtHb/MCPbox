@@ -93,9 +93,13 @@ def create_app() -> FastAPI:
         description="Self-hosted MCP server management platform",
         version=settings.app_version,
         lifespan=lifespan,
-        # Always enable docs - admin panel is local-only (Option B architecture)
-        docs_url="/docs",
-        redoc_url="/redoc",
+        # SECURITY (SEC-028): Disable OpenAPI docs in production. The docs endpoint
+        # sits outside /api/* and bypasses AdminAuthMiddleware, exposing the full
+        # API schema (all endpoints, parameters, and Pydantic schemas) without auth.
+        # Developers can re-enable via MCPBOX_DEBUG=true for local development.
+        docs_url="/docs" if settings.debug else None,
+        redoc_url="/redoc" if settings.debug else None,
+        openapi_url="/openapi.json" if settings.debug else None,
     )
 
     # Admin API authentication middleware (mandatory defense-in-depth for LAN security)

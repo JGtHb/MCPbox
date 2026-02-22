@@ -80,8 +80,24 @@ def create_mcp_app() -> FastAPI:
         openapi_url=None,
     )
 
-    # CORS - restrict to MCP client origins only (separate from admin panel CORS)
-    # Configured via MCP_CORS_ORIGINS env var, defaults to claude.ai origins
+    # Middleware is LIFO in Starlette: last added = outermost = runs first.
+    # Order: RateLimit (innermost) → SecurityHeaders → CORS (outermost)
+    # CORS must be outermost so preflight (OPTIONS) responses and error
+    # responses from inner middleware all carry correct CORS headers (SEC-024).
+
+    # Rate limiting (innermost — runs last)
+    app.add_middleware(
+        RateLimitMiddleware,
+        requests_per_minute=settings.rate_limit_requests_per_minute,
+        exclude_paths=[],
+    )
+
+    # Security headers
+    app.add_middleware(SecurityHeadersMiddleware)
+
+    # CORS (outermost — runs first, added last)
+    # Restrict to MCP client origins only (separate from admin panel CORS).
+    # Configured via MCP_CORS_ORIGINS env var, defaults to claude.ai origins.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.mcp_cors_origins_list,
@@ -90,16 +106,6 @@ def create_mcp_app() -> FastAPI:
         # SECURITY: X-MCPbox-Service-Token removed — it's a server-to-server header
         # (Worker → Gateway), not a browser CORS header (SEC-013)
         allow_headers=["Authorization", "Content-Type", "Accept"],
-    )
-
-    # Security headers
-    app.add_middleware(SecurityHeadersMiddleware)
-
-    # Rate limiting
-    app.add_middleware(
-        RateLimitMiddleware,
-        requests_per_minute=settings.rate_limit_requests_per_minute,
-        exclude_paths=[],
     )
 
     # Prometheus metrics (localhost-only, not exposed through tunnel)

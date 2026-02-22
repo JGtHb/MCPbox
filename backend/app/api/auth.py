@@ -17,6 +17,7 @@ from app.schemas.auth import (
     AuthStatusResponse,
     ChangePasswordRequest,
     LoginRequest,
+    LogoutRequest,
     MessageResponse,
     RefreshRequest,
     SetupRequest,
@@ -218,14 +219,20 @@ async def login(
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh_tokens(
     request: RefreshRequest,
+    db: AsyncSession = Depends(get_db),
     auth_service: AuthService = Depends(get_auth_service),
 ) -> TokenResponse:
     """Refresh access token using refresh token.
 
     Returns new access and refresh tokens (token rotation).
+    Checks the token blacklist to prevent use of revoked refresh tokens (SEC-023).
     """
     try:
         payload = validate_refresh_token(request.refresh_token)
+        # SECURITY: Check if refresh token has been revoked via logout (SEC-023)
+        jti = payload.get("jti")
+        if jti and await is_token_blacklisted(db, jti):
+            raise InvalidTokenError("Refresh token has been revoked")
         user = await auth_service.validate_token_user(payload)
         tokens = auth_service.create_tokens(user)
         return TokenResponse(**tokens)
@@ -244,15 +251,17 @@ async def refresh_tokens(
 @router.post("/logout", response_model=MessageResponse)
 async def logout(
     request: Request,
+    logout_request: LogoutRequest | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: Any = Depends(get_current_user),
 ) -> MessageResponse:
     """Log out the current user.
 
     Blacklists the current access token's JTI so it cannot be reused
-    for the remainder of its TTL (SEC-009). Persisted to database.
+    for the remainder of its TTL (SEC-009). Also blacklists the refresh
+    token if provided in the request body (SEC-023).
     """
-    # Extract JTI from the current token to blacklist it
+    # Blacklist the access token
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
         token = auth_header[7:]
@@ -262,9 +271,21 @@ async def logout(
             exp = payload.get("exp", 0)
             if jti:
                 await blacklist_token(db, jti, exp)
-                await db.commit()
         except Exception:
             pass  # Token was already validated by get_current_user dependency
+
+    # SECURITY (SEC-023): Also blacklist the refresh token if provided
+    if logout_request and logout_request.refresh_token:
+        try:
+            refresh_payload = validate_refresh_token(logout_request.refresh_token)
+            refresh_jti = refresh_payload.get("jti")
+            refresh_exp = refresh_payload.get("exp", 0)
+            if refresh_jti:
+                await blacklist_token(db, refresh_jti, refresh_exp)
+        except Exception:
+            pass  # Best-effort: still log out even if refresh token is invalid
+
+    await db.commit()
     logger.info(f"User logged out: {current_user.username}")
     return MessageResponse(message="Logged out successfully")
 

@@ -59,6 +59,15 @@ class RefreshRequest(BaseModel):
     refresh_token: str
 
 
+class LogoutRequest(BaseModel):
+    """Request for logout with optional refresh token revocation (SEC-023)."""
+
+    refresh_token: str | None = Field(
+        None,
+        description="Refresh token to revoke. If provided, the refresh token is blacklisted to prevent reuse.",
+    )
+
+
 class ChangePasswordRequest(BaseModel):
     """Request for password change."""
 
