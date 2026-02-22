@@ -905,6 +905,60 @@ describe('MCPbox Proxy Worker', () => {
       expect(options.headers.get('X-MCPbox-Auth-Method')).toBe('oidc');
     });
 
+    it('preserves non-X-MCPbox headers from client request', async () => {
+      const mockVpc = createMockVpcService({});
+      const env = createBaseEnv({ MCPBOX_TUNNEL: mockVpc });
+      const request = new Request('https://example.com/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Mcp-Session-Id': 'session-123',
+          'X-Custom-Header': 'keep-this',
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      });
+      const ctx = createExecutionContext();
+
+      await worker.fetch(request, env, ctx as any);
+
+      const [, options] = mockVpc.fetch.mock.calls[0];
+      // Non-X-MCPbox-* headers should be preserved
+      expect(options.headers.get('Content-Type')).toBe('application/json');
+      expect(options.headers.get('Mcp-Session-Id')).toBe('session-123');
+      expect(options.headers.get('X-Custom-Header')).toBe('keep-this');
+    });
+
+    it('SECURITY: strips ALL client-supplied X-MCPbox-* headers (prefix-based)', async () => {
+      const mockVpc = createMockVpcService({});
+      const env = createBaseEnv({
+        MCPBOX_TUNNEL: mockVpc,
+        _testProps: { authMethod: 'oidc' },
+      });
+      const request = new Request('https://example.com/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          // Attacker tries to inject arbitrary X-MCPbox-* headers
+          'X-MCPbox-User-Role': 'admin',
+          'X-MCPbox-Internal-Secret': 'injected',
+          'X-MCPbox-Bypass-Auth': 'true',
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      });
+      const ctx = createExecutionContext();
+
+      await worker.fetch(request, env, ctx as any);
+
+      const [, options] = mockVpc.fetch.mock.calls[0];
+      // All injected X-MCPbox-* headers should be stripped
+      expect(options.headers.get('X-MCPbox-User-Role')).toBeNull();
+      expect(options.headers.get('X-MCPbox-Internal-Secret')).toBeNull();
+      expect(options.headers.get('X-MCPbox-Bypass-Auth')).toBeNull();
+      // But legitimate worker-set headers should still be present
+      expect(options.headers.get('X-MCPbox-Service-Token')).toBeTruthy();
+      expect(options.headers.get('X-MCPbox-Auth-Method')).toBe('oidc');
+    });
+
     it('SECURITY: overwrites attacker service token with real one', async () => {
       const mockVpc = createMockVpcService({});
       const env = createBaseEnv({
@@ -1006,6 +1060,30 @@ describe('MCPbox Proxy Worker', () => {
       expect(response.status).toBe(502);
       const body = await response.json() as { error: string };
       expect(body.error).toBe('Failed to connect to backend service');
+    });
+
+    it('SECURITY: does not log user email in console output', async () => {
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const mockVpc = createMockVpcService({});
+      const env = createBaseEnv({
+        MCPBOX_TUNNEL: mockVpc,
+        _testProps: { email: 'sensitive-user@example.com', authMethod: 'oidc' },
+      });
+      const request = new Request('https://example.com/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      });
+      const ctx = createExecutionContext();
+
+      await worker.fetch(request, env, ctx as any);
+
+      // Verify no console.log call contains the actual email
+      for (const call of consoleSpy.mock.calls) {
+        const logLine = call.join(' ');
+        expect(logLine).not.toContain('sensitive-user@example.com');
+      }
+      consoleSpy.mockRestore();
     });
 
     it('does not leak service token in error responses', async () => {
