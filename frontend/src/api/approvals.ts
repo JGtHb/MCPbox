@@ -354,7 +354,7 @@ export function useToolAction() {
       action: 'approve' | 'reject' | 'submit_for_review'
       reason?: string
     }) => takeToolAction(toolId, action, reason),
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['approvals'] })
       queryClient.invalidateQueries({ queryKey: ['tools'] })
     },
