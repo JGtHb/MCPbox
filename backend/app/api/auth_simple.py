@@ -21,6 +21,7 @@ from typing import Annotated
 from fastapi import Header, HTTPException, Request, status
 from pydantic import BaseModel
 
+from app.services.email_policy_cache import EmailPolicyCache
 from app.services.service_token_cache import ServiceTokenCache
 
 # Email format validation pattern — defense-in-depth against audit log poisoning
@@ -127,6 +128,23 @@ async def verify_mcp_auth(
                 )
             email = forwarded_email
             logger.info("MCP gateway: OIDC-verified email from Worker: %s", email)
+
+        # Defense-in-depth: verify email against stored access policy.
+        # Even if Cloudflare Access is misconfigured (e.g. "allow everyone"),
+        # the gateway enforces the admin's intended email allowlist.
+        policy_cache = EmailPolicyCache.get_instance()
+        allowed, reason = await policy_cache.check_email(email)
+        if not allowed:
+            logger.warning(
+                "MCP gateway: email policy denied %s from %s: %s",
+                email or "(no email)",
+                client_ip,
+                reason,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Authentication failed",
+            )
 
         return AuthenticatedUser(
             email=email,

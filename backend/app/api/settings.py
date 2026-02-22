@@ -4,9 +4,10 @@ Accessible without authentication (Option B architecture - admin panel is local-
 """
 
 import logging
+import re
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Path, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -99,6 +100,24 @@ class ModuleConfigResponse(BaseModel):
     allowed_modules: list[str]
     default_modules: list[str]
     is_custom: bool
+
+
+# SECURITY (SEC-029): Python module names must match PEP 8 identifier rules.
+# Prevents injection of shell metacharacters, path traversal, etc. into pip install.
+_MODULE_NAME_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$")
+_MODULE_NAME_MAX_LEN = 128
+
+
+def _validate_module_name(name: str) -> str:
+    """Validate a module name is a safe Python identifier."""
+    if len(name) > _MODULE_NAME_MAX_LEN:
+        raise ValueError(f"Module name too long: {name!r} (max {_MODULE_NAME_MAX_LEN} chars)")
+    if not _MODULE_NAME_PATTERN.match(name):
+        raise ValueError(
+            f"Invalid module name: {name!r}. "
+            "Must be a valid Python identifier (letters, digits, underscores, dots)."
+        )
+    return name
 
 
 class UpdateModulesRequest(BaseModel):
@@ -266,6 +285,10 @@ async def update_modules(
     # Handle additions - install packages in sandbox
     if request.add_modules:
         for module_name in request.add_modules:
+            try:
+                _validate_module_name(module_name)
+            except ValueError as e:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
             await config_service.add_module(module_name)
             # Trigger package installation in sandbox
             install_result = await sandbox_client.install_package(module_name)
@@ -401,7 +424,7 @@ async def get_enhanced_module_config(
 
 @router.get("/modules/pypi/{module_name}", response_model=PyPIInfoResponse)
 async def get_pypi_info(
-    module_name: str,
+    module_name: str = Path(..., max_length=128, pattern=r"^[a-zA-Z_][a-zA-Z0-9_.]*$"),
     sandbox_client: SandboxClient = Depends(get_sandbox_client),
 ) -> PyPIInfoResponse:
     """Get PyPI information for a module.
@@ -422,7 +445,7 @@ async def get_pypi_info(
 
 @router.post("/modules/{module_name}/install", response_model=ModuleInstallResponse)
 async def install_module(
-    module_name: str,
+    module_name: str = Path(..., max_length=128, pattern=r"^[a-zA-Z_][a-zA-Z0-9_.]*$"),
     request: ModuleInstallRequest | None = None,
     sandbox_client: SandboxClient = Depends(get_sandbox_client),
 ) -> ModuleInstallResponse:

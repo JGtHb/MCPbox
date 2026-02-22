@@ -13,6 +13,7 @@ import {
   useDeployWorker,
   useConfigureWorkerJwt,
   useTeardown,
+  useUpdateWorkerConfig,
   cloudflareKeys,
   AccessPolicyType,
   getZones,
@@ -258,6 +259,15 @@ export function CloudflareWizard() {
   const [policyEmailInput, setPolicyEmailInput] = useState('')
   const [policyEmailDomain, setPolicyEmailDomain] = useState('')
 
+  // Allowed origins state (optional, for non-Claude MCP clients)
+  const [showOrigins, setShowOrigins] = useState(false)
+  const [wizardCorsOrigins, setWizardCorsOrigins] = useState<string[]>([])
+  const [wizardRedirectUris, setWizardRedirectUris] = useState<string[]>([])
+  const [wizardNewCorsOrigin, setWizardNewCorsOrigin] = useState('')
+  const [wizardNewRedirectUri, setWizardNewRedirectUri] = useState('')
+  const [wizardOriginError, setWizardOriginError] = useState<string | null>(null)
+  const [wizardRedirectError, setWizardRedirectError] = useState<string | null>(null)
+
   // Step results
   const [workerUrl, setWorkerUrl] = useState<string | null>(null)
   const [tokenError, setTokenError] = useState<string | null>(null)
@@ -272,6 +282,7 @@ export function CloudflareWizard() {
   const deployWorkerMutation = useDeployWorker()
   const configureJwtMutation = useConfigureWorkerJwt()
   const teardownMutation = useTeardown()
+  const updateWorkerConfigMutation = useUpdateWorkerConfig()
 
   // Initialize from existing status
   useEffect(() => {
@@ -418,6 +429,18 @@ export function CloudflareWizard() {
       })
       if (result.success && result.worker_url) {
         setWorkerUrl(result.worker_url)
+      }
+      // Save allowed origins if any were configured
+      if (configId && (wizardCorsOrigins.length > 0 || wizardRedirectUris.length > 0)) {
+        try {
+          await updateWorkerConfigMutation.mutateAsync({
+            configId,
+            corsOrigins: wizardCorsOrigins,
+            redirectUris: wizardRedirectUris,
+          })
+        } catch {
+          // Non-fatal: origins can be configured later in Settings
+        }
       }
       await queryClient.refetchQueries({ queryKey: cloudflareKeys.status() })
       setCurrentStep(6)
@@ -907,6 +930,168 @@ export function CloudflareWizard() {
                   </a>{' '}
                   after setup.
                 </p>
+              </div>
+
+              {/* Allowed Origins (collapsible, for non-Claude MCP clients) */}
+              <div className="border border-hl-med rounded-lg overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowOrigins(!showOrigins)}
+                  className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris focus:ring-inset"
+                >
+                  <div>
+                    <h4 className="text-sm font-medium text-on-base">
+                      Allowed Origins
+                      <span className="ml-2 text-xs text-muted font-normal">(optional)</span>
+                    </h4>
+                    <p className="text-xs text-muted mt-0.5">
+                      Configure if using MCP clients other than Claude
+                    </p>
+                  </div>
+                  <svg
+                    className={`w-5 h-5 text-muted transition-transform ${showOrigins ? 'rotate-180' : ''}`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {showOrigins && (
+                  <div className="px-4 pb-4 space-y-4 border-t border-hl-med">
+                    <div className="pt-3">
+                      <p className="text-xs text-muted mb-3">
+                        Built-in origins (claude.ai, mcp.claude.ai, localhost) are always allowed.
+                        Add origins here for other MCP clients like Cursor, Continue, or custom clients.
+                      </p>
+
+                      {/* CORS Origins */}
+                      <label className="block text-xs font-medium text-on-base mb-1">
+                        CORS Origins
+                      </label>
+                      <div className="flex gap-2 mb-1">
+                        <input
+                          type="text"
+                          value={wizardNewCorsOrigin}
+                          onChange={(e) => { setWizardNewCorsOrigin(e.target.value); setWizardOriginError(null) }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              const origin = wizardNewCorsOrigin.trim().replace(/\/+$/, '')
+                              if (!origin) return
+                              if (!/^https?:\/\/[a-zA-Z0-9]/.test(origin)) { setWizardOriginError('Invalid origin'); return }
+                              if (origin.startsWith('http://') && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) { setWizardOriginError('Non-localhost must use HTTPS'); return }
+                              if (wizardCorsOrigins.includes(origin)) { setWizardOriginError('Already added'); return }
+                              setWizardCorsOrigins([...wizardCorsOrigins, origin])
+                              setWizardNewCorsOrigin('')
+                            }
+                          }}
+                          placeholder="https://my-mcp-client.example.com"
+                          className="flex-1 px-3 py-1.5 text-sm border border-hl-med rounded-lg bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const origin = wizardNewCorsOrigin.trim().replace(/\/+$/, '')
+                            if (!origin) return
+                            if (!/^https?:\/\/[a-zA-Z0-9]/.test(origin)) { setWizardOriginError('Invalid origin'); return }
+                            if (origin.startsWith('http://') && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) { setWizardOriginError('Non-localhost must use HTTPS'); return }
+                            if (wizardCorsOrigins.includes(origin)) { setWizardOriginError('Already added'); return }
+                            setWizardCorsOrigins([...wizardCorsOrigins, origin])
+                            setWizardNewCorsOrigin('')
+                          }}
+                          className="px-3 py-1.5 text-sm bg-iris text-base rounded-md hover:bg-iris/80 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
+                        >
+                          Add
+                        </button>
+                      </div>
+                      {wizardOriginError && <p className="text-xs text-love mb-1">{wizardOriginError}</p>}
+                      {wizardCorsOrigins.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mb-3">
+                          {wizardCorsOrigins.map((origin) => (
+                            <span
+                              key={origin}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-iris/10 text-iris rounded-full font-mono"
+                            >
+                              {origin}
+                              <button
+                                type="button"
+                                onClick={() => setWizardCorsOrigins(wizardCorsOrigins.filter((o) => o !== origin))}
+                                aria-label={`Remove ${origin}`}
+                                className="text-iris/60 hover:text-love rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-love"
+                              >
+                                &times;
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Redirect URIs */}
+                      <label className="block text-xs font-medium text-on-base mb-1 mt-3">
+                        OAuth Redirect URI Prefixes
+                      </label>
+                      <div className="flex gap-2 mb-1">
+                        <input
+                          type="text"
+                          value={wizardNewRedirectUri}
+                          onChange={(e) => { setWizardNewRedirectUri(e.target.value); setWizardRedirectError(null) }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              const uri = wizardNewRedirectUri.trim()
+                              if (!uri) return
+                              if (!/^https?:\/\/[a-zA-Z0-9]/.test(uri)) { setWizardRedirectError('Invalid URI'); return }
+                              if (uri.startsWith('http://') && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(uri)) { setWizardRedirectError('Non-localhost must use HTTPS'); return }
+                              if (wizardRedirectUris.includes(uri)) { setWizardRedirectError('Already added'); return }
+                              setWizardRedirectUris([...wizardRedirectUris, uri])
+                              setWizardNewRedirectUri('')
+                            }
+                          }}
+                          placeholder="https://my-mcp-client.example.com/"
+                          className="flex-1 px-3 py-1.5 text-sm border border-hl-med rounded-lg bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const uri = wizardNewRedirectUri.trim()
+                            if (!uri) return
+                            if (!/^https?:\/\/[a-zA-Z0-9]/.test(uri)) { setWizardRedirectError('Invalid URI'); return }
+                            if (uri.startsWith('http://') && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(uri)) { setWizardRedirectError('Non-localhost must use HTTPS'); return }
+                            if (wizardRedirectUris.includes(uri)) { setWizardRedirectError('Already added'); return }
+                            setWizardRedirectUris([...wizardRedirectUris, uri])
+                            setWizardNewRedirectUri('')
+                          }}
+                          className="px-3 py-1.5 text-sm bg-iris text-base rounded-md hover:bg-iris/80 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
+                        >
+                          Add
+                        </button>
+                      </div>
+                      {wizardRedirectError && <p className="text-xs text-love mb-1">{wizardRedirectError}</p>}
+                      {wizardRedirectUris.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {wizardRedirectUris.map((uri) => (
+                            <span
+                              key={uri}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-iris/10 text-iris rounded-full font-mono"
+                            >
+                              {uri}
+                              <button
+                                type="button"
+                                onClick={() => setWizardRedirectUris(wizardRedirectUris.filter((u) => u !== uri))}
+                                aria-label={`Remove ${uri}`}
+                                className="text-iris/60 hover:text-love rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-love"
+                              >
+                                &times;
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {configureJwtMutation.error && (

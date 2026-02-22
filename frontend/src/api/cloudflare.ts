@@ -120,6 +120,9 @@ export interface WizardStatusResponse {
   access_policy_emails: string[] | null
   access_policy_email_domain: string | null
 
+  allowed_cors_origins: string[] | null
+  allowed_redirect_uris: string[] | null
+
   created_at: string | null
   updated_at: string | null
 }
@@ -128,6 +131,14 @@ export interface TeardownResponse {
   success: boolean
   deleted_resources: string[]
   errors: string[]
+  message: string | null
+}
+
+export interface WorkerConfigResponse {
+  success: boolean
+  allowed_cors_origins: string[]
+  allowed_redirect_uris: string[]
+  kv_synced: boolean
   message: string | null
 }
 
@@ -187,6 +198,22 @@ export async function updateAccessPolicy(
   })
 }
 
+export async function getWorkerConfig(configId: string): Promise<WorkerConfigResponse> {
+  return api.get<WorkerConfigResponse>(`/api/cloudflare/worker-config/${configId}`)
+}
+
+export async function updateWorkerConfig(
+  configId: string,
+  corsOrigins: string[],
+  redirectUris: string[]
+): Promise<WorkerConfigResponse> {
+  return api.put<WorkerConfigResponse>('/api/cloudflare/worker-config', {
+    config_id: configId,
+    allowed_cors_origins: corsOrigins,
+    allowed_redirect_uris: redirectUris,
+  })
+}
+
 // =============================================================================
 // Query Keys
 // =============================================================================
@@ -194,6 +221,7 @@ export async function updateAccessPolicy(
 export const cloudflareKeys = {
   all: ['cloudflare'] as const,
   status: () => [...cloudflareKeys.all, 'status'] as const,
+  workerConfig: (configId: string) => [...cloudflareKeys.all, 'workerConfig', configId] as const,
 }
 
 // =============================================================================
@@ -291,6 +319,34 @@ export function useUpdateAccessPolicy() {
     mutationFn: ({ configId, accessPolicy }: { configId: string; accessPolicy: AccessPolicyConfig }) =>
       updateAccessPolicy(configId, accessPolicy),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: cloudflareKeys.status() })
+    },
+  })
+}
+
+export function useWorkerConfig(configId: string | null) {
+  return useQuery({
+    queryKey: cloudflareKeys.workerConfig(configId || ''),
+    queryFn: () => getWorkerConfig(configId!),
+    enabled: !!configId,
+  })
+}
+
+export function useUpdateWorkerConfig() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      configId,
+      corsOrigins,
+      redirectUris,
+    }: {
+      configId: string
+      corsOrigins: string[]
+      redirectUris: string[]
+    }) => updateWorkerConfig(configId, corsOrigins, redirectUris),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: cloudflareKeys.workerConfig(variables.configId) })
       queryClient.invalidateQueries({ queryKey: cloudflareKeys.status() })
     },
   })

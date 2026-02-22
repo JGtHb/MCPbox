@@ -1022,6 +1022,7 @@ FORBIDDEN_DUNDER_ATTRS = {
     "__loader__",  # Module loader (can load arbitrary code)
     "__spec__",  # Module spec (contains loader)
     "__dict__",  # Object namespace (exposes internals, aids escape chains)
+    "__traceback__",  # Exception traceback (leads to frame objects → f_globals) (SEC-026)
 }
 
 # Additional patterns that indicate escape attempts
@@ -1038,6 +1039,7 @@ FORBIDDEN_PATTERNS = [
     r"\.__loader__\b",
     r"\.__spec__\b",
     r"\.__dict__\b",
+    r"\.__traceback__\b",
     # Module traversal patterns (e.g., datetime.sys, json.codecs.sys)
     r"\.sys\b",
     r"\bsys\s*\[",
@@ -1084,6 +1086,7 @@ def _ast_validate(code: str, source_name: str) -> tuple[bool, str | None]:
         "__loader__",
         "__spec__",
         "__dict__",
+        "__traceback__",
         "__init_subclass__",
         "__set_name__",
         "__del__",

@@ -27,6 +27,7 @@ from app.schemas.cloudflare import (
     StartWithApiTokenResponse,
     TeardownResponse,
     UpdateAccessPolicyResponse,
+    UpdateWorkerConfigResponse,
     WizardStatusResponse,
     Zone,
 )
@@ -116,6 +117,20 @@ class CloudflareService:
             except (json.JSONDecodeError, TypeError):
                 pass
 
+        # Parse stored allowed origins (JSON arrays or None)
+        allowed_cors_origins = None
+        if config.allowed_cors_origins:
+            try:
+                allowed_cors_origins = json.loads(config.allowed_cors_origins)
+            except (json.JSONDecodeError, TypeError):
+                pass
+        allowed_redirect_uris = None
+        if config.allowed_redirect_uris:
+            try:
+                allowed_redirect_uris = json.loads(config.allowed_redirect_uris)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
         return WizardStatusResponse(
             config_id=config.id,
             status=config.status,
@@ -134,6 +149,8 @@ class CloudflareService:
             access_policy_type=config.access_policy_type,
             access_policy_emails=access_policy_emails,
             access_policy_email_domain=config.access_policy_email_domain,
+            allowed_cors_origins=allowed_cors_origins,
+            allowed_redirect_uris=allowed_redirect_uris,
             created_at=config.created_at,
             updated_at=config.updated_at,
         )
@@ -1092,6 +1109,15 @@ export default {
         # sync ALLOWED_EMAILS to the Worker — it was removed.
         worker_synced = True  # No Worker sync needed for policy changes
 
+        # Invalidate the gateway email policy cache so the new policy
+        # takes effect immediately in the backend process.  The mcp-gateway
+        # process picks it up within EmailPolicyCache.TTL_SECONDS.
+        from app.services.email_policy_cache import EmailPolicyCache
+
+        policy_cache = EmailPolicyCache.get_instance()
+        policy_cache.invalidate()
+        await policy_cache.load()
+
         message = "Access policy updated"
         if errors:
             message += f" (warnings: {'; '.join(errors)})"
@@ -1444,12 +1470,44 @@ compatibility_flags = ["{settings.cf_worker_compatibility_flags}"]
             except Exception as e:
                 worker_test_result = f"Connection test failed: {e}"
 
+            # Sync admin-configured allowed origins to Worker KV (if any)
+            if config.kv_namespace_id:
+                cors_origins: list[str] = []
+                redirect_uris: list[str] = []
+                if config.allowed_cors_origins:
+                    try:
+                        cors_origins = json.loads(config.allowed_cors_origins)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                if config.allowed_redirect_uris:
+                    try:
+                        redirect_uris = json.loads(config.allowed_redirect_uris)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                try:
+                    await self._sync_worker_kv_config(
+                        api_token,
+                        config.account_id,
+                        config.kv_namespace_id,
+                        cors_origins,
+                        redirect_uris,
+                    )
+                except CloudflareAPIError:
+                    logger.warning("Failed to sync allowed origins to KV during setup")
+
             # Update config
             config.completed_step = 5
             config.status = "active"
             config.error_message = None
 
             await self.db.flush()
+
+            # Refresh email policy cache so the new policy takes effect
+            from app.services.email_policy_cache import EmailPolicyCache
+
+            policy_cache = EmailPolicyCache.get_instance()
+            policy_cache.invalidate()
+            await policy_cache.load()
 
             return ConfigureJwtResponse(
                 success=True,
@@ -1584,3 +1642,125 @@ compatibility_flags = ["{settings.cf_worker_compatibility_flags}"]
         if not config:
             return None
         return await self._get_decrypted_tunnel_token(config)
+
+    # =========================================================================
+    # Worker Configuration (CORS + Redirect URIs)
+    # =========================================================================
+
+    async def update_worker_config(
+        self,
+        config_id: UUID,
+        allowed_cors_origins: list[str],
+        allowed_redirect_uris: list[str],
+    ) -> UpdateWorkerConfigResponse:
+        """Update Worker CORS origins and redirect URIs.
+
+        Saves to database and syncs to Worker KV for immediate effect.
+        """
+        config = await self.get_config_by_id(config_id)
+        if not config:
+            raise ValueError("Configuration not found")
+
+        # Save to database (JSON arrays)
+        config.allowed_cors_origins = (
+            json.dumps(allowed_cors_origins) if allowed_cors_origins else None
+        )
+        config.allowed_redirect_uris = (
+            json.dumps(allowed_redirect_uris) if allowed_redirect_uris else None
+        )
+        await self.db.flush()
+
+        # Sync to Worker KV if KV namespace is available
+        kv_synced = False
+        if config.kv_namespace_id and config.account_id:
+            api_token = await self._get_decrypted_token(config)
+            if api_token:
+                try:
+                    await self._sync_worker_kv_config(
+                        api_token,
+                        config.account_id,
+                        config.kv_namespace_id,
+                        allowed_cors_origins,
+                        allowed_redirect_uris,
+                    )
+                    kv_synced = True
+                except CloudflareAPIError as e:
+                    logger.warning(f"Failed to sync config to Worker KV: {e}")
+
+        return UpdateWorkerConfigResponse(
+            success=True,
+            allowed_cors_origins=allowed_cors_origins,
+            allowed_redirect_uris=allowed_redirect_uris,
+            kv_synced=kv_synced,
+            message="Worker configuration updated"
+            + (" and synced to KV" if kv_synced else " (KV sync unavailable)"),
+        )
+
+    async def get_worker_config(self, config_id: UUID) -> UpdateWorkerConfigResponse:
+        """Get current Worker CORS and redirect URI configuration."""
+        config = await self.get_config_by_id(config_id)
+        if not config:
+            raise ValueError("Configuration not found")
+
+        cors_origins: list[str] = []
+        if config.allowed_cors_origins:
+            try:
+                cors_origins = json.loads(config.allowed_cors_origins)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        redirect_uris: list[str] = []
+        if config.allowed_redirect_uris:
+            try:
+                redirect_uris = json.loads(config.allowed_redirect_uris)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        return UpdateWorkerConfigResponse(
+            success=True,
+            allowed_cors_origins=cors_origins,
+            allowed_redirect_uris=redirect_uris,
+            kv_synced=True,
+            message="Current worker configuration",
+        )
+
+    async def _sync_worker_kv_config(
+        self,
+        api_token: str,
+        account_id: str,
+        kv_namespace_id: str,
+        allowed_cors_origins: list[str],
+        allowed_redirect_uris: list[str],
+    ) -> None:
+        """Sync CORS origins and redirect URIs to Worker KV.
+
+        Uses the Cloudflare KV API to write config entries that the Worker
+        reads at runtime. This avoids the need to redeploy the Worker when
+        the admin changes allowed origins.
+        """
+        # Write both config keys via the KV bulk write API
+        kv_entries = [
+            {
+                "key": "config:cors_origins",
+                "value": json.dumps(allowed_cors_origins),
+            },
+            {
+                "key": "config:redirect_uris",
+                "value": json.dumps(allowed_redirect_uris),
+            },
+        ]
+
+        url = f"{CF_API_BASE}/accounts/{account_id}/storage/kv/namespaces/{kv_namespace_id}/bulk"
+        headers = self._get_headers(api_token)
+
+        async with httpx.AsyncClient() as client:
+            response = await client.put(
+                url,
+                headers=headers,
+                json=kv_entries,
+                timeout=15.0,
+            )
+            if not response.is_success:
+                raise CloudflareAPIError(
+                    f"KV bulk write failed: HTTP {response.status_code} - {response.text}"
+                )

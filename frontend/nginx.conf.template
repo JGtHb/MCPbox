@@ -53,15 +53,21 @@ server {
     }
 
     # Cache static assets
+    # NOTE: In nginx, add_header in a location block replaces server-level
+    # headers. We must re-declare security headers here (SEC-027).
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ {
         expires 1y;
-        add_header Cache-Control "public, immutable";
+        add_header Cache-Control "public, immutable" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     }
 
     # Health check endpoint
     location /nginx-health {
         access_log off;
         return 200 "healthy\n";
-        add_header Content-Type text/plain;
+        add_header Content-Type text/plain always;
+        add_header X-Content-Type-Options "nosniff" always;
     }
 }

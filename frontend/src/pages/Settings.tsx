@@ -22,6 +22,8 @@ import {
 import {
   useCloudflareStatus,
   useUpdateAccessPolicy,
+  useWorkerConfig,
+  useUpdateWorkerConfig,
   AccessPolicyType,
   AccessPolicyConfig,
 } from '../api/cloudflare'
@@ -473,6 +475,247 @@ function UsersTab() {
           Changes are synced to the Cloudflare Access Policy on the OIDC application. The Access Policy is the source of truth for email enforcement.
         </p>
       </div>
+
+      {/* Allowed Origins section */}
+      <AllowedOriginsSection configId={cfStatus?.config_id ?? null} />
+    </div>
+  )
+}
+
+// =============================================================================
+// Allowed Origins Section (inside Users tab)
+// =============================================================================
+
+function AllowedOriginsSection({ configId }: { configId: string | null }) {
+  const { data: workerConfig, isLoading } = useWorkerConfig(configId)
+  const updateConfig = useUpdateWorkerConfig()
+
+  const [corsOrigins, setCorsOrigins] = useState<string[]>([])
+  const [redirectUris, setRedirectUris] = useState<string[]>([])
+  const [newCorsOrigin, setNewCorsOrigin] = useState('')
+  const [newRedirectUri, setNewRedirectUri] = useState('')
+  const [originError, setOriginError] = useState<string | null>(null)
+  const [redirectError, setRedirectError] = useState<string | null>(null)
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [initialized, setInitialized] = useState(false)
+
+  useEffect(() => {
+    if (workerConfig && !initialized) {
+      setCorsOrigins(workerConfig.allowed_cors_origins || [])
+      setRedirectUris(workerConfig.allowed_redirect_uris || [])
+      setInitialized(true)
+    }
+  }, [workerConfig, initialized])
+
+  if (!configId) return null
+
+  const validateOrigin = (origin: string): string | null => {
+    origin = origin.trim().replace(/\/+$/, '')
+    if (!origin) return null
+    if (!/^https?:\/\/[a-zA-Z0-9]/.test(origin)) {
+      return 'Must be a valid HTTP(S) origin (e.g., https://example.com)'
+    }
+    if (origin.startsWith('http://') && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+      return 'Non-localhost origins must use HTTPS'
+    }
+    return null
+  }
+
+  const validateRedirectUri = (uri: string): string | null => {
+    uri = uri.trim()
+    if (!uri) return null
+    if (!/^https?:\/\/[a-zA-Z0-9]/.test(uri)) {
+      return 'Must start with http:// or https://'
+    }
+    if (uri.startsWith('http://') && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(uri)) {
+      return 'Non-localhost URIs must use HTTPS'
+    }
+    return null
+  }
+
+  const handleAddCorsOrigin = () => {
+    const origin = newCorsOrigin.trim().replace(/\/+$/, '')
+    setOriginError(null)
+    if (!origin) return
+
+    const error = validateOrigin(origin)
+    if (error) { setOriginError(error); return }
+    if (corsOrigins.includes(origin)) { setOriginError('Already in list'); return }
+
+    setCorsOrigins([...corsOrigins, origin])
+    setNewCorsOrigin('')
+  }
+
+  const handleAddRedirectUri = () => {
+    const uri = newRedirectUri.trim()
+    setRedirectError(null)
+    if (!uri) return
+
+    const error = validateRedirectUri(uri)
+    if (error) { setRedirectError(error); return }
+    if (redirectUris.includes(uri)) { setRedirectError('Already in list'); return }
+
+    setRedirectUris([...redirectUris, uri])
+    setNewRedirectUri('')
+  }
+
+  const handleSaveOrigins = async () => {
+    if (!configId) return
+    setSaveError(null)
+    setSaveSuccess(null)
+
+    try {
+      const result = await updateConfig.mutateAsync({
+        configId,
+        corsOrigins,
+        redirectUris,
+      })
+      setSaveSuccess(
+        result.kv_synced
+          ? 'Origins updated and synced to Worker'
+          : 'Origins saved (Worker KV sync unavailable)'
+      )
+      setTimeout(() => setSaveSuccess(null), 4000)
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Failed to update origins')
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="mt-8 pt-6 border-t border-hl-med">
+        <div className="animate-pulse space-y-3">
+          <div className="h-6 bg-hl-low rounded w-40"></div>
+          <div className="h-4 bg-hl-low rounded w-80"></div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-8 pt-6 border-t border-hl-med">
+      <div className="mb-4">
+        <h3 className="text-lg font-medium text-on-base">Allowed Origins</h3>
+        <p className="text-sm text-subtle mt-1">
+          Additional CORS origins and OAuth redirect URIs for non-Claude MCP clients.
+          Built-in origins (claude.ai, localhost, etc.) are always included.
+        </p>
+      </div>
+
+      {/* CORS Origins */}
+      <div className="mb-6">
+        <label className="block text-sm font-medium text-on-base mb-2">
+          CORS Origins
+        </label>
+        <p className="text-xs text-muted mb-2">
+          Additional origins allowed to make cross-origin requests to the Worker.
+        </p>
+        <div className="flex gap-2 mb-2">
+          <input
+            type="text"
+            value={newCorsOrigin}
+            onChange={(e) => { setNewCorsOrigin(e.target.value); setOriginError(null) }}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddCorsOrigin() } }}
+            placeholder="https://my-mcp-client.example.com"
+            className="flex-1 max-w-md px-3 py-2 text-sm border border-hl-med rounded-lg focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris bg-surface text-on-base"
+          />
+          <button
+            onClick={handleAddCorsOrigin}
+            disabled={!newCorsOrigin.trim()}
+            className="px-4 py-2 text-sm font-medium text-base bg-iris hover:bg-iris/80 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
+          >
+            Add
+          </button>
+        </div>
+        {originError && <div className="text-sm text-love mb-2">{originError}</div>}
+        {corsOrigins.length > 0 && (
+          <div className="border border-hl-med rounded-lg divide-y divide-hl-low max-h-40 overflow-y-auto">
+            {corsOrigins.map((origin) => (
+              <div key={origin} className="flex items-center justify-between px-3 py-2 hover:bg-hl-low">
+                <span className="text-sm text-on-base font-mono">{origin}</span>
+                <button
+                  onClick={() => setCorsOrigins(corsOrigins.filter((o) => o !== origin))}
+                  className="p-1 text-muted hover:text-love hover:bg-love/10 rounded transition-colors focus:outline-none focus:ring-2 focus:ring-love"
+                  aria-label={`Remove ${origin}`}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Redirect URIs */}
+      <div className="mb-6">
+        <label className="block text-sm font-medium text-on-base mb-2">
+          OAuth Redirect URI Prefixes
+        </label>
+        <p className="text-xs text-muted mb-2">
+          URI prefixes allowed for OAuth client redirect URIs. The Worker accepts any redirect URI starting with these prefixes.
+        </p>
+        <div className="flex gap-2 mb-2">
+          <input
+            type="text"
+            value={newRedirectUri}
+            onChange={(e) => { setNewRedirectUri(e.target.value); setRedirectError(null) }}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddRedirectUri() } }}
+            placeholder="https://my-mcp-client.example.com/"
+            className="flex-1 max-w-md px-3 py-2 text-sm border border-hl-med rounded-lg focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris bg-surface text-on-base"
+          />
+          <button
+            onClick={handleAddRedirectUri}
+            disabled={!newRedirectUri.trim()}
+            className="px-4 py-2 text-sm font-medium text-base bg-iris hover:bg-iris/80 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
+          >
+            Add
+          </button>
+        </div>
+        {redirectError && <div className="text-sm text-love mb-2">{redirectError}</div>}
+        {redirectUris.length > 0 && (
+          <div className="border border-hl-med rounded-lg divide-y divide-hl-low max-h-40 overflow-y-auto">
+            {redirectUris.map((uri) => (
+              <div key={uri} className="flex items-center justify-between px-3 py-2 hover:bg-hl-low">
+                <span className="text-sm text-on-base font-mono">{uri}</span>
+                <button
+                  onClick={() => setRedirectUris(redirectUris.filter((u) => u !== uri))}
+                  className="p-1 text-muted hover:text-love hover:bg-love/10 rounded transition-colors focus:outline-none focus:ring-2 focus:ring-love"
+                  aria-label={`Remove ${uri}`}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Save button */}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={handleSaveOrigins}
+          disabled={updateConfig.isPending}
+          className="px-4 py-2 bg-iris text-base rounded-lg text-sm font-medium hover:bg-iris/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
+        >
+          {updateConfig.isPending ? 'Saving...' : 'Save Origins'}
+        </button>
+        {saveSuccess && <span className="text-sm text-foam">{saveSuccess}</span>}
+      </div>
+
+      {saveError && (
+        <div className="mt-4 p-3 rounded-lg bg-love/10 text-love border border-love/30">
+          {saveError}
+        </div>
+      )}
+
+      <p className="mt-4 text-xs text-subtle">
+        Built-in origins (claude.ai, mcp.claude.ai, one.dash.cloudflare.com, localhost) are always allowed. These are additional origins for other MCP clients.
+      </p>
     </div>
   )
 }

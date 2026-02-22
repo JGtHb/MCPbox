@@ -14,6 +14,7 @@
 
 import type { OAuthHelpers, AuthRequest } from '@cloudflare/workers-oauth-provider';
 import type { Env, Props } from './index';
+import { getAdminConfig } from './index';
 
 type EnvWithOAuth = Env & { OAUTH_PROVIDER: OAuthHelpers };
 
@@ -69,9 +70,9 @@ async function handleAuthorizeGet(
     });
   }
 
-  // Auto-approve known clients (Claude, Cloudflare dashboard, localhost)
+  // Auto-approve known clients (Claude, Cloudflare dashboard, localhost, admin-configured)
   const redirectUri = new URL(request.url).searchParams.get('redirect_uri') || '';
-  if (isKnownClient(redirectUri)) {
+  if (await isKnownClient(redirectUri, env)) {
     const { stateToken, nonce } = await createOAuthState(oauthReqInfo, env.OAUTH_KV);
     return redirectToAccess(request, env, stateToken, nonce);
   }
@@ -548,7 +549,7 @@ async function validateOAuthState(
 // Client approval (encrypted cookies)
 // =============================================================================
 
-function isKnownClient(redirectUri: string): boolean {
+async function isKnownClient(redirectUri: string, env: Env): Promise<boolean> {
   const knownPatterns = [
     /^https:\/\/mcp\.claude\.ai\//,
     /^https:\/\/claude\.ai\//,
@@ -556,7 +557,19 @@ function isKnownClient(redirectUri: string): boolean {
     /^http:\/\/localhost(:\d+)?\//,
     /^http:\/\/127\.0\.0\.1(:\d+)?\//,
   ];
-  return knownPatterns.some(p => p.test(redirectUri));
+  if (knownPatterns.some(p => p.test(redirectUri))) {
+    return true;
+  }
+
+  // Also auto-approve admin-configured redirect URIs
+  const adminConfig = await getAdminConfig(env);
+  for (const prefix of adminConfig.redirectUris) {
+    if (redirectUri.startsWith(prefix)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 async function isClientApproved(

@@ -272,6 +272,10 @@ class WizardStatusResponse(BaseModel):
     access_policy_emails: list[str] | None = None
     access_policy_email_domain: str | None = None
 
+    # Admin-configurable allowed origins (additional to built-in defaults)
+    allowed_cors_origins: list[str] | None = None
+    allowed_redirect_uris: list[str] | None = None
+
     # Timestamps
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -298,6 +302,92 @@ class UpdateAccessPolicyResponse(BaseModel):
     worker_synced: bool = Field(
         default=True,
         description="With Access for SaaS, policy is enforced at OIDC layer (no Worker sync needed)",
+    )
+    message: str | None = None
+
+
+# =============================================================================
+# Worker Configuration (CORS + Redirect URIs)
+# =============================================================================
+
+
+class UpdateWorkerConfigRequest(BaseModel):
+    """Request to update Worker CORS origins and OAuth redirect URIs.
+
+    These are *additional* origins/URIs beyond the built-in defaults
+    (claude.ai, mcp.claude.ai, one.dash.cloudflare.com, localhost).
+    """
+
+    config_id: UUID
+    allowed_cors_origins: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description=(
+            "Additional CORS origins to allow (e.g., 'https://my-mcp-client.example.com'). "
+            "Built-in origins (claude.ai, etc.) are always included."
+        ),
+    )
+    allowed_redirect_uris: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description=(
+            "Additional OAuth redirect URI prefixes to allow "
+            "(e.g., 'https://my-mcp-client.example.com/'). "
+            "Built-in patterns (claude.ai, localhost, etc.) are always included."
+        ),
+    )
+
+    @field_validator("allowed_cors_origins")
+    @classmethod
+    def validate_cors_origins(cls, v: list[str]) -> list[str]:
+        validated = []
+        for origin in v:
+            origin = origin.strip().rstrip("/")
+            if not origin:
+                continue
+            if not re.match(r"^https?://[a-zA-Z0-9]([a-zA-Z0-9._:-]*[a-zA-Z0-9])?$", origin):
+                raise ValueError(
+                    f"Invalid CORS origin: {origin!r}. "
+                    "Must be a valid HTTP(S) origin (e.g., 'https://example.com')."
+                )
+            # Require HTTPS for non-localhost origins
+            if origin.startswith("http://") and not re.match(
+                r"^http://(localhost|127\.0\.0\.1)(:\d+)?$", origin
+            ):
+                raise ValueError(f"Non-localhost CORS origins must use HTTPS: {origin!r}")
+            validated.append(origin)
+        return validated
+
+    @field_validator("allowed_redirect_uris")
+    @classmethod
+    def validate_redirect_uris(cls, v: list[str]) -> list[str]:
+        validated = []
+        for uri in v:
+            uri = uri.strip()
+            if not uri:
+                continue
+            if not re.match(r"^https?://[a-zA-Z0-9]", uri):
+                raise ValueError(
+                    f"Invalid redirect URI: {uri!r}. Must start with http:// or https://."
+                )
+            # Require HTTPS for non-localhost URIs
+            if uri.startswith("http://") and not re.match(
+                r"^http://(localhost|127\.0\.0\.1)(:\d+)?/", uri
+            ):
+                raise ValueError(f"Non-localhost redirect URIs must use HTTPS: {uri!r}")
+            validated.append(uri)
+        return validated
+
+
+class UpdateWorkerConfigResponse(BaseModel):
+    """Response from updating Worker configuration."""
+
+    success: bool
+    allowed_cors_origins: list[str] = Field(default_factory=list)
+    allowed_redirect_uris: list[str] = Field(default_factory=list)
+    kv_synced: bool = Field(
+        default=False,
+        description="Whether the config was synced to Worker KV",
     )
     message: str | None = None
 

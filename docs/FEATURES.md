@@ -88,7 +88,7 @@ Features are sorted by status, with broken/partial items at the top for visibili
 - **Owner modules**: `backend/app/api/mcp_gateway.py`, `backend/app/mcp_only.py`, `backend/app/services/tool_change_notifier.py`
 - **Dependencies**: Sandbox (tool execution), Service token cache (auth)
 - **Test coverage**: `backend/tests/test_mcp_gateway.py` (39 tests) — good coverage
-- **Security notes**: Method-level authorization in remote mode. Only `initialize` and `notifications/*` allowed without verified email.
+- **Security notes**: Method-level authorization in remote mode. Only `initialize` and `notifications/*` allowed without verified email. Gateway-level email allowlist enforcement (SEC-039): `verify_mcp_auth` checks forwarded email against stored access policy as defense-in-depth against Cloudflare Access misconfiguration.
 
 ### Admin Authentication (JWT)
 - **Status**: Complete
@@ -100,11 +100,11 @@ Features are sorted by status, with broken/partial items at the top for visibili
 
 ### Cloudflare Remote Access
 - **Status**: Complete
-- **Description**: Optional remote access via Cloudflare Workers VPC. 6-step setup wizard configures tunnel, VPC service, Worker deployment, and OIDC (Access for SaaS). Worker handles OAuth 2.1 downstream and OIDC upstream.
+- **Description**: Optional remote access via Cloudflare Workers VPC. 6-step setup wizard configures tunnel, VPC service, Worker deployment, and OIDC (Access for SaaS). Worker handles OAuth 2.1 downstream and OIDC upstream. Admin-configurable CORS origins and OAuth redirect URIs stored in DB and synced to Worker KV for zero-downtime updates (SEC-038).
 - **Owner modules**: `backend/app/api/cloudflare.py`, `backend/app/services/cloudflare.py`, `worker/src/index.ts`, `worker/src/access-handler.ts`, `cloudflared/`, `frontend/src/pages/CloudflareWizard.tsx`, `frontend/src/pages/Tunnel.tsx`
-- **Dependencies**: Cloudflare API, PostgreSQL (config storage)
-- **Test coverage**: `backend/tests/test_cloudflare.py` (30+ tests), `worker/src/index.test.ts` (85 tests) — excellent coverage
-- **Security notes**: 10 security layers documented in [AUTH-FLOW.md](AUTH-FLOW.md). Service token + OIDC + OAuth 2.1.
+- **Dependencies**: Cloudflare API, PostgreSQL (config storage), Cloudflare KV (worker config)
+- **Test coverage**: `backend/tests/test_cloudflare.py` (30+ tests), `worker/src/index.test.ts` (68 tests) — excellent coverage
+- **Security notes**: 10 security layers documented in [AUTH-FLOW.md](AUTH-FLOW.md). Service token + OIDC + OAuth 2.1. CORS/redirect URI validation enforces HTTPS for non-localhost origins.
 
 ### Server Recovery
 - **Status**: Complete

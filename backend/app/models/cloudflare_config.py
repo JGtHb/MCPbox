@@ -57,6 +57,12 @@ class CloudflareConfig(BaseModel):
     access_policy_emails: Mapped[str | None] = mapped_column(Text, nullable=True)
     access_policy_email_domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    # Admin-configurable allowed origins for Worker CORS and OAuth redirect URIs.
+    # Stored as JSON arrays. Defaults (claude.ai, localhost, etc.) are always
+    # included by the Worker — these are *additional* origins the admin adds.
+    allowed_cors_origins: Mapped[str | None] = mapped_column(Text, nullable=True)
+    allowed_redirect_uris: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # Wizard step tracking (0-5, where 5 is complete)
     completed_step: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 

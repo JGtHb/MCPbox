@@ -256,7 +256,9 @@ async def _refresh_server_registration_for_hosts(server: Any, db: AsyncSession) 
             external_sources=external_sources_data,
         )
 
-        success = bool(reg_result.get("success")) if isinstance(reg_result, dict) else bool(reg_result)
+        success = (
+            bool(reg_result.get("success")) if isinstance(reg_result, dict) else bool(reg_result)
+        )
         if success:
             logger.info(f"Server {server.name} re-registered after host allowlist change")
         else:
