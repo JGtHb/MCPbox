@@ -356,6 +356,7 @@ export function useToolAction() {
     }) => takeToolAction(toolId, action, reason),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['approvals'] })
+      queryClient.invalidateQueries({ queryKey: ['tools'] })
     },
   })
 }
