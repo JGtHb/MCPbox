@@ -45,7 +45,7 @@ docker-compose up -d
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_URL` | (from compose) | PostgreSQL connection string |
-| `CORS_ORIGINS` | `http://localhost:3000` | Allowed CORS origins |
+| `CORS_ORIGINS` | `http://localhost:3000` | Admin CORS origins (only needed for direct backend access) |
 | `LOG_RETENTION_DAYS` | `30` | Days to keep activity logs |
 | `RATE_LIMIT_REQUESTS_PER_MINUTE` | `100` | API rate limit |
 | `ENABLE_METRICS` | `true` | Enable Prometheus `/metrics` endpoint |

@@ -1,7 +1,7 @@
 """MCPbox Configuration using Pydantic Settings.
 
 MCPbox hybrid architecture:
-- Admin panel (/api/*): Local-only with JWT authentication
+- Admin panel (/api/*): JWT authentication, accessed via frontend nginx proxy
 - MCP Gateway (/mcp): Two modes:
   1. Local-only mode: No auth required (no service token in database)
   2. Remote mode: Cloudflare Worker proxy adds X-MCPbox-Service-Token header
@@ -18,7 +18,7 @@ loaded at startup by ServiceTokenCache. No .env configuration needed.
 from functools import lru_cache
 from typing import Any
 
-from pydantic import PostgresDsn, field_validator, model_validator
+from pydantic import PostgresDsn, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -74,13 +74,10 @@ class Settings(BaseSettings):
 
         return v
 
-    # Port configuration — used to derive URLs when not explicitly set
-    mcpbox_backend_port: int = 8000
-    mcpbox_frontend_port: int = 3000
-
-    # CORS - for local admin panel access
-    # Empty string = auto-derive from mcpbox_frontend_port
-    cors_origins: str = ""
+    # CORS - for admin panel access
+    # With same-origin nginx proxy, CORS is only needed for direct backend access
+    # (e.g., local development). Default: http://localhost:3000
+    cors_origins: str = "http://localhost:3000"
 
     # MCP CORS - separate from admin panel, for tunnel-exposed MCP gateway
     # Defaults to Claude AI origins; add other AI service origins as needed
@@ -159,10 +156,7 @@ class Settings(BaseSettings):
     @field_validator("cors_origins")
     @classmethod
     def validate_cors_origins(cls, v: str) -> str:
-        """Validate CORS origins are valid URLs.
-
-        Empty string is allowed — model_validator will derive from port settings.
-        """
+        """Validate CORS origins are valid URLs."""
         if not v:
             return v
 
@@ -204,13 +198,6 @@ class Settings(BaseSettings):
         import hashlib
 
         return hashlib.sha256((self.mcpbox_encryption_key + "_jwt_secret").encode()).hexdigest()
-
-    @model_validator(mode="after")
-    def derive_cors_from_port(self) -> "Settings":
-        """Derive CORS origins from frontend port when not explicitly set."""
-        if not self.cors_origins:
-            self.cors_origins = f"http://localhost:{self.mcpbox_frontend_port}"
-        return self
 
     def check_security_configuration(self) -> list[str]:
         """Check for security configuration issues."""

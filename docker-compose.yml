@@ -59,7 +59,7 @@ services:
           pids: 64
 
   # ============================================================
-  # Backend - Python FastAPI (Admin API - Local Only)
+  # Backend - Python FastAPI (Admin API, accessed via frontend nginx proxy)
   # ============================================================
   backend:
     build:
@@ -74,8 +74,6 @@ services:
       - SANDBOX_API_KEY=${SANDBOX_API_KEY:?SANDBOX_API_KEY is required}
       - SANDBOX_URL=http://sandbox:8001
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - MCPBOX_BACKEND_PORT=${MCPBOX_BACKEND_PORT:-8000}
-      - MCPBOX_FRONTEND_PORT=${MCPBOX_FRONTEND_PORT:-3000}
       - CORS_ORIGINS=${CORS_ORIGINS:-}
     security_opt:
       - no-new-privileges:true
