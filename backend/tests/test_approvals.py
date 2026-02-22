@@ -268,14 +268,36 @@ async def test_reject_tool_requires_reason(
 
 
 @pytest.mark.asyncio
-async def test_approve_non_pending_tool_fails(
+async def test_approve_draft_tool_directly(
     async_client: AsyncClient,
     admin_headers: dict,
     draft_tool: Tool,
+    db_session: AsyncSession,
 ):
-    """Test that approving a non-pending tool fails."""
+    """Test that admin can approve a draft tool directly (skip pending_review)."""
     response = await async_client.post(
         f"/api/approvals/tools/{draft_tool.id}/action",
+        json={"action": "approve"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["status"] == "approved"
+
+    await db_session.refresh(draft_tool)
+    assert draft_tool.approval_status == "approved"
+
+
+@pytest.mark.asyncio
+async def test_approve_already_approved_tool_fails(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    approved_tool: Tool,
+):
+    """Test that approving an already-approved tool fails."""
+    response = await async_client.post(
+        f"/api/approvals/tools/{approved_tool.id}/action",
         json={"action": "approve"},
         headers=admin_headers,
     )

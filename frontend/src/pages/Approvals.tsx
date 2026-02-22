@@ -374,13 +374,22 @@ function ToolsQueue() {
               </button>
             </>
           ) : tool.approval_status === 'draft' || tool.approval_status === 'rejected' ? (
-            <button
-              onClick={() => handleSubmitForReview(tool.id)}
-              disabled={toolAction.isPending}
-              className="rounded-lg bg-iris px-3 py-1.5 text-sm font-medium text-base hover:bg-iris/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
-            >
-              Submit for Review
-            </button>
+            <>
+              <button
+                onClick={() => handleApprove(tool.id)}
+                disabled={toolAction.isPending}
+                className="rounded-lg bg-foam px-3 py-1.5 text-sm font-medium text-base hover:bg-foam/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-foam"
+              >
+                Approve
+              </button>
+              <button
+                onClick={() => handleSubmitForReview(tool.id)}
+                disabled={toolAction.isPending}
+                className="rounded-lg border border-iris/30 px-3 py-1.5 text-sm font-medium text-iris hover:bg-iris/10 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
+              >
+                Submit for Review
+              </button>
+            </>
           ) : (
             <button
               onClick={() => setRevokeTarget(tool)}
