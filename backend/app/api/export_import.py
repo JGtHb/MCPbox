@@ -308,7 +308,13 @@ async def import_servers(
                         python_code=tool_data.python_code,
                         code_dependencies=None,
                     )
-                    await tool_service.create(server.id, tool_create)
+                    tool = await tool_service.create(
+                        server.id, tool_create, change_source="import"
+                    )
+                    # Mark imported tools as pending_review so they appear
+                    # in the approval queue (create() defaults to draft)
+                    tool.approval_status = "pending_review"
+                    tool.approval_requested_at = datetime.now(UTC)
                     server_tools_created += 1
 
                 # Only count as success if we get here without exception
