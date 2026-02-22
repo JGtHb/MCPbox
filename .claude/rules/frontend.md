@@ -14,5 +14,5 @@ paths:
 - Custom hooks in `src/hooks/` (e.g., `useCopyToClipboard`)
 - Page components in `src/pages/`, reusable UI in `src/components/`
 - Routes defined in `src/routes.tsx`
-- `VITE_API_URL` environment variable for backend URL (set at build time)
+- API calls use same-origin relative paths; nginx proxies `/api/*`, `/auth/*`, `/health` to backend
 - ESLint + Prettier enforced

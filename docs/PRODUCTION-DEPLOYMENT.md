@@ -241,7 +241,7 @@ Before going live, verify:
 - [ ] Run `alembic upgrade head` to apply all migrations (including partial unique indexes)
 - [ ] `SANDBOX_API_KEY` is at least 32 characters
 - [ ] Remote access wizard completed and `./scripts/deploy-worker.sh --set-secrets` run (if using remote access)
-- [ ] `VITE_API_URL` set at frontend build time for production builds
+- [ ] Frontend nginx proxy reaches backend (test: `curl http://localhost:3000/health`)
 
 ### Secrets Management
 
