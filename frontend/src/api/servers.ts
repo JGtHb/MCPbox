@@ -92,6 +92,21 @@ export async function fetchServerStatus(id: string): Promise<ContainerStatus> {
   return api.get<ContainerStatus>(`/api/sandbox/servers/${id}/status`)
 }
 
+// Host management types and functions
+export interface AllowedHostsResponse {
+  server_id: string
+  network_mode: string
+  allowed_hosts: string[]
+}
+
+export async function addAllowedHost(serverId: string, host: string): Promise<AllowedHostsResponse> {
+  return api.post<AllowedHostsResponse>(`/api/servers/${serverId}/allowed-hosts`, { host })
+}
+
+export async function removeAllowedHost(serverId: string, host: string): Promise<AllowedHostsResponse> {
+  return api.delete<AllowedHostsResponse>(`/api/servers/${serverId}/allowed-hosts?host=${encodeURIComponent(host)}`)
+}
+
 // NOTE: fetchServerModules, updateServerModules, fetchDefaultModules removed
 // Module configuration is now global - see api/settings.ts
 
@@ -198,6 +213,34 @@ export function useRestartServer() {
     onError: (_, id) => {
       // Invalidate to ensure UI reflects actual state
       queryClient.invalidateQueries({ queryKey: serverKeys.status(id) })
+    },
+  })
+}
+
+export function useAddAllowedHost() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ serverId, host }: { serverId: string; host: string }) =>
+      addAllowedHost(serverId, host),
+    onSuccess: (_, { serverId }) => {
+      queryClient.invalidateQueries({ queryKey: serverKeys.detail(serverId) })
+      queryClient.invalidateQueries({ queryKey: serverKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: ['approvals'] })
+    },
+  })
+}
+
+export function useRemoveAllowedHost() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ serverId, host }: { serverId: string; host: string }) =>
+      removeAllowedHost(serverId, host),
+    onSuccess: (_, { serverId }) => {
+      queryClient.invalidateQueries({ queryKey: serverKeys.detail(serverId) })
+      queryClient.invalidateQueries({ queryKey: serverKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: ['approvals'] })
     },
   })
 }

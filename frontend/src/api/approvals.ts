@@ -158,7 +158,7 @@ export async function getPendingNetworkRequests(
 
 export async function takeToolAction(
   toolId: string,
-  action: 'approve' | 'reject',
+  action: 'approve' | 'reject' | 'submit_for_review',
   reason?: string
 ): Promise<void> {
   await api.post(`/api/approvals/tools/${toolId}/action`, {
@@ -351,7 +351,7 @@ export function useToolAction() {
       reason,
     }: {
       toolId: string
-      action: 'approve' | 'reject'
+      action: 'approve' | 'reject' | 'submit_for_review'
       reason?: string
     }) => takeToolAction(toolId, action, reason),
     onSuccess: () => {

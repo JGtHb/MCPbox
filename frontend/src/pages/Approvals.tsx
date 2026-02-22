@@ -44,6 +44,12 @@ function StatusBadge({ status }: { status: string }) {
           Pending
         </span>
       )
+    case 'draft':
+      return (
+        <span className="inline-flex items-center rounded-full bg-overlay px-2.5 py-0.5 text-xs font-medium text-subtle">
+          Draft
+        </span>
+      )
     default:
       return (
         <span className="inline-flex items-center rounded-full bg-overlay px-2.5 py-0.5 text-xs font-medium text-subtle">
@@ -236,6 +242,13 @@ function ToolsQueue() {
 
   const pendingItems = data?.items.filter((t) => isPendingStatus(t.approval_status)) ?? []
   const approvedItems = data?.items.filter((t) => t.approval_status === 'approved') ?? []
+  const draftOrRejectedItems = data?.items.filter(
+    (t) => t.approval_status === 'draft' || t.approval_status === 'rejected'
+  ) ?? []
+
+  const handleSubmitForReview = async (toolId: string) => {
+    await toolAction.mutateAsync({ toolId, action: 'submit_for_review' })
+  }
 
   const handleApprove = async (toolId: string) => {
     await toolAction.mutateAsync({ toolId, action: 'approve' })
@@ -360,6 +373,14 @@ function ToolsQueue() {
                 Request Revision
               </button>
             </>
+          ) : tool.approval_status === 'draft' || tool.approval_status === 'rejected' ? (
+            <button
+              onClick={() => handleSubmitForReview(tool.id)}
+              disabled={toolAction.isPending}
+              className="rounded-lg bg-iris px-3 py-1.5 text-sm font-medium text-base hover:bg-iris/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
+            >
+              Submit for Review
+            </button>
           ) : (
             <button
               onClick={() => setRevokeTarget(tool)}
@@ -446,6 +467,21 @@ function ToolsQueue() {
             </>
           )}
 
+          {/* Draft / Rejected section */}
+          {draftOrRejectedItems.length > 0 && (
+            <div className="mt-6">
+              <div className="flex items-center gap-3 mb-3">
+                <h3 className="text-sm font-medium text-subtle uppercase tracking-wide">
+                  Needs Submission ({draftOrRejectedItems.length})
+                </h3>
+                <div className="flex-1 h-px bg-hl-med" />
+              </div>
+              <div className="space-y-3">
+                {draftOrRejectedItems.map((tool) => <ToolCard key={tool.id} tool={tool} isPending={false} />)}
+              </div>
+            </div>
+          )}
+
           {/* Approved section */}
           {approvedItems.length > 0 && (
             <div className="mt-6">
@@ -461,7 +497,7 @@ function ToolsQueue() {
             </div>
           )}
 
-          {debouncedSearch && pendingItems.length === 0 && approvedItems.length === 0 && (
+          {debouncedSearch && pendingItems.length === 0 && approvedItems.length === 0 && draftOrRejectedItems.length === 0 && (
             <div className="text-center py-8">
               <p className="text-subtle">No tools match your search</p>
               <p className="text-xs text-muted mt-1">Try a different search term</p>
