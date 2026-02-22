@@ -265,8 +265,7 @@ async def import_servers(
             )
     else:
         warnings.append(
-            "Export file is not signed. "
-            "All imported tools will require approval before use."
+            "Export file is not signed. All imported tools will require approval before use."
         )
     servers_created = 0
     tools_created = 0
@@ -308,9 +307,7 @@ async def import_servers(
                         python_code=tool_data.python_code,
                         code_dependencies=None,
                     )
-                    tool = await tool_service.create(
-                        server.id, tool_create, change_source="import"
-                    )
+                    tool = await tool_service.create(server.id, tool_create, change_source="import")
                     # Mark imported tools as pending_review so they appear
                     # in the approval queue (create() defaults to draft)
                     tool.approval_status = "pending_review"
