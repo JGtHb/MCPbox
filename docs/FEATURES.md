@@ -88,7 +88,7 @@ Features are sorted by status, with broken/partial items at the top for visibili
 - **Owner modules**: `backend/app/api/mcp_gateway.py`, `backend/app/mcp_only.py`, `backend/app/services/tool_change_notifier.py`
 - **Dependencies**: Sandbox (tool execution), Service token cache (auth)
 - **Test coverage**: `backend/tests/test_mcp_gateway.py` (39 tests) — good coverage
-- **Security notes**: Method-level authorization in remote mode. Only `initialize` and `notifications/*` allowed without verified email.
+- **Security notes**: Method-level authorization in remote mode. Only `initialize` and `notifications/*` allowed without verified email. Gateway-level email allowlist enforcement (SEC-039): `verify_mcp_auth` checks forwarded email against stored access policy as defense-in-depth against Cloudflare Access misconfiguration.
 
 ### Admin Authentication (JWT)
 - **Status**: Complete

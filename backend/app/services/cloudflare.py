@@ -1109,6 +1109,15 @@ export default {
         # sync ALLOWED_EMAILS to the Worker — it was removed.
         worker_synced = True  # No Worker sync needed for policy changes
 
+        # Invalidate the gateway email policy cache so the new policy
+        # takes effect immediately in the backend process.  The mcp-gateway
+        # process picks it up within EmailPolicyCache.TTL_SECONDS.
+        from app.services.email_policy_cache import EmailPolicyCache
+
+        policy_cache = EmailPolicyCache.get_instance()
+        policy_cache.invalidate()
+        await policy_cache.load()
+
         message = "Access policy updated"
         if errors:
             message += f" (warnings: {'; '.join(errors)})"
@@ -1492,6 +1501,13 @@ compatibility_flags = ["{settings.cf_worker_compatibility_flags}"]
             config.error_message = None
 
             await self.db.flush()
+
+            # Refresh email policy cache so the new policy takes effect
+            from app.services.email_policy_cache import EmailPolicyCache
+
+            policy_cache = EmailPolicyCache.get_instance()
+            policy_cache.invalidate()
+            await policy_cache.load()
 
             return ConfigureJwtResponse(
                 success=True,

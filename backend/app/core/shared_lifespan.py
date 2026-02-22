@@ -12,6 +12,7 @@ from app.core import async_session_maker, settings, setup_logging
 from app.core.logging import get_logger
 from app.middleware import rate_limit_cleanup_loop
 from app.services.activity_logger import ActivityLoggerService
+from app.services.email_policy_cache import EmailPolicyCache
 from app.services.log_retention import LogRetentionService
 from app.services.sandbox_client import SandboxClient
 from app.services.service_token_cache import ServiceTokenCache
@@ -65,6 +66,10 @@ async def common_startup(logger: logging.Logger) -> list[asyncio.Task]:
     # Load service token from database
     service_token_cache = ServiceTokenCache.get_instance()
     await service_token_cache.load()
+
+    # Load email access policy from database (defense-in-depth allowlist)
+    email_policy_cache = EmailPolicyCache.get_instance()
+    await email_policy_cache.load()
 
     # Load settings from database (falls back to defaults if not set)
     async with async_session_maker() as db:

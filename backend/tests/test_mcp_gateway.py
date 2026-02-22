@@ -14,8 +14,20 @@ import pytest
 from httpx import AsyncClient
 
 from app.main import app
+from app.services.email_policy_cache import EmailPolicyCache
 from app.services.sandbox_client import get_sandbox_client
 from app.services.service_token_cache import ServiceTokenCache
+
+
+def _make_permissive_email_policy_cache() -> EmailPolicyCache:
+    """Create an EmailPolicyCache with no policy (allows all emails)."""
+    cache = EmailPolicyCache()
+    cache._policy_type = None
+    cache._allowed_emails = None
+    cache._allowed_domain = None
+    cache._db_error = False
+    cache._last_loaded = time.monotonic()
+    return cache
 
 
 @pytest.fixture
@@ -654,7 +666,14 @@ class TestOIDCIntegrationWithGateway:
             }.get(key, default)
         )
 
-        with patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache):
+        with (
+            patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache),
+            patch.object(
+                EmailPolicyCache,
+                "get_instance",
+                return_value=_make_permissive_email_policy_cache(),
+            ),
+        ):
             user = await verify_mcp_auth(
                 request=mock_request,
                 x_mcpbox_service_token=test_token,
@@ -676,7 +695,14 @@ class TestOIDCIntegrationWithGateway:
         mock_cache.is_auth_enabled = AsyncMock(return_value=True)
         mock_cache.get_token = AsyncMock(return_value=test_token)
 
-        with patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache):
+        with (
+            patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache),
+            patch.object(
+                EmailPolicyCache,
+                "get_instance",
+                return_value=_make_permissive_email_policy_cache(),
+            ),
+        ):
             user = await verify_mcp_auth(
                 request=self._make_mock_request(),
                 x_mcpbox_service_token=test_token,
@@ -711,7 +737,14 @@ class TestOIDCIntegrationWithGateway:
             }.get(key, default)
         )
 
-        with patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache):
+        with (
+            patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache),
+            patch.object(
+                EmailPolicyCache,
+                "get_instance",
+                return_value=_make_permissive_email_policy_cache(),
+            ),
+        ):
             user = await verify_mcp_auth(
                 request=mock_request,
                 x_mcpbox_service_token=test_token,
@@ -808,7 +841,9 @@ class TestMCPGatewaySyncAuth:
         assert result["result"]["serverInfo"]["name"] == "mcpbox"
 
     @pytest.mark.asyncio
-    async def test_sync_tools_list_blocked_without_email(self, async_client: AsyncClient, mock_sandbox_client):
+    async def test_sync_tools_list_blocked_without_email(
+        self, async_client: AsyncClient, mock_sandbox_client
+    ):
         """Anonymous remote tools/list is blocked (tool names are sensitive)."""
         mock_sandbox_client.mcp_request = AsyncMock(return_value={"result": {"tools": []}})
         test_token = "a" * 32

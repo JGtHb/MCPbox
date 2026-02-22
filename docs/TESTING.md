@@ -220,7 +220,8 @@ Ordered by risk (highest first):
 
 ### Large Test Files Without Class Organization
 - `test_approvals.py` — 819 lines, no class grouping
-- `test_mcp_gateway.py` — 38KB, no class grouping
+- `test_mcp_gateway.py` — MCP gateway auth/protocol tests (has class grouping)
+- `test_email_policy.py` — Gateway email allowlist enforcement (26 tests, SEC-039)
 - `test_cloudflare.py` — 22KB, no class grouping
 - **Impact**: Harder to navigate and run subsets of tests
 
