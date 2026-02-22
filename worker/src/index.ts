@@ -67,11 +67,86 @@ export interface Env {
 // CORS headers to include in all responses
 const CORS_HEADERS_LIST = 'Content-Type, Authorization, Mcp-Session-Id';
 
+// =============================================================================
+// Built-in defaults (always included, cannot be removed by admin)
+// =============================================================================
+
+const BUILTIN_CORS_ORIGINS = [
+  'https://mcp.claude.ai',
+  'https://claude.ai',
+  'https://one.dash.cloudflare.com',
+];
+
+const BUILTIN_REDIRECT_PATTERNS = [
+  /^https:\/\/mcp\.claude\.ai\//,
+  /^https:\/\/claude\.ai\//,
+  /^https:\/\/one\.dash\.cloudflare\.com\//,
+  /^http:\/\/localhost(:\d+)?\//,
+  /^http:\/\/127\.0\.0\.1(:\d+)?\//,
+];
+
+// =============================================================================
+// KV-backed admin config cache (per-isolate, 60s TTL)
+// =============================================================================
+
+export interface AdminConfig {
+  corsOrigins: string[];
+  redirectUris: string[];
+  cachedAt: number;
+}
+
+let adminConfigCache: AdminConfig | null = null;
+const ADMIN_CONFIG_TTL_MS = 60_000;
+
+/** Reset admin config cache (for testing only). */
+export function resetAdminConfigCache(): void {
+  adminConfigCache = null;
+}
+
 /**
- * Get allowed CORS origin from config.
- * Defaults to restricting to Claude's MCP Server Portal domains.
+ * Load admin-configured origins from KV (with caching).
+ * Returns empty arrays if KV is unavailable or not configured.
  */
-function getCorsOrigin(env: Env, requestOrigin: string | null): string {
+export async function getAdminConfig(env: Env): Promise<AdminConfig> {
+  const now = Date.now();
+  if (adminConfigCache && (now - adminConfigCache.cachedAt) < ADMIN_CONFIG_TTL_MS) {
+    return adminConfigCache;
+  }
+
+  let corsOrigins: string[] = [];
+  let redirectUris: string[] = [];
+
+  if (env.OAUTH_KV) {
+    try {
+      const [corsRaw, redirectRaw] = await Promise.all([
+        env.OAUTH_KV.get('config:cors_origins'),
+        env.OAUTH_KV.get('config:redirect_uris'),
+      ]);
+      if (corsRaw) {
+        const parsed = JSON.parse(corsRaw);
+        if (Array.isArray(parsed)) corsOrigins = parsed.filter((s: unknown) => typeof s === 'string');
+      }
+      if (redirectRaw) {
+        const parsed = JSON.parse(redirectRaw);
+        if (Array.isArray(parsed)) redirectUris = parsed.filter((s: unknown) => typeof s === 'string');
+      }
+    } catch (e) {
+      console.warn('Failed to read admin config from KV:', e);
+    }
+  }
+
+  adminConfigCache = { corsOrigins, redirectUris, cachedAt: now };
+  return adminConfigCache;
+}
+
+/**
+ * Get allowed CORS origin for a request.
+ *
+ * Checks built-in origins + admin-configured origins from KV.
+ * Falls back to 'https://mcp.claude.ai' if no match.
+ */
+async function getCorsOrigin(env: Env, requestOrigin: string | null): Promise<string> {
+  // Legacy single-origin override (still supported, but prefer KV config)
   if (env.CORS_ALLOWED_ORIGIN) {
     if (env.CORS_ALLOWED_ORIGIN === '*') {
       console.warn('SECURITY: CORS_ALLOWED_ORIGIN="*" is insecure, ignoring.');
@@ -80,13 +155,18 @@ function getCorsOrigin(env: Env, requestOrigin: string | null): string {
     }
   }
 
-  const allowedOrigins = [
-    'https://mcp.claude.ai',
-    'https://claude.ai',
-    'https://one.dash.cloudflare.com',
-  ];
+  if (!requestOrigin) {
+    return 'https://mcp.claude.ai';
+  }
 
-  if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
+  // Check built-in origins first (fast, no KV read)
+  if (BUILTIN_CORS_ORIGINS.includes(requestOrigin)) {
+    return requestOrigin;
+  }
+
+  // Check admin-configured origins from KV
+  const adminConfig = await getAdminConfig(env);
+  if (adminConfig.corsOrigins.includes(requestOrigin)) {
     return requestOrigin;
   }
 
@@ -105,20 +185,26 @@ function getCorsHeaders(corsOrigin: string): Record<string, string> {
   };
 }
 
-// Static allowed redirect URI patterns for OAuth client registration
-const ALLOWED_REDIRECT_PATTERNS = [
-  /^https:\/\/mcp\.claude\.ai\//,
-  /^https:\/\/claude\.ai\//,
-  /^https:\/\/one\.dash\.cloudflare\.com\//,
-  /^http:\/\/localhost(:\d+)?\//,
-  /^http:\/\/127\.0\.0\.1(:\d+)?\//,
-];
-
 /**
- * Validate that a redirect URI matches an allowed pattern.
+ * Validate that a redirect URI matches allowed patterns.
+ *
+ * Checks built-in patterns + admin-configured URI prefixes from KV.
  */
-function isRedirectUriAllowed(redirectUri: string): boolean {
-  return ALLOWED_REDIRECT_PATTERNS.some(pattern => pattern.test(redirectUri));
+async function isRedirectUriAllowed(redirectUri: string, env: Env): Promise<boolean> {
+  // Check built-in patterns first (fast, no KV read)
+  if (BUILTIN_REDIRECT_PATTERNS.some(pattern => pattern.test(redirectUri))) {
+    return true;
+  }
+
+  // Check admin-configured redirect URI prefixes
+  const adminConfig = await getAdminConfig(env);
+  for (const prefix of adminConfig.redirectUris) {
+    if (redirectUri.startsWith(prefix)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 // Internal path used for URL rewriting. MCP requests to '/' are rewritten to
@@ -139,7 +225,7 @@ const apiHandler = {
     const path = url.pathname;
     console.log(`apiHandler: ${request.method} ${path} (OAuth validated, has_email: ${!!ctx.props?.email})`);
     const requestOrigin = request.headers.get('Origin');
-    const corsOrigin = getCorsOrigin(env, requestOrigin);
+    const corsOrigin = await getCorsOrigin(env, requestOrigin);
     const corsHeaders = getCorsHeaders(corsOrigin);
 
     // CORS preflight
@@ -238,7 +324,7 @@ const apiHandler = {
 const defaultHandler = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    const corsOrigin = getCorsOrigin(env, request.headers.get('Origin'));
+    const corsOrigin = await getCorsOrigin(env, request.headers.get('Origin'));
     const corsHeaders = getCorsHeaders(corsOrigin);
 
     // CORS preflight
@@ -280,7 +366,7 @@ export default {
     const originalPathname = url.pathname;
     console.log(`Worker request: ${request.method} ${url.pathname} [${request.headers.get('User-Agent') || 'no-ua'}]`);
 
-    const corsOrigin = getCorsOrigin(env, request.headers.get('Origin'));
+    const corsOrigin = await getCorsOrigin(env, request.headers.get('Origin'));
     const corsHeaders = getCorsHeaders(corsOrigin);
 
     // =================================================================
@@ -343,7 +429,7 @@ export default {
         const tokenClientId = params.get('client_id');
         const tokenRedirectUri = params.get('redirect_uri');
         if (tokenClientId) {
-          if (tokenRedirectUri && !isRedirectUriAllowed(tokenRedirectUri)) {
+          if (tokenRedirectUri && !(await isRedirectUriAllowed(tokenRedirectUri, env))) {
             console.error(`SECURITY: Rejected /token auto-registration with invalid redirect_uri: ${tokenRedirectUri}`);
             return new Response(JSON.stringify({ error: 'invalid_redirect_uri' }), {
               status: 400,
@@ -406,7 +492,7 @@ export default {
         const registerData = JSON.parse(registerBody);
         const redirectUris: string[] = registerData.redirect_uris || [];
         for (const uri of redirectUris) {
-          if (!isRedirectUriAllowed(uri)) {
+          if (!(await isRedirectUriAllowed(uri, env))) {
             console.error(`SECURITY: Rejected /register with invalid redirect_uri: ${uri}`);
             return new Response(JSON.stringify({ error: 'invalid_redirect_uri' }), {
               status: 400,

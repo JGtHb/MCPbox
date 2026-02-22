@@ -31,6 +31,8 @@ from app.schemas.cloudflare import (
     TeardownResponse,
     UpdateAccessPolicyRequest,
     UpdateAccessPolicyResponse,
+    UpdateWorkerConfigRequest,
+    UpdateWorkerConfigResponse,
     WizardStatusResponse,
     Zone,
 )
@@ -374,6 +376,60 @@ async def get_tunnel_token(
             detail="Tunnel token not found",
         )
     return {"tunnel_token": token}
+
+
+# =============================================================================
+# Worker Configuration (CORS + Redirect URIs)
+# =============================================================================
+
+
+@router.put("/worker-config", response_model=UpdateWorkerConfigResponse)
+async def update_worker_config(
+    request: UpdateWorkerConfigRequest,
+    db: AsyncSession = Depends(get_db),
+    service: CloudflareService = Depends(get_cloudflare_service),
+) -> UpdateWorkerConfigResponse:
+    """Update Worker CORS origins and OAuth redirect URIs.
+
+    Saves the configuration to the database and syncs it to the Worker's
+    KV namespace so the Worker picks it up immediately without redeployment.
+    Built-in origins (claude.ai, localhost, etc.) are always included by
+    the Worker — these are *additional* origins.
+    """
+    try:
+        result = await service.update_worker_config(
+            request.config_id,
+            allowed_cors_origins=request.allowed_cors_origins,
+            allowed_redirect_uris=request.allowed_redirect_uris,
+        )
+        await db.commit()
+        return result
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from None
+    except CloudflareAPIError as e:
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(e),
+        ) from None
+
+
+@router.get("/worker-config/{config_id}", response_model=UpdateWorkerConfigResponse)
+async def get_worker_config(
+    config_id: UUID,
+    service: CloudflareService = Depends(get_cloudflare_service),
+) -> UpdateWorkerConfigResponse:
+    """Get current Worker CORS origins and redirect URI configuration."""
+    try:
+        return await service.get_worker_config(config_id)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from None
 
 
 # =============================================================================

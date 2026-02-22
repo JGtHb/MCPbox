@@ -64,7 +64,7 @@ vi.mock('@cloudflare/workers-oauth-provider', () => {
   };
 });
 
-import worker, { type Env } from './index';
+import worker, { type Env, resetAdminConfigCache } from './index';
 
 // ---------------------------------------------------------------------------
 // Test Helpers
@@ -115,6 +115,8 @@ const createBaseEnv = (overrides: Partial<Record<string, unknown>> = {}) => {
 describe('MCPbox Proxy Worker', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    // Reset per-isolate admin config cache between tests
+    resetAdminConfigCache();
   });
 
   // ===========================================================================
@@ -1256,6 +1258,190 @@ describe('MCPbox Proxy Worker', () => {
       // Returns 404 (not 401), so no WWW-Authenticate
       expect(response.status).toBe(404);
       expect(response.headers.get('WWW-Authenticate')).toBeNull();
+    });
+  });
+
+  // ===========================================================================
+  // 10. Admin-configurable CORS origins and redirect URIs (KV-backed)
+  // ===========================================================================
+
+  describe('Admin-configurable origins (KV)', () => {
+    /** Create a mock KV that returns admin config for CORS and redirect URIs. */
+    const createAdminConfigKV = (corsOrigins: string[], redirectUris: string[]) => ({
+      get: vi.fn().mockImplementation(async (key: string) => {
+        if (key === 'config:cors_origins') return JSON.stringify(corsOrigins);
+        if (key === 'config:redirect_uris') return JSON.stringify(redirectUris);
+        return null;
+      }),
+      put: vi.fn().mockResolvedValue(undefined),
+      delete: vi.fn().mockResolvedValue(undefined),
+    });
+
+    it('allows admin-configured CORS origin from KV', async () => {
+      const kv = createAdminConfigKV(
+        ['https://my-custom-client.example.com'],
+        [],
+      );
+      const env = createBaseEnv({ OAUTH_KV: kv });
+      const request = new Request('https://example.com/', {
+        method: 'OPTIONS',
+        headers: { Origin: 'https://my-custom-client.example.com' },
+      });
+      const ctx = createExecutionContext();
+
+      const response = await worker.fetch(request, env, ctx as any);
+
+      expect(response.headers.get('Access-Control-Allow-Origin'))
+        .toBe('https://my-custom-client.example.com');
+    });
+
+    it('still allows built-in origins even without KV config', async () => {
+      const kv = createAdminConfigKV([], []);
+      const env = createBaseEnv({ OAUTH_KV: kv });
+      const request = new Request('https://example.com/', {
+        method: 'OPTIONS',
+        headers: { Origin: 'https://claude.ai' },
+      });
+      const ctx = createExecutionContext();
+
+      const response = await worker.fetch(request, env, ctx as any);
+
+      expect(response.headers.get('Access-Control-Allow-Origin'))
+        .toBe('https://claude.ai');
+    });
+
+    it('falls back to default for non-allowed origin even with KV config', async () => {
+      const kv = createAdminConfigKV(
+        ['https://allowed.example.com'],
+        [],
+      );
+      const env = createBaseEnv({ OAUTH_KV: kv });
+      const request = new Request('https://example.com/', {
+        method: 'OPTIONS',
+        headers: { Origin: 'https://not-allowed.example.com' },
+      });
+      const ctx = createExecutionContext();
+
+      const response = await worker.fetch(request, env, ctx as any);
+
+      expect(response.headers.get('Access-Control-Allow-Origin'))
+        .toBe('https://mcp.claude.ai');
+    });
+
+    it('allows /register with admin-configured redirect URI prefix', async () => {
+      const kv = createAdminConfigKV(
+        [],
+        ['https://my-mcp-client.example.com/'],
+      );
+      const env = createBaseEnv({ OAUTH_KV: kv });
+      const request = new Request('https://example.com/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          redirect_uris: ['https://my-mcp-client.example.com/oauth/callback'],
+        }),
+      });
+      const ctx = createExecutionContext();
+
+      const response = await worker.fetch(request, env, ctx as any);
+
+      // Should NOT be 400 (invalid_redirect_uri) — the admin-configured prefix should match
+      expect(response.status).not.toBe(400);
+    });
+
+    it('rejects /register with URI not matching built-in or admin patterns', async () => {
+      const kv = createAdminConfigKV(
+        [],
+        ['https://allowed.example.com/'],
+      );
+      const env = createBaseEnv({ OAUTH_KV: kv });
+      const request = new Request('https://example.com/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          redirect_uris: ['https://evil.com/steal-token'],
+        }),
+      });
+      const ctx = createExecutionContext();
+
+      const response = await worker.fetch(request, env, ctx as any);
+
+      expect(response.status).toBe(400);
+      const body = await response.json() as { error: string };
+      expect(body.error).toBe('invalid_redirect_uri');
+    });
+
+    it('allows /token auto-registration with admin-configured redirect URI', async () => {
+      const kv = createAdminConfigKV(
+        [],
+        ['https://my-mcp-client.example.com/'],
+      );
+      const env = createBaseEnv({ OAUTH_KV: kv });
+      const request = new Request('https://example.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: 'new-custom-client',
+          redirect_uri: 'https://my-mcp-client.example.com/callback',
+          grant_type: 'authorization_code',
+          code: 'test-code',
+        }).toString(),
+      });
+      const ctx = createExecutionContext();
+
+      const response = await worker.fetch(request, env, ctx as any);
+
+      // Should NOT be 400 (invalid_redirect_uri)
+      expect(response.status).not.toBe(400);
+      // KV should have been written to (auto-registration)
+      expect(kv.put).toHaveBeenCalledWith(
+        'client:new-custom-client',
+        expect.any(String),
+      );
+    });
+
+    it('rejects /token auto-registration with non-matching redirect URI', async () => {
+      const kv = createAdminConfigKV(
+        [],
+        ['https://allowed.example.com/'],
+      );
+      const env = createBaseEnv({ OAUTH_KV: kv });
+      const request = new Request('https://example.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: 'evil-client',
+          redirect_uri: 'https://evil.com/steal',
+          grant_type: 'authorization_code',
+          code: 'test-code',
+        }).toString(),
+      });
+      const ctx = createExecutionContext();
+
+      const response = await worker.fetch(request, env, ctx as any);
+
+      expect(response.status).toBe(400);
+      const body = await response.json() as { error: string };
+      expect(body.error).toBe('invalid_redirect_uri');
+    });
+
+    it('handles KV read failure gracefully (falls back to built-in only)', async () => {
+      const kv = {
+        get: vi.fn().mockRejectedValue(new Error('KV unavailable')),
+        put: vi.fn().mockResolvedValue(undefined),
+        delete: vi.fn().mockResolvedValue(undefined),
+      };
+      const env = createBaseEnv({ OAUTH_KV: kv });
+      const request = new Request('https://example.com/', {
+        method: 'OPTIONS',
+        headers: { Origin: 'https://claude.ai' },
+      });
+      const ctx = createExecutionContext();
+
+      const response = await worker.fetch(request, env, ctx as any);
+
+      // Built-in origins should still work
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://claude.ai');
     });
   });
 });
