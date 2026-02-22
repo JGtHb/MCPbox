@@ -117,9 +117,9 @@ class ApprovalService:
         if not tool:
             raise ValueError(f"Tool {tool_id} not found")
 
-        if tool.approval_status != "pending_review":
+        if tool.approval_status not in ("pending_review", "draft", "rejected"):
             raise ValueError(
-                f"Tool must be in 'pending_review' status to approve. "
+                f"Tool must be in 'pending_review', 'draft', or 'rejected' status to approve. "
                 f"Current status: {tool.approval_status}"
             )
 

@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useTools, useUpdateToolEnabled, useRenameTool, useDeleteTool, useUpdateToolDescription, type ToolListItem } from '../../api/tools'
+import { useToolAction } from '../../api/approvals'
 import { ToolExecutionLogs } from './ToolExecutionLogs'
 
 const APPROVAL_COLORS: Record<string, string> = {
@@ -169,8 +170,21 @@ interface ToolRowProps {
 
 function ToolRow({ tool, isExpanded, onToggle, onToggleEnabled, onRename, onDelete, isUpdating }: ToolRowProps) {
   const isApproved = tool.approval_status === 'approved'
+  const isDraftOrRejected = tool.approval_status === 'draft' || tool.approval_status === 'rejected'
+  const isPending = tool.approval_status === 'pending_review'
   const badge = TOOL_TYPE_BADGE[tool.tool_type] || TOOL_TYPE_BADGE.python_code
   const isExternal = tool.tool_type === 'mcp_passthrough'
+  const toolAction = useToolAction()
+
+  const handleSubmitForReview = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    toolAction.mutate({ toolId: tool.id, action: 'submit_for_review' })
+  }
+
+  const handleApprove = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    toolAction.mutate({ toolId: tool.id, action: 'approve' })
+  }
 
   return (
     <li>
@@ -218,7 +232,38 @@ function ToolRow({ tool, isExpanded, onToggle, onToggleEnabled, onRename, onDele
               />
             </svg>
           </button>
-          <div className="flex items-center gap-3 ml-3">
+          <div className="flex items-center gap-2 ml-3">
+            {/* Approval action buttons */}
+            {isDraftOrRejected && (
+              <>
+                <button
+                  onClick={handleSubmitForReview}
+                  disabled={toolAction.isPending}
+                  className="px-2.5 py-1 text-xs font-medium text-iris bg-surface border border-iris/20 rounded-lg hover:bg-iris/10 transition-colors focus:outline-none focus:ring-2 focus:ring-iris disabled:opacity-50"
+                  title="Submit for review"
+                >
+                  Submit
+                </button>
+                <button
+                  onClick={handleApprove}
+                  disabled={toolAction.isPending}
+                  className="px-2.5 py-1 text-xs font-medium text-foam bg-surface border border-foam/20 rounded-lg hover:bg-foam/10 transition-colors focus:outline-none focus:ring-2 focus:ring-foam disabled:opacity-50"
+                  title="Approve directly"
+                >
+                  Approve
+                </button>
+              </>
+            )}
+            {isPending && (
+              <button
+                onClick={handleApprove}
+                disabled={toolAction.isPending}
+                className="px-2.5 py-1 text-xs font-medium text-foam bg-surface border border-foam/20 rounded-lg hover:bg-foam/10 transition-colors focus:outline-none focus:ring-2 focus:ring-foam disabled:opacity-50"
+                title="Approve tool"
+              >
+                Approve
+              </button>
+            )}
             <button
               onClick={(e) => { e.stopPropagation(); onRename() }}
               className="p-1 text-muted hover:text-subtle hover:bg-hl-low rounded transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
@@ -239,7 +284,7 @@ function ToolRow({ tool, isExpanded, onToggle, onToggleEnabled, onRename, onDele
             </button>
             <label
               className={`relative inline-flex items-center ${isApproved ? 'cursor-pointer' : 'cursor-not-allowed'}`}
-              title={isApproved ? undefined : 'Tool must be approved before it can be enabled'}
+              title={isApproved ? (tool.enabled ? 'Disable tool' : 'Enable tool') : 'Tool must be approved before it can be enabled'}
             >
               <input
                 type="checkbox"
@@ -250,7 +295,7 @@ function ToolRow({ tool, isExpanded, onToggle, onToggleEnabled, onRename, onDele
               />
               <div className="w-9 h-5 bg-hl-med peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-iris rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-surface after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-hl-med after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose peer-disabled:opacity-50" />
               <span className="ml-2 text-xs text-subtle">
-                {!isApproved ? 'Not approved' : tool.enabled ? 'Enabled' : 'Disabled'}
+                {tool.enabled ? 'Enabled' : 'Disabled'}
               </span>
             </label>
           </div>
@@ -261,9 +306,9 @@ function ToolRow({ tool, isExpanded, onToggle, onToggleEnabled, onRename, onDele
           <div className="ml-2 pl-4 border-l-2 border-hl-med space-y-4">
             {/* Editable Description */}
             <ToolDescription toolId={tool.id} description={tool.description} />
-            {/* Code Viewer */}
+            {/* Code Viewer - shown by default when expanded */}
             {tool.python_code && (
-              <ToolCodeViewer code={tool.python_code} />
+              <ToolCodeViewer code={tool.python_code} defaultOpen />
             )}
             {/* Execution Logs */}
             <ToolExecutionLogs
@@ -471,10 +516,11 @@ function RenameToolModal({ tool, onClose }: RenameToolModalProps) {
 
 interface ToolCodeViewerProps {
   code: string
+  defaultOpen?: boolean
 }
 
-function ToolCodeViewer({ code }: ToolCodeViewerProps) {
-  const [isOpen, setIsOpen] = useState(false)
+function ToolCodeViewer({ code, defaultOpen = false }: ToolCodeViewerProps) {
+  const [isOpen, setIsOpen] = useState(defaultOpen)
   const [copied, setCopied] = useState(false)
 
   const handleCopy = useCallback(async () => {
