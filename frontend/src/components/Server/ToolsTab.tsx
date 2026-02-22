@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
-import { useTools, useUpdateToolEnabled, useRenameTool, useDeleteTool, useUpdateToolDescription, type ToolListItem } from '../../api/tools'
+import { useQueryClient } from '@tanstack/react-query'
+import { useTools, useUpdateToolEnabled, useRenameTool, useDeleteTool, useUpdateToolDescription, toolKeys, type ToolListItem } from '../../api/tools'
 import { useToolAction } from '../../api/approvals'
 import { ToolExecutionLogs } from './ToolExecutionLogs'
 
@@ -168,22 +169,33 @@ interface ToolRowProps {
   isUpdating: boolean
 }
 
-function ToolRow({ tool, isExpanded, onToggle, onToggleEnabled, onRename, onDelete, isUpdating }: ToolRowProps) {
+function ToolRow({ tool, serverId, isExpanded, onToggle, onToggleEnabled, onRename, onDelete, isUpdating }: ToolRowProps) {
   const isApproved = tool.approval_status === 'approved'
   const isDraftOrRejected = tool.approval_status === 'draft' || tool.approval_status === 'rejected'
   const isPending = tool.approval_status === 'pending_review'
   const badge = TOOL_TYPE_BADGE[tool.tool_type] || TOOL_TYPE_BADGE.python_code
   const isExternal = tool.tool_type === 'mcp_passthrough'
   const toolAction = useToolAction()
+  const queryClient = useQueryClient()
+
+  const invalidateToolsList = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: toolKeys.list(serverId) })
+  }, [queryClient, serverId])
 
   const handleSubmitForReview = (e: React.MouseEvent) => {
     e.stopPropagation()
-    toolAction.mutate({ toolId: tool.id, action: 'submit_for_review' })
+    toolAction.mutate(
+      { toolId: tool.id, action: 'submit_for_review' },
+      { onSuccess: invalidateToolsList }
+    )
   }
 
   const handleApprove = (e: React.MouseEvent) => {
     e.stopPropagation()
-    toolAction.mutate({ toolId: tool.id, action: 'approve' })
+    toolAction.mutate(
+      { toolId: tool.id, action: 'approve' },
+      { onSuccess: invalidateToolsList }
+    )
   }
 
   return (
