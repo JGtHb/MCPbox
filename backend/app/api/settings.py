@@ -5,6 +5,7 @@ Accessible without authentication (Option B architecture - admin panel is local-
 
 import logging
 import re
+from enum import Enum
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, status
@@ -484,3 +485,105 @@ async def sync_modules(
         "stdlib_count": result.get("stdlib_count", 0),
         "results": result.get("results", []),
     }
+
+
+# --- Security Profile Presets (Onboarding) ---
+
+
+class SecurityProfileName(str, Enum):
+    strict = "strict"
+    balanced = "balanced"
+    permissive = "permissive"
+
+
+SECURITY_PROFILES: dict[str, dict[str, str]] = {
+    "strict": {
+        "tool_approval_mode": "require_approval",
+        "network_access_policy": "require_approval",
+        "module_approval_mode": "require_approval",
+        "remote_tool_editing": "disabled",
+        "redact_secrets_in_output": "enabled",
+    },
+    "balanced": {
+        "tool_approval_mode": "auto_approve",
+        "network_access_policy": "require_approval",
+        "module_approval_mode": "auto_approve",
+        "remote_tool_editing": "disabled",
+        "redact_secrets_in_output": "enabled",
+    },
+    "permissive": {
+        "tool_approval_mode": "auto_approve",
+        "network_access_policy": "allow_all_public",
+        "module_approval_mode": "auto_approve",
+        "remote_tool_editing": "enabled",
+        "redact_secrets_in_output": "enabled",
+    },
+}
+
+
+class SecurityProfileRequest(BaseModel):
+    """Request to apply a security profile preset."""
+
+    profile: SecurityProfileName
+
+
+class SecurityProfileResponse(BaseModel):
+    """Response after applying a security profile."""
+
+    profile: str
+    applied_settings: dict[str, str]
+
+
+@router.patch("/security-profile", response_model=SecurityProfileResponse)
+async def apply_security_profile(
+    request: SecurityProfileRequest,
+    db: AsyncSession = Depends(get_db),
+    setting_service: SettingService = Depends(get_setting_service),
+) -> SecurityProfileResponse:
+    """Apply a security profile preset.
+
+    Sets multiple security policy values at once based on the selected profile.
+    """
+    profile_settings = SECURITY_PROFILES[request.profile.value]
+
+    for key, value in profile_settings.items():
+        meta = SECURITY_POLICY_SETTINGS[key]
+        await setting_service.set_value(
+            key=key,
+            value=value,
+            description=meta["description"],
+        )
+
+    await db.commit()
+
+    return SecurityProfileResponse(
+        profile=request.profile.value,
+        applied_settings=profile_settings,
+    )
+
+
+# --- Onboarding ---
+
+
+class OnboardingCompleteResponse(BaseModel):
+    """Response after marking onboarding complete."""
+
+    onboarding_completed: bool
+
+
+@router.post("/onboarding-complete", response_model=OnboardingCompleteResponse)
+async def complete_onboarding(
+    db: AsyncSession = Depends(get_db),
+    setting_service: SettingService = Depends(get_setting_service),
+) -> OnboardingCompleteResponse:
+    """Mark the onboarding wizard as completed.
+
+    Idempotent — calling this again is a no-op.
+    """
+    await setting_service.set_value(
+        key="onboarding_completed",
+        value="true",
+        description="Whether the onboarding wizard has been completed",
+    )
+    await db.commit()
+    return OnboardingCompleteResponse(onboarding_completed=True)

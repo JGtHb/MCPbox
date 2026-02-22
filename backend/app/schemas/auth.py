@@ -10,6 +10,10 @@ class AuthStatusResponse(BaseModel):
     """Response for auth status check."""
 
     setup_required: bool = Field(description="True if no admin user exists and setup is needed")
+    onboarding_completed: bool = Field(
+        default=True,
+        description="True if the onboarding wizard has been completed (or dismissed)",
+    )
 
 
 class SetupRequest(BaseModel):

@@ -208,3 +208,118 @@ class TestSecurityPolicy:
 
         config = RateLimiter.get_instance().get_config_for_path("/mcp")
         assert config.requests_per_minute == 750
+
+
+class TestSecurityProfile:
+    """Tests for PATCH /api/settings/security-profile endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_apply_strict_profile(self, async_client: AsyncClient, admin_headers):
+        """Test applying the strict security profile."""
+        response = await async_client.patch(
+            "/api/settings/security-profile",
+            json={"profile": "strict"},
+            headers=admin_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["profile"] == "strict"
+        assert data["applied_settings"]["tool_approval_mode"] == "require_approval"
+        assert data["applied_settings"]["network_access_policy"] == "require_approval"
+        assert data["applied_settings"]["module_approval_mode"] == "require_approval"
+        assert data["applied_settings"]["remote_tool_editing"] == "disabled"
+
+        # Verify settings were actually saved
+        response = await async_client.get("/api/settings/security-policy", headers=admin_headers)
+        assert response.status_code == 200
+        policy = response.json()
+        assert policy["tool_approval_mode"] == "require_approval"
+        assert policy["remote_tool_editing"] == "disabled"
+
+    @pytest.mark.asyncio
+    async def test_apply_balanced_profile(self, async_client: AsyncClient, admin_headers):
+        """Test applying the balanced security profile."""
+        response = await async_client.patch(
+            "/api/settings/security-profile",
+            json={"profile": "balanced"},
+            headers=admin_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["profile"] == "balanced"
+        assert data["applied_settings"]["tool_approval_mode"] == "auto_approve"
+        assert data["applied_settings"]["module_approval_mode"] == "auto_approve"
+        assert data["applied_settings"]["network_access_policy"] == "require_approval"
+        assert data["applied_settings"]["remote_tool_editing"] == "disabled"
+
+    @pytest.mark.asyncio
+    async def test_apply_permissive_profile(self, async_client: AsyncClient, admin_headers):
+        """Test applying the permissive security profile."""
+        response = await async_client.patch(
+            "/api/settings/security-profile",
+            json={"profile": "permissive"},
+            headers=admin_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["profile"] == "permissive"
+        assert data["applied_settings"]["tool_approval_mode"] == "auto_approve"
+        assert data["applied_settings"]["network_access_policy"] == "allow_all_public"
+        assert data["applied_settings"]["remote_tool_editing"] == "enabled"
+        # Secret redaction stays enabled even in permissive
+        assert data["applied_settings"]["redact_secrets_in_output"] == "enabled"
+
+    @pytest.mark.asyncio
+    async def test_invalid_profile_rejected(self, async_client: AsyncClient, admin_headers):
+        """Test that an invalid profile name is rejected."""
+        response = await async_client.patch(
+            "/api/settings/security-profile",
+            json={"profile": "nonexistent"},
+            headers=admin_headers,
+        )
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_security_profile_requires_auth(self, async_client: AsyncClient):
+        """Test that security profile endpoint requires authentication."""
+        response = await async_client.patch(
+            "/api/settings/security-profile",
+            json={"profile": "strict"},
+        )
+        assert response.status_code == 401
+
+
+class TestOnboardingComplete:
+    """Tests for POST /api/settings/onboarding-complete endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_complete_onboarding(self, async_client: AsyncClient, admin_headers):
+        """Test marking onboarding as complete."""
+        response = await async_client.post(
+            "/api/settings/onboarding-complete", headers=admin_headers
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["onboarding_completed"] is True
+
+    @pytest.mark.asyncio
+    async def test_complete_onboarding_idempotent(self, async_client: AsyncClient, admin_headers):
+        """Test that completing onboarding is idempotent."""
+        # Complete once
+        response = await async_client.post(
+            "/api/settings/onboarding-complete", headers=admin_headers
+        )
+        assert response.status_code == 200
+
+        # Complete again — should still succeed
+        response = await async_client.post(
+            "/api/settings/onboarding-complete", headers=admin_headers
+        )
+        assert response.status_code == 200
+        assert response.json()["onboarding_completed"] is True
+
+    @pytest.mark.asyncio
+    async def test_onboarding_complete_requires_auth(self, async_client: AsyncClient):
+        """Test that onboarding-complete endpoint requires authentication."""
+        response = await async_client.post("/api/settings/onboarding-complete")
+        assert response.status_code == 401
