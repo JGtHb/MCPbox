@@ -249,10 +249,6 @@ export function Tunnel() {
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-foam mt-0.5">&#10003;</span>
-                  <span>Domain added to Cloudflare (for the Worker hostname)</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-foam mt-0.5">&#10003;</span>
                   <span>API token with required permissions (wizard will guide you)</span>
                 </li>
               </ul>

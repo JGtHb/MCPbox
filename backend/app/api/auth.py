@@ -35,6 +35,7 @@ from app.services.auth import (
     validate_access_token,
     validate_refresh_token,
 )
+from app.services.setting import SettingService
 
 logger = logging.getLogger(__name__)
 
@@ -139,14 +140,21 @@ async def get_current_user(
 @router.get("/status", response_model=AuthStatusResponse)
 async def get_auth_status(
     auth_service: AuthService = Depends(get_auth_service),
+    db: AsyncSession = Depends(get_db),
 ) -> AuthStatusResponse:
     """Check authentication status.
 
-    Returns whether setup is required (no admin user exists).
+    Returns whether setup is required (no admin user exists) and
+    whether the onboarding wizard has been completed.
     This endpoint does not require authentication.
     """
     admin_exists = await auth_service.admin_exists()
-    return AuthStatusResponse(setup_required=not admin_exists)
+    setting_service = SettingService(db)
+    onboarding_val = await setting_service.get_value("onboarding_completed", default="false")
+    return AuthStatusResponse(
+        setup_required=not admin_exists,
+        onboarding_completed=onboarding_val == "true",
+    )
 
 
 @router.post(

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from 'react-router-dom'
 import { ErrorBoundary } from './components/ui'
@@ -7,21 +7,18 @@ import { AuthProvider } from './contexts'
 import { queryClient } from './lib/queryClient'
 import { router } from './routes'
 import { getAuthStatus, validateSession, logout as authLogout, tokens } from './api/auth'
-import { Login, Setup } from './pages'
+import { Login, Onboarding, Setup } from './pages'
 
 type AuthState = 'loading' | 'setup' | 'login' | 'authenticated' | 'error'
 
 function AppContent() {
   const [authState, setAuthState] = useState<AuthState>('loading')
+  const [showOnboarding, setShowOnboarding] = useState(false)
+  const [redirectToTunnel, setRedirectToTunnel] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    checkAuthStatus()
-  }, [])
-
-  const checkAuthStatus = async () => {
+  const checkAuthStatus = useCallback(async () => {
     try {
-      // First, check if setup is required
       const status = await getAuthStatus()
 
       if (status.setup_required) {
@@ -33,6 +30,7 @@ function AppContent() {
       if (tokens.hasTokens()) {
         const isValid = await validateSession()
         if (isValid) {
+          setShowOnboarding(!status.onboarding_completed)
           setAuthState('authenticated')
           return
         }
@@ -47,21 +45,52 @@ function AppContent() {
       setAuthState('error')
       console.error('Failed to check auth status:', err)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    checkAuthStatus()
+  }, [checkAuthStatus])
 
   const handleSetupComplete = () => {
-    // After setup, show login page
     setAuthState('login')
   }
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
+    // Re-check onboarding status after login
+    try {
+      const status = await getAuthStatus()
+      setShowOnboarding(!status.onboarding_completed)
+    } catch {
+      // If status check fails, just proceed without onboarding
+      setShowOnboarding(false)
+    }
     setAuthState('authenticated')
   }
 
   const handleLogout = async () => {
     await authLogout()
+    setShowOnboarding(false)
+    setRedirectToTunnel(false)
     setAuthState('login')
   }
+
+  const handleOnboardingComplete = (setupTunnel: boolean) => {
+    setShowOnboarding(false)
+    if (setupTunnel) {
+      setRedirectToTunnel(true)
+    }
+  }
+
+  // Handle redirect to tunnel setup after onboarding
+  useEffect(() => {
+    if (redirectToTunnel && authState === 'authenticated' && !showOnboarding) {
+      setRedirectToTunnel(false)
+      // Navigate after router is mounted
+      setTimeout(() => {
+        router.navigate('/tunnel/setup')
+      }, 0)
+    }
+  }, [redirectToTunnel, authState, showOnboarding])
 
   if (authState === 'loading') {
     return (
@@ -104,6 +133,7 @@ function AppContent() {
 
   return (
     <AuthProvider isAuthenticated={true} onLogout={handleLogout}>
+      {showOnboarding && <Onboarding onComplete={handleOnboardingComplete} />}
       <RouterProvider router={router} />
     </AuthProvider>
   )

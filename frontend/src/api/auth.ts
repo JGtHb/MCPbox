@@ -10,6 +10,7 @@ const REFRESH_TOKEN_KEY = 'mcpbox_refresh_token'
 
 export interface AuthStatus {
   setup_required: boolean
+  onboarding_completed: boolean
 }
 
 export interface TokenResponse {

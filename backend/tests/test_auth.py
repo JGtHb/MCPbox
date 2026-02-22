@@ -10,6 +10,7 @@ async def test_auth_status_no_admin(async_client):
     assert response.status_code == 200
     data = response.json()
     assert data["setup_required"] is True
+    assert data["onboarding_completed"] is False
 
 
 @pytest.mark.asyncio
@@ -19,6 +20,21 @@ async def test_auth_status_with_admin(async_client, admin_user):
     assert response.status_code == 200
     data = response.json()
     assert data["setup_required"] is False
+    assert data["onboarding_completed"] is False
+
+
+@pytest.mark.asyncio
+async def test_auth_status_onboarding_completed(async_client, admin_user, admin_headers):
+    """Test auth status reflects onboarding_completed after it's set."""
+    # Complete onboarding
+    response = await async_client.post("/api/settings/onboarding-complete", headers=admin_headers)
+    assert response.status_code == 200
+
+    # Check status reflects it
+    response = await async_client.get("/auth/status")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["onboarding_completed"] is True
 
 
 @pytest.mark.asyncio

@@ -221,3 +221,24 @@ export function useUpdateSecurityPolicy() {
     },
   })
 }
+
+// Security profile presets (onboarding)
+export type SecurityProfileName = 'strict' | 'balanced' | 'permissive'
+
+export interface SecurityProfileResponse {
+  profile: string
+  applied_settings: Record<string, string>
+}
+
+export async function applySecurityProfile(
+  profile: SecurityProfileName
+): Promise<SecurityProfileResponse> {
+  return api.patch<SecurityProfileResponse>('/api/settings/security-profile', { profile })
+}
+
+export async function completeOnboarding(): Promise<{ onboarding_completed: boolean }> {
+  return api.post<{ onboarding_completed: boolean }>(
+    '/api/settings/onboarding-complete',
+    {}
+  )
+}
