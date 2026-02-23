@@ -1,0 +1,51 @@
+title: MCPBox
+description: A self-extending MCP platform where LLMs create their own tools
+remote_theme: just-the-docs/just-the-docs@v0.10.1
+
+url: "https://jgthb.github.io"
+baseurl: "/MCPbox"
+
+# Search
+search_enabled: true
+search.heading_level: 3
+
+# Top-right links
+aux_links:
+  "GitHub":
+    - "https://github.com/JGtHb/MCPbox"
+
+# Color scheme
+color_scheme: dark
+
+# Footer
+footer_content: 'MCPBox is licensed under the <a href="https://github.com/JGtHb/MCPbox/blob/main/LICENSE">PolyForm Noncommercial License 1.0.0</a>.'
+
+# Exclude existing developer docs from the Jekyll site build.
+# These files stay in the repo for GitHub file browsing but don't
+# appear on the documentation site. Add new developer-only files here.
+exclude:
+  - ARCHITECTURE.md
+  - AUTH-FLOW.md
+  - COMPETITIVE-ANALYSIS.md
+  - DECISIONS.md
+  - FEATURES.md
+  - FRONTEND-STANDARDS.md
+  - FRONTEND.md
+  - FUTURE-EPICS.md
+  - INCIDENT-RESPONSE.md
+  - MCP-MANAGEMENT-TOOLS.md
+  - PRODUCTION-DEPLOYMENT.md
+  - CLOUDFLARE-SETUP-WIZARD.md
+  - REMOTE-ACCESS-SETUP.md
+  - API-CONTRACTS.md
+  - SECURITY.md
+  - TESTING.md
+  - README.md
+  - expansion/
+  - research/
+  - Gemfile
+  - Gemfile.lock
+
+plugins:
+  - jekyll-remote-theme
+  - jekyll-seo-tag

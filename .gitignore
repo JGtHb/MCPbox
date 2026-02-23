@@ -67,3 +67,9 @@ backend/uv.lock
 
 # Alembic
 backend/alembic/versions/*.pyc
+
+# Jekyll (docs site)
+docs/_site/
+docs/.jekyll-cache/
+docs/.jekyll-metadata
+docs/Gemfile.lock

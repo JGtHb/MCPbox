@@ -93,6 +93,9 @@ Two modes: **Local** (no auth, local MCP client → localhost:8000/mcp) and **Re
 - After adding/modifying tests → update `docs/TESTING.md`
 - After architectural decisions → add entry to `docs/DECISIONS.md`
 - After frontend UI changes → follow `docs/FRONTEND-STANDARDS.md`
+- After user-facing feature changes → update docs site pages (`docs/getting-started/`, `docs/guides/`, `docs/reference/`)
+- After adding/changing environment variables → update `docs/reference/environment-variables.md`
+- After changing MCP management tools → update `docs/reference/mcp-tools.md`
 - Always run `./scripts/pre-pr-check.sh` before PRs
 
 ## Known Gotchas

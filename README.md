@@ -133,16 +133,16 @@ The LLM doesn't just use tools — it builds them. MCPbox exposes [24 management
 
 ## Documentation
 
+**[View the full documentation](https://jgthb.github.io/MCPbox/)**
+
 | Document | Description |
 |----------|-------------|
-| [CLAUDE.md](CLAUDE.md) | Project context for AI assistants and developers |
-| [Architecture](docs/ARCHITECTURE.md) | Technical design, module map, database schema |
-| [Production Deployment](docs/PRODUCTION-DEPLOYMENT.md) | Environment variables, HTTPS, monitoring |
-| [Remote Access Setup](docs/REMOTE-ACCESS-SETUP.md) | Cloudflare tunnel configuration |
-| [MCP Management Tools](docs/MCP-MANAGEMENT-TOOLS.md) | Full reference for all 24 `mcpbox_*` tools |
-| [Setup Wizard](docs/CLOUDFLARE-SETUP-WIZARD.md) | Automated remote access setup |
-| [Security](docs/SECURITY.md) | Security risk registry and mitigations |
-| [All Documentation](docs/README.md) | Complete documentation index |
+| [Installation](https://jgthb.github.io/MCPbox/getting-started/installation.html) | Get MCPBox up and running |
+| [Quick Start](https://jgthb.github.io/MCPbox/getting-started/quick-start.html) | First-time setup and UI tour |
+| [Creating Your First Tool](https://jgthb.github.io/MCPbox/guides/first-tool.html) | End-to-end tool creation walkthrough |
+| [MCP Management Tools](https://jgthb.github.io/MCPbox/reference/mcp-tools.html) | Full reference for all 24 `mcpbox_*` tools |
+| [Remote Access Setup](https://jgthb.github.io/MCPbox/guides/remote-access.html) | Cloudflare tunnel configuration |
+| [Developer Docs](https://jgthb.github.io/MCPbox/developer/) | Architecture, security, API contracts, and more |
 
 ## Running Tests
 
