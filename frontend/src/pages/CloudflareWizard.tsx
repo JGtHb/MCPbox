@@ -259,7 +259,7 @@ export function CloudflareWizard() {
   const [policyEmailInput, setPolicyEmailInput] = useState('')
   const [policyEmailDomain, setPolicyEmailDomain] = useState('')
 
-  // Allowed origins state (optional, for non-Claude MCP clients)
+  // Allowed origins state (optional, for additional MCP clients)
   const [showOrigins, setShowOrigins] = useState(false)
   const [wizardCorsOrigins, setWizardCorsOrigins] = useState<string[]>([])
   const [wizardRedirectUris, setWizardRedirectUris] = useState<string[]>([])
@@ -932,7 +932,7 @@ export function CloudflareWizard() {
                 </p>
               </div>
 
-              {/* Allowed Origins (collapsible, for non-Claude MCP clients) */}
+              {/* Allowed Origins (collapsible, for additional MCP clients) */}
               <div className="border border-hl-med rounded-lg overflow-hidden">
                 <button
                   type="button"
@@ -945,7 +945,7 @@ export function CloudflareWizard() {
                       <span className="ml-2 text-xs text-muted font-normal">(optional)</span>
                     </h4>
                     <p className="text-xs text-muted mt-0.5">
-                      Configure if using MCP clients other than Claude
+                      Configure if using additional MCP clients
                     </p>
                   </div>
                   <svg

@@ -203,7 +203,7 @@ export function Tunnel() {
             <div className="bg-gradient-to-br from-rose to-rose/80 rounded-lg shadow p-6 sm:p-8 mb-6 text-base">
               <h2 className="text-2xl font-bold mb-3">Enable Remote Access</h2>
               <p className="text-base/70 mb-6">
-                Connect Claude Web to your MCPbox tools from anywhere. The setup wizard will
+                Use your MCPbox tools from any MCP client, anywhere. The setup wizard will
                 configure a secure Cloudflare tunnel with Zero Trust authentication.
               </p>
               <Link

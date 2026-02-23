@@ -12,16 +12,16 @@ MCPbox lets AI create, test, and manage its own MCP tools — write Python code,
 
 MCPbox is a self-hosted platform where LLMs extend their own capabilities by writing tools. Unlike MCP gateways (which proxy existing servers) or MCP hosts (which deploy pre-built servers), MCPbox lets the LLM itself author new tools as Python code that persist across sessions.
 
-- **LLM as Toolmaker** - Claude writes Python code via `mcpbox_create_tool`, the code becomes a permanent MCP tool, available for future use
+- **LLM as Toolmaker** - LLMs write Python code via `mcpbox_create_tool`, the code becomes a permanent MCP tool, available for future use
 - **Human-in-the-Loop** - Tools are created in draft status; admins review and approve before publishing
 - **Sandboxed Execution** - All tool code runs in a hardened sandbox with restricted builtins, import whitelisting, and SSRF prevention
 - **Self-Hosted for Homelabs** - Single `docker compose up`, no Kubernetes required
-- **Remote Access** - Optional Cloudflare Worker + tunnel integration to use your tools from Claude Web
+- **Remote Access** - Optional Cloudflare Worker + tunnel integration to use your tools from any remote MCP client
 
 ## How It Works
 
 ```
-Claude writes Python code
+LLM writes Python code
         |
         v
   mcpbox_create_tool  →  Tool saved in draft status
@@ -71,7 +71,7 @@ The LLM doesn't just use tools — it builds them:
 - Workers VPC for truly private tunnel access
 - OAuth 2.1 + OIDC authentication (Cloudflare Access for SaaS)
 - Service token defense-in-depth
-- Works with Claude Web's remote MCP feature
+- Works with any MCP client that supports remote servers (Claude, ChatGPT, Cursor, etc.)
 
 ## Quick Start
 
@@ -97,7 +97,7 @@ open http://localhost:3000
 ### Verify Installation
 
 1. Open http://localhost:3000
-2. Use Claude Code or another LLM with `mcpbox_create_server` and `mcpbox_create_tool` to create a server
+2. Use an MCP-compatible LLM client with `mcpbox_create_server` and `mcpbox_create_tool` to create a server
 3. Approve the tool in the Admin UI at `/approvals`
 4. Start the server
 5. Check the Activity page for logs
@@ -130,13 +130,13 @@ open http://localhost:3000
                   └──────────┬───────────────┘
                              ▼
                     ┌───────────────┐
-                    │  Claude Web   │
+                    │  MCP Clients  │
                     └───────────────┘
 ```
 
 ## Documentation
 
-- [CLAUDE.md](CLAUDE.md) - **Start here** - Project context for AI assistants and developers
+- [CLAUDE.md](CLAUDE.md) - **Start here** - Project context for AI coding assistants and developers
 - [Architecture Overview](docs/ARCHITECTURE.md) - Full technical design
 - [Production Deployment](docs/PRODUCTION-DEPLOYMENT.md) - Deployment guide
 - [Remote Access Setup](docs/REMOTE-ACCESS-SETUP.md) - Cloudflare tunnel configuration
