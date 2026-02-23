@@ -2,19 +2,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 
 // Types
-export interface ModuleConfigResponse {
-  allowed_modules: string[]
-  default_modules: string[]
-  is_custom: boolean
-}
-
-export interface ModuleConfigUpdate {
-  add_modules?: string[]
-  remove_modules?: string[]
-  reset_to_defaults?: boolean
-}
-
-// Enhanced module types
 export interface ModuleInfo {
   module_name: string
   package_name: string
@@ -41,14 +28,6 @@ export interface EnhancedModuleConfigResponse {
   default_modules: string[]
   is_custom: boolean
   installed_packages: { name: string; version: string }[]
-}
-
-export interface PyPIInfoResponse {
-  module_name: string
-  package_name: string
-  is_stdlib: boolean
-  pypi_info?: PyPIInfo | null
-  error?: string | null
 }
 
 export interface ModuleInstallResponse {

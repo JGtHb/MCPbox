@@ -48,9 +48,6 @@ export interface Env {
   MCPBOX_SERVICE_TOKEN: string;
   // KV namespace for OAuth token/grant storage
   OAUTH_KV: KVNamespace;
-  // CORS origin (defaults to MCP Server Portal domain)
-  CORS_ALLOWED_ORIGIN?: string;
-
   // === Cloudflare Access for SaaS (OIDC upstream) ===
   // These are obtained from the SaaS OIDC application in Cloudflare Access
   ACCESS_CLIENT_ID: string;
@@ -152,15 +149,6 @@ export async function getAdminConfig(env: Env): Promise<AdminConfig> {
  * Falls back to 'https://mcp.claude.ai' if no match.
  */
 async function getCorsOrigin(env: Env, requestOrigin: string | null): Promise<string> {
-  // Legacy single-origin override (still supported, but prefer KV config)
-  if (env.CORS_ALLOWED_ORIGIN) {
-    if (env.CORS_ALLOWED_ORIGIN === '*') {
-      console.warn('SECURITY: CORS_ALLOWED_ORIGIN="*" is insecure, ignoring.');
-    } else {
-      return env.CORS_ALLOWED_ORIGIN;
-    }
-  }
-
   if (!requestOrigin) {
     return 'https://mcp.claude.ai';
   }

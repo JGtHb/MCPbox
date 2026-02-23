@@ -63,14 +63,6 @@ export async function getTunnelStatus(): Promise<TunnelStatus> {
   return api.get<TunnelStatus>('/api/tunnel/status')
 }
 
-export async function startTunnel(): Promise<TunnelStatus> {
-  return api.post<TunnelStatus>('/api/tunnel/start', {})
-}
-
-export async function stopTunnel(): Promise<TunnelStatus> {
-  return api.post<TunnelStatus>('/api/tunnel/stop', {})
-}
-
 // Configuration API functions
 export async function listTunnelConfigurations(
   page = 1,
@@ -136,32 +128,6 @@ export function useTunnelStatus() {
       if (status === 'connecting') return 1000 // 1 second
       if (status === 'connected') return 10000 // 10 seconds
       return 5000 // 5 seconds default
-    },
-  })
-}
-
-export function useStartTunnel() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: startTunnel,
-    onSuccess: (data) => {
-      queryClient.setQueryData(tunnelKeys.status(), data)
-    },
-    onError: () => {
-      // Refetch to get actual status
-      queryClient.invalidateQueries({ queryKey: tunnelKeys.status() })
-    },
-  })
-}
-
-export function useStopTunnel() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: stopTunnel,
-    onSuccess: (data) => {
-      queryClient.setQueryData(tunnelKeys.status(), data)
     },
   })
 }

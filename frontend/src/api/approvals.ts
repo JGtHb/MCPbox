@@ -189,48 +189,6 @@ export async function takeNetworkRequestAction(
   })
 }
 
-// Bulk action types and functions
-export interface BulkActionResponse {
-  success: boolean
-  processed_count: number
-  failed: { id: string; error: string }[]
-}
-
-export async function bulkToolAction(
-  toolIds: string[],
-  action: 'approve' | 'reject',
-  reason?: string
-): Promise<BulkActionResponse> {
-  return api.post<BulkActionResponse>('/api/approvals/tools/bulk-action', {
-    tool_ids: toolIds,
-    action,
-    reason,
-  })
-}
-
-export async function bulkModuleRequestAction(
-  requestIds: string[],
-  action: 'approve' | 'reject',
-  reason?: string
-): Promise<BulkActionResponse> {
-  return api.post<BulkActionResponse>('/api/approvals/modules/bulk-action', {
-    request_ids: requestIds,
-    action,
-    reason,
-  })
-}
-
-export async function bulkNetworkRequestAction(
-  requestIds: string[],
-  action: 'approve' | 'reject',
-  reason?: string
-): Promise<BulkActionResponse> {
-  return api.post<BulkActionResponse>('/api/approvals/network/bulk-action', {
-    request_ids: requestIds,
-    action,
-    reason,
-  })
-}
 
 // Revocation functions
 export async function revokeToolApproval(toolId: string): Promise<void> {

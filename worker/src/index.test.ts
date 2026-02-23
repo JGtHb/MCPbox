@@ -779,35 +779,6 @@ describe('MCPbox Proxy Worker', () => {
       expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://mcp.claude.ai');
     });
 
-    it('uses custom CORS_ALLOWED_ORIGIN when set', async () => {
-      const env = createBaseEnv({ CORS_ALLOWED_ORIGIN: 'https://custom.example.com' });
-      const request = new Request('https://example.com/', {
-        method: 'OPTIONS',
-        headers: { Origin: 'https://anything.com' },
-      });
-      const ctx = createExecutionContext();
-
-      const response = await worker.fetch(request, env, ctx as any);
-
-      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://custom.example.com');
-    });
-
-    it('rejects CORS_ALLOWED_ORIGIN="*" and falls back to default', async () => {
-      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      const env = createBaseEnv({ CORS_ALLOWED_ORIGIN: '*' });
-      const request = new Request('https://example.com/', {
-        method: 'OPTIONS',
-        headers: { Origin: 'https://mcp.claude.ai' },
-      });
-      const ctx = createExecutionContext();
-
-      const response = await worker.fetch(request, env, ctx as any);
-
-      // Should fall back to default behavior (not *)
-      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://mcp.claude.ai');
-      consoleSpy.mockRestore();
-    });
-
     it('includes CORS headers in error responses (503)', async () => {
       const env = createBaseEnv({ MCPBOX_TUNNEL: undefined });
       const request = new Request('https://example.com/mcp', {

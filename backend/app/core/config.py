@@ -135,8 +135,6 @@ class Settings(BaseSettings):
     # Cloudflare Worker deployment settings
     cf_worker_compatibility_date: str = "2025-03-01"
     cf_worker_compatibility_flags: str = "nodejs_compat"
-    mcp_gateway_port: int = 8002
-
     # Alerting - optional webhook URL for critical alerts (Discord, Slack, etc.)
     alert_webhook_url: str = ""
 
