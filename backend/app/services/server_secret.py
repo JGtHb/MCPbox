@@ -101,6 +101,8 @@ class ServerSecretService:
         """Get all secrets with values as a decrypted dict for sandbox injection.
 
         Only returns secrets that have values set (ignores placeholders).
+        Raises on decryption failure so tool execution fails clearly
+        rather than running without expected secrets.
         """
         secrets = await self.list_by_server(server_id)
         result = {}
@@ -111,10 +113,13 @@ class ServerSecretService:
                         secret.encrypted_value,
                         aad=f"server_secret:{server_id}:{secret.key_name}",
                     )
-                except Exception:
-                    logger.error(
-                        f"Failed to decrypt secret {secret.key_name} for server {server_id}"
-                    )
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Failed to decrypt secret '{secret.key_name}' for "
+                        f"server {server_id}. This usually means "
+                        f"MCPBOX_ENCRYPTION_KEY does not match the key used "
+                        f"to encrypt the stored value."
+                    ) from e
         return result
 
     async def _get_by_key(self, server_id: UUID, key_name: str) -> ServerSecret | None:

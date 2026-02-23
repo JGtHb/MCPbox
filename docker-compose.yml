@@ -63,8 +63,8 @@ services:
   # ============================================================
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     ports:
       - "127.0.0.1:${MCPBOX_BACKEND_PORT:-8000}:8000"
       - "127.0.0.1:8976:8976"  # Wrangler OAuth callback
@@ -77,9 +77,6 @@ services:
       - CORS_ORIGINS=${CORS_ORIGINS:-}
     security_opt:
       - no-new-privileges:true
-    volumes:
-      - ./worker/src:/app/worker/src:ro  # Worker source for wrangler deploy
-      - ./worker/package.json:/app/worker/package.json:ro  # Worker package.json for npm install
     depends_on:
       postgres:
         condition: service_healthy
@@ -114,8 +111,8 @@ services:
   # ============================================================
   mcp-gateway:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     command: ["python", "-m", "uvicorn", "app.mcp_only:app", "--host", "0.0.0.0", "--port", "8002", "--workers", "1", "--timeout-graceful-shutdown", "30"]
     environment:
       - DATABASE_URL=postgresql+asyncpg://mcpbox:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/mcpbox
@@ -123,7 +120,7 @@ services:
       - SANDBOX_API_KEY=${SANDBOX_API_KEY:?SANDBOX_API_KEY is required}
       - SANDBOX_URL=http://sandbox:8001
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - MCP_CORS_ORIGINS=${MCP_CORS_ORIGINS:-https://mcp.claude.ai,https://claude.ai}
+      - MCP_CORS_ORIGINS=${MCP_CORS_ORIGINS:-https://mcp.claude.ai,https://claude.ai,https://chatgpt.com,https://chat.openai.com,https://platform.openai.com}
     security_opt:
       - no-new-privileges:true
     read_only: true

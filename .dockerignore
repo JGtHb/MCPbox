@@ -1,0 +1,34 @@
+# MCPbox root .dockerignore
+# The backend Dockerfile uses the project root as build context so it can
+# include worker/ source files. This file prevents sending unnecessary
+# files to the Docker daemon.
+
+.git
+**/.git
+
+# Node dependencies (installed during build, not needed in context)
+**/node_modules
+
+# Python build artifacts
+**/__pycache__
+**/.venv
+**/.pytest_cache
+**/*.pyc
+
+# Frontend build output (frontend has its own Dockerfile)
+frontend/dist
+
+# Environment files (secrets — must never be in image)
+.env
+.env.*
+
+# IDE / editor
+.vscode
+.idea
+
+# Documentation (not needed in image)
+docs/
+
+# Test artifacts
+**/.coverage
+**/htmlcov

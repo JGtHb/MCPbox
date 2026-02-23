@@ -39,12 +39,17 @@ class SettingService:
         if setting.encrypted:
             try:
                 return decrypt_from_base64(setting.value, aad=f"setting:{key}")
-            except DecryptionError as e:
-                # Log the error but return default for resilience
-                logger.warning("Failed to decrypt setting '%s': %s", key, e)
-                return default
-            except InvalidKeyError:
-                # Key configuration issue - re-raise as this needs fixing
+            except (DecryptionError, InvalidKeyError) as e:
+                # Don't silently return a default — that hides key mismatches
+                # and data corruption.  Surface the error so operators notice
+                # immediately (e.g., MCPBOX_ENCRYPTION_KEY was changed).
+                logger.error(
+                    "Failed to decrypt setting '%s': %s. "
+                    "This usually means MCPBOX_ENCRYPTION_KEY does not match "
+                    "the key used to encrypt the stored value.",
+                    key,
+                    e,
+                )
                 raise
         return setting.value
 

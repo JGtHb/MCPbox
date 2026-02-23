@@ -1,5 +1,8 @@
 # MCPbox Backend - Production Dockerfile
 # Multi-stage build for smaller image size and better security
+#
+# NOTE: Build context is the project root (not ./backend) so that
+# worker source files can be included for Cloudflare Workers deployment.
 
 FROM python:3.12.8-slim AS builder
 
@@ -11,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-COPY requirements.txt ./
+COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir --user -r requirements.txt
 
 # Production stage
@@ -44,10 +47,16 @@ COPY --from=builder /root/.local /home/mcpbox/.local
 RUN chown -R mcpbox:mcpbox /home/mcpbox/.local
 
 # Copy application code
-COPY --chown=mcpbox:mcpbox app/ /app/app/
-COPY --chown=mcpbox:mcpbox alembic/ /app/alembic/
-COPY --chown=mcpbox:mcpbox alembic.ini /app/
-COPY --chown=mcpbox:mcpbox entrypoint.sh /app/
+COPY --chown=mcpbox:mcpbox backend/app/ /app/app/
+COPY --chown=mcpbox:mcpbox backend/alembic/ /app/alembic/
+COPY --chown=mcpbox:mcpbox backend/alembic.ini /app/
+COPY --chown=mcpbox:mcpbox backend/entrypoint.sh /app/
+
+# Copy worker source for Cloudflare Workers deployment via the wizard.
+# The wizard's deploy_worker() reads these files at runtime when deploying
+# the Worker to Cloudflare. Without them, deployment fails.
+COPY --chown=mcpbox:mcpbox worker/src/ /app/worker/src/
+COPY --chown=mcpbox:mcpbox worker/package.json /app/worker/package.json
 
 # Switch to non-root user
 USER mcpbox
