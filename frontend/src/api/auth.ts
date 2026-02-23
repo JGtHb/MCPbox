@@ -20,14 +20,6 @@ export interface TokenResponse {
   expires_in: number
 }
 
-export interface UserInfo {
-  id: string
-  username: string
-  is_active: boolean
-  last_login_at: string | null
-  created_at: string
-}
-
 export interface SetupResponse {
   message: string
   username: string
@@ -159,9 +151,9 @@ export async function logout(): Promise<void> {
 }
 
 /**
- * Get current user info
+ * Get current user info (internal - used by validateSession)
  */
-export async function getCurrentUser(): Promise<UserInfo> {
+async function getCurrentUser(): Promise<void> {
   const accessToken = tokens.getAccessToken()
   if (!accessToken) {
     throw new Error('Not authenticated')
@@ -181,8 +173,6 @@ export async function getCurrentUser(): Promise<UserInfo> {
     }
     throw new Error('Failed to get user info')
   }
-
-  return response.json()
 }
 
 /**

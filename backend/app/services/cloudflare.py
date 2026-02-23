@@ -585,7 +585,7 @@ class CloudflareService:
                 json={
                     "name": name,
                     "type": "http",
-                    "http_port": settings.mcp_gateway_port,
+                    "http_port": 8002,
                     "host": {
                         "hostname": "mcp-gateway",
                         "resolver_network": {

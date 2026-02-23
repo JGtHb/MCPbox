@@ -67,7 +67,6 @@ services:
       dockerfile: backend/Dockerfile
     ports:
       - "127.0.0.1:${MCPBOX_BACKEND_PORT:-8000}:8000"
-      - "127.0.0.1:8976:8976"  # Wrangler OAuth callback
     environment:
       - DATABASE_URL=postgresql+asyncpg://mcpbox:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/mcpbox
       - MCPBOX_ENCRYPTION_KEY=${MCPBOX_ENCRYPTION_KEY:?MCPBOX_ENCRYPTION_KEY is required}

@@ -54,16 +54,6 @@ def _extract_severity(vuln: dict) -> str | None:
     if gh_severity and isinstance(gh_severity, str):
         return gh_severity.upper()
 
-    # Check the severity array for CVSS scores
-    for sev in vuln.get("severity", []):
-        score_str = sev.get("score", "")
-        # CVSS vector strings contain the score; try to parse
-        if sev.get("type") == "CVSS_V3" and isinstance(score_str, str):
-            # CVSS v3 vector format: CVSS:3.1/AV:N/AC:L/...
-            # The score is often not directly in the vector; check for
-            # a numeric score in database_specific instead
-            pass
-
     # Try ecosystem-specific severity from affected entries
     for affected in vuln.get("affected", []):
         eco_specific = affected.get("ecosystem_specific", {})

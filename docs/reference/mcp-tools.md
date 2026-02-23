@@ -6,7 +6,7 @@ nav_order: 1
 
 # MCP Management Tools
 
-MCPBox exposes 24 management tools with the `mcpbox_` prefix. These are discovered automatically by any connected MCP client.
+MCPBox exposes 28 management tools with the `mcpbox_` prefix. These are discovered automatically by any connected MCP client.
 
 ## Server Management
 
@@ -41,7 +41,7 @@ MCPBox exposes 24 management tools with the `mcpbox_` prefix. These are discover
 
 | Tool | Description |
 |------|-------------|
-| `mcpbox_test_code` | Execute code in the sandbox and return the result |
+| `mcpbox_test_code` | Test a saved tool by running its current code against the sandbox |
 | `mcpbox_validate_code` | Check Python syntax and structure |
 
 ## Server Secrets
@@ -60,6 +60,15 @@ MCPBox exposes 24 management tools with the `mcpbox_` prefix. These are discover
 | `mcpbox_request_network_access` | Request network access to an external host |
 | `mcpbox_get_tool_status` | Get approval status and pending requests |
 | `mcpbox_list_pending_requests` | List all pending approval requests |
+
+## External MCP Sources
+
+| Tool | Description |
+|------|-------------|
+| `mcpbox_add_external_source` | Add an external MCP server as a tool source |
+| `mcpbox_list_external_sources` | List all configured external MCP sources for a server |
+| `mcpbox_discover_external_tools` | Connect to an external source and discover available tools |
+| `mcpbox_import_external_tools` | Import selected tools from an external source |
 
 ## Observability
 
