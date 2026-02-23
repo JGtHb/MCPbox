@@ -3,6 +3,8 @@
 Tests the tool approval workflow, module requests, and network access requests.
 """
 
+from unittest.mock import AsyncMock
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1568,3 +1570,221 @@ async def test_get_all_tools_includes_drafts(
     # Verify we actually see draft status
     statuses = {item["approval_status"] for item in data["items"]}
     assert "draft" in statuses
+
+
+# =============================================================================
+# Network Access Approval → Sandbox Re-registration Tests
+# =============================================================================
+# Regression tests for: approving/revoking network access should immediately
+# re-register the server with the sandbox so changes take effect without restart.
+
+
+@pytest.fixture
+async def running_server(db_session: AsyncSession) -> Server:
+    """Create a test server in 'running' status for re-registration tests."""
+    server = Server(
+        name="Running Test Server",
+        description="Server in running state",
+        status="running",
+    )
+    db_session.add(server)
+    await db_session.flush()
+    await db_session.refresh(server)
+    return server
+
+
+@pytest.fixture
+async def running_server_tool(db_session: AsyncSession, running_server: Server) -> Tool:
+    """Create an approved tool on a running server."""
+    tool = Tool(
+        server_id=running_server.id,
+        name="network_tool",
+        description="A tool needing network access",
+        python_code='async def main() -> str:\n    return "test"',
+        input_schema={"type": "object", "properties": {}},
+        approval_status="approved",
+    )
+    db_session.add(tool)
+    await db_session.flush()
+    await db_session.refresh(tool)
+    return tool
+
+
+@pytest.fixture
+async def running_server_pending_network_request(
+    db_session: AsyncSession, running_server_tool: Tool
+) -> NetworkAccessRequest:
+    """Create a pending network access request on a running server."""
+    request = NetworkAccessRequest(
+        tool_id=running_server_tool.id,
+        host="api.newhost.com",
+        port=443,
+        justification="Need access to new API",
+        requested_by="test@example.com",
+        status="pending",
+    )
+    db_session.add(request)
+    await db_session.flush()
+    await db_session.refresh(request)
+    return request
+
+
+@pytest.fixture
+async def running_server_approved_network_request(
+    db_session: AsyncSession, running_server_tool: Tool, running_server: Server
+) -> NetworkAccessRequest:
+    """Create an approved network access request on a running server."""
+    from datetime import UTC, datetime
+
+    # Add host to server's allowed_hosts so revocation has something to remove
+    running_server.allowed_hosts = ["api.revokable.com"]
+    await db_session.flush()
+
+    request = NetworkAccessRequest(
+        tool_id=running_server_tool.id,
+        host="api.revokable.com",
+        port=443,
+        justification="Previously approved access",
+        requested_by="dev@example.com",
+        status="approved",
+        reviewed_by="admin@example.com",
+        reviewed_at=datetime.now(UTC),
+    )
+    db_session.add(request)
+    await db_session.flush()
+    await db_session.refresh(request)
+    return request
+
+
+@pytest.mark.asyncio
+async def test_approve_network_request_triggers_server_reregistration(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    running_server_pending_network_request: NetworkAccessRequest,
+    running_server: Server,
+    db_session: AsyncSession,
+    mock_sandbox_client,
+):
+    """Approving a network request re-registers the server with sandbox.
+
+    Regression test: previously, approving network access only updated the DB
+    but did not push the new allowed_hosts to the running sandbox, requiring
+    a manual server restart for the change to take effect.
+    """
+    mock_sandbox_client.register_server = AsyncMock(
+        return_value={"success": True, "tools_registered": 1}
+    )
+
+    response = await async_client.post(
+        f"/api/approvals/network/{running_server_pending_network_request.id}/action",
+        json={"action": "approve"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "approved"
+
+    # Verify the server was re-registered with the sandbox
+    mock_sandbox_client.register_server.assert_called_once()
+    call_kwargs = mock_sandbox_client.register_server.call_args
+    # allowed_hosts should include the newly approved host
+    passed_hosts = call_kwargs.kwargs.get(
+        "allowed_hosts", call_kwargs.args[6] if len(call_kwargs.args) > 6 else []
+    )
+    assert "api.newhost.com" in passed_hosts
+
+
+@pytest.mark.asyncio
+async def test_revoke_network_request_triggers_server_reregistration(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    running_server_approved_network_request: NetworkAccessRequest,
+    running_server: Server,
+    db_session: AsyncSession,
+    mock_sandbox_client,
+):
+    """Revoking a network request re-registers the server with sandbox.
+
+    Regression test: ensures that revoking network access pushes the updated
+    (reduced) allowed_hosts to the sandbox immediately.
+    """
+    mock_sandbox_client.register_server = AsyncMock(
+        return_value={"success": True, "tools_registered": 1}
+    )
+
+    response = await async_client.post(
+        f"/api/approvals/network/{running_server_approved_network_request.id}/revoke",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "pending"
+
+    # Verify the server was re-registered with the sandbox
+    mock_sandbox_client.register_server.assert_called_once()
+    call_kwargs = mock_sandbox_client.register_server.call_args
+    # allowed_hosts should NOT include the revoked host
+    passed_hosts = call_kwargs.kwargs.get(
+        "allowed_hosts", call_kwargs.args[6] if len(call_kwargs.args) > 6 else []
+    )
+    assert "api.revokable.com" not in passed_hosts
+
+
+@pytest.fixture
+async def multiple_running_server_pending_network_requests(
+    db_session: AsyncSession, running_server_tool: Tool
+) -> list[NetworkAccessRequest]:
+    """Create multiple pending network requests on a running server."""
+    requests = []
+    for host in ["api.bulk1.com", "api.bulk2.com", "api.bulk3.com"]:
+        req = NetworkAccessRequest(
+            tool_id=running_server_tool.id,
+            host=host,
+            port=443,
+            justification=f"Need access to {host}",
+            requested_by="test@example.com",
+            status="pending",
+        )
+        db_session.add(req)
+        requests.append(req)
+    await db_session.flush()
+    for req in requests:
+        await db_session.refresh(req)
+    return requests
+
+
+@pytest.mark.asyncio
+async def test_bulk_approve_network_requests_triggers_server_reregistration(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    multiple_running_server_pending_network_requests: list[NetworkAccessRequest],
+    running_server: Server,
+    db_session: AsyncSession,
+    mock_sandbox_client,
+):
+    """Bulk approving network requests re-registers affected servers.
+
+    Regression test: ensures bulk network approval pushes the updated
+    allowed_hosts to the sandbox without requiring a server restart.
+    """
+    mock_sandbox_client.register_server = AsyncMock(
+        return_value={"success": True, "tools_registered": 1}
+    )
+
+    request_ids = [str(r.id) for r in multiple_running_server_pending_network_requests]
+    response = await async_client.post(
+        "/api/approvals/network/bulk-action",
+        json={"request_ids": request_ids, "action": "approve"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["processed_count"] == 3
+
+    # Server should be re-registered (at least once, deduplicated per server)
+    assert mock_sandbox_client.register_server.call_count >= 1
+    call_kwargs = mock_sandbox_client.register_server.call_args
+    passed_hosts = call_kwargs.kwargs.get(
+        "allowed_hosts", call_kwargs.args[6] if len(call_kwargs.args) > 6 else []
+    )
+    for host in ["api.bulk1.com", "api.bulk2.com", "api.bulk3.com"]:
+        assert host in passed_hosts

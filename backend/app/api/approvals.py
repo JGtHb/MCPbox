@@ -11,9 +11,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.api.auth import get_current_user
 from app.core import get_db
+from app.models import NetworkAccessRequest as NetworkAccessRequestModel
 from app.models import Tool
 from app.schemas.approval import (
     ApprovalDashboardStats,
@@ -610,13 +612,15 @@ async def get_pending_network_requests(
 async def take_network_request_action(
     request_id: UUID,
     action: NetworkAccessRequestAction,
+    db: AsyncSession = Depends(get_db),
     service: ApprovalService = Depends(get_approval_service),
     admin_identity: str = Depends(get_admin_identity),
 ) -> NetworkAccessRequestResponse:
     """Approve or reject a network access request.
 
     Approval will add the host to the server's allowed hosts list and
-    switch the server to allowlist network mode if needed.
+    re-register the server with the sandbox so the change takes effect
+    immediately without requiring a restart.
     Rejection requires a reason.
     Admin identity is extracted from verified JWT token.
     """
@@ -626,6 +630,21 @@ async def take_network_request_action(
                 request_id=request_id,
                 approved_by=admin_identity,
             )
+
+            # Re-register server so approved hosts take effect immediately
+            try:
+                stmt = (
+                    select(Tool)
+                    .where(Tool.id == request.tool_id)
+                    .options(selectinload(Tool.server))
+                )
+                tool_result = await db.execute(stmt)
+                tool = tool_result.scalar_one_or_none()
+                if tool:
+                    await _refresh_server_registration(tool, db)
+            except Exception as e:
+                logger.warning(f"Failed to refresh server after network approval: {e}")
+
             return NetworkAccessRequestResponse.model_validate(request)
         else:
             if not action.reason:
@@ -655,12 +674,14 @@ async def take_network_request_action(
 @router.post("/network/{request_id}/revoke", response_model=NetworkAccessRequestResponse)
 async def revoke_network_access_request(
     request_id: UUID,
+    db: AsyncSession = Depends(get_db),
     service: ApprovalService = Depends(get_approval_service),
     admin_identity: str = Depends(get_admin_identity),
 ) -> NetworkAccessRequestResponse:
     """Revoke an approved network access request back to pending status.
 
-    The host is removed from the server's allowed hosts list.
+    The host is removed from the server's allowed hosts list and the server
+    is re-registered with the sandbox so the change takes effect immediately.
     Admin identity is extracted from verified JWT token.
     """
     try:
@@ -668,6 +689,17 @@ async def revoke_network_access_request(
             request_id=request_id,
             revoked_by=admin_identity,
         )
+
+        # Re-register server so revoked hosts are removed immediately
+        try:
+            stmt = select(Tool).where(Tool.id == request.tool_id).options(selectinload(Tool.server))
+            tool_result = await db.execute(stmt)
+            tool = tool_result.scalar_one_or_none()
+            if tool:
+                await _refresh_server_registration(tool, db)
+        except Exception as e:
+            logger.warning(f"Failed to refresh server after network revocation: {e}")
+
         return NetworkAccessRequestResponse.model_validate(request)
     except ValueError as e:
         error_msg = str(e)
@@ -684,13 +716,15 @@ async def revoke_network_access_request(
 @router.post("/network/bulk-action", response_model=BulkActionResponse)
 async def bulk_network_request_action(
     action: BulkNetworkRequestAction,
+    db: AsyncSession = Depends(get_db),
     service: ApprovalService = Depends(get_approval_service),
     admin_identity: str = Depends(get_admin_identity),
 ) -> BulkActionResponse:
     """Approve or reject multiple network access requests at once.
 
-    Approval will add the hosts to the respective server's allowed hosts list and
-    switch servers to allowlist network mode if needed.
+    Approval will add the hosts to the respective server's allowed hosts list
+    and re-register affected servers with the sandbox so changes take effect
+    immediately.
     Rejection requires a reason.
     Admin identity is extracted from verified JWT token.
     """
@@ -705,6 +739,31 @@ async def bulk_network_request_action(
             request_ids=action.request_ids,
             approved_by=admin_identity,
         )
+
+        # Re-register affected servers so approved hosts take effect immediately
+        refreshed_servers: set[str] = set()
+        for request_id in action.request_ids:
+            if not any(f["id"] == request_id for f in result["failed"]):
+                try:
+                    stmt = (
+                        select(Tool)
+                        .join(
+                            NetworkAccessRequestModel,
+                            NetworkAccessRequestModel.tool_id == Tool.id,
+                        )
+                        .where(NetworkAccessRequestModel.id == request_id)
+                        .options(selectinload(Tool.server))
+                    )
+                    tool_result = await db.execute(stmt)
+                    tool = tool_result.scalar_one_or_none()
+                    if tool and str(tool.server_id) not in refreshed_servers:
+                        refreshed = await _refresh_server_registration(tool, db)
+                        if refreshed:
+                            refreshed_servers.add(str(tool.server_id))
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to refresh server for network request {request_id}: {e}"
+                    )
     else:
         result = await service.bulk_reject_network_requests(
             request_ids=action.request_ids,
