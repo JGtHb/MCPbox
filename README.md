@@ -8,99 +8,73 @@ MCPbox lets AI create, test, and manage its own MCP tools — write Python code,
 
 ---
 
+## See It in Action
+
+> **You:** Is Claude having issues right now?
+>
+> **LLM:** I don't have a tool for that yet — let me build one.
+
+```
+1. mcpbox_create_server   → "news" server created
+2. mcpbox_create_tool     → claude_status tool (Python: fetch Anthropic status page)
+3. mcpbox_test_code       → test passes, returns JSON
+4. mcpbox_request_publish → submitted for admin approval
+```
+
+> **Admin** approves the tool in the web UI.
+
+```
+5. mcpbox_start_server    → server is live
+6. claude_status          → calls the tool it just built
+```
+
+> **LLM:** All Anthropic systems are operational. API, Console, and claude.ai are all up.
+
+The tool now exists permanently. Next time anyone asks about Claude's status, the LLM just calls `claude_status` directly — no rebuilding needed.
+
+---
+
 ## What is MCPbox?
 
 MCPbox is a self-hosted platform where LLMs extend their own capabilities by writing tools. Unlike MCP gateways (which proxy existing servers) or MCP hosts (which deploy pre-built servers), MCPbox lets the LLM itself author new tools as Python code that persist across sessions.
 
-- **LLM as Toolmaker** - LLMs write Python code via `mcpbox_create_tool`, the code becomes a permanent MCP tool, available for future use
-- **Human-in-the-Loop** - Tools are created in draft status; admins review and approve before publishing
-- **Sandboxed Execution** - All tool code runs in a hardened sandbox with restricted builtins, import whitelisting, and SSRF prevention
-- **Self-Hosted for Homelabs** - Single `docker compose up`, no Kubernetes required
-- **Remote Access** - Optional Cloudflare Worker + tunnel integration to use your tools from any remote MCP client
-
-## How It Works
-
-```
-LLM writes Python code
-        |
-        v
-  mcpbox_create_tool  →  Tool saved in draft status
-        |
-        v
-  mcpbox_test_code    →  Code tested in sandbox
-        |
-        v
-  mcpbox_request_publish  →  Admin reviews and approves
-        |
-        v
-  Tool is live  →  Available as MCP tool for all future conversations
-```
-
-MCPbox exposes 24 management tools (`mcpbox_*`) that LLMs use to create and manage servers, tools, secrets, and the approval workflow. See [MCP Management Tools](docs/MCP-MANAGEMENT-TOOLS.md) for the full reference.
-
-## Key Features
-
-### Self-Extending via MCP
-
-The LLM doesn't just use tools — it builds them:
-- `mcpbox_create_server` / `mcpbox_create_tool` — author new tools as Python code
-- `mcpbox_test_code` / `mcpbox_validate_code` — test and validate before publishing
-- `mcpbox_request_publish` — submit for admin approval
-- `mcpbox_create_server_secret` — create secret placeholders (admins set values)
-- `mcpbox_request_module` / `mcpbox_request_network_access` — request new capabilities
-- `mcpbox_list_tool_versions` / `mcpbox_rollback_tool` — version history and rollback
-- `mcpbox_get_tool_logs` — inspect execution history
-
-### Security-First Design
-
-- **Sandboxed Execution**: All MCP tools run in a shared sandbox with:
-  - Restricted builtins (no `eval`, `exec`, `type`, `getattr`, `open`)
-  - Dunder attribute blocking prevents sandbox escape (`__class__`, `__mro__`, `__subclasses__`, etc.)
-  - Whitelist-based import restrictions (only safe modules allowed)
-  - Resource limits (256MB memory, 60s CPU, 256 file descriptors)
-  - Code safety validation via regex pattern scanning before execution
-- **SSRF Prevention**: URL validation blocks requests to private IPs, metadata endpoints, with DNS rebinding protection
-- **Server Secrets**: AES-256-GCM encrypted per-server secrets (LLMs create placeholders, admins set values)
-- **Separate MCP Gateway**: Tunnel-exposed service physically cannot serve admin endpoints
-- **Rate Limiting**: API rate limiting prevents abuse (100 req/min default)
-- **Timing-Safe Auth**: Constant-time token comparison prevents timing attacks
-
-### Cloudflare Tunnel Integration
-
-- Named tunnels for production (stable URLs)
-- Workers VPC for truly private tunnel access
-- OAuth 2.1 + OIDC authentication (Cloudflare Access for SaaS)
-- Service token defense-in-depth
-- Works with any MCP client that supports remote servers (Claude, ChatGPT, Cursor, etc.)
+- **LLM as Toolmaker** — write Python code via `mcpbox_create_tool`, it becomes a permanent MCP tool
+- **Human-in-the-Loop** — tools are created in draft status; admins review and approve before publishing
+- **Sandboxed Execution** — hardened sandbox with restricted builtins, import whitelisting, and SSRF prevention
+- **Self-Hosted for Homelabs** — single `docker compose up`, no Kubernetes required
+- **Remote Access** — optional Cloudflare Worker + tunnel integration for any remote MCP client
 
 ## Quick Start
 
 ```bash
-# Clone the repo
 git clone https://github.com/JGtHb/MCPbox.git
-cd mcpbox
+cd MCPbox
 
-# Configure environment
 cp .env.example .env
 
-# Generate a secure encryption key
+# Generate a secure encryption key and add to .env as MCPBOX_ENCRYPTION_KEY
 python -c "import secrets; print(secrets.token_hex(32))"
-# Add to .env as MCPBOX_ENCRYPTION_KEY
 
-# Start MCPbox
 docker compose up -d
-
-# Access the web UI
-open http://localhost:3000
 ```
 
-### Verify Installation
+Open http://localhost:3000 to access the web UI.
 
-1. Open http://localhost:3000
-2. Use an MCP-compatible LLM client with `mcpbox_create_server` and `mcpbox_create_tool` to create a server
-3. Approve the tool in the Admin UI at `/approvals`
-4. Start the server
-5. Check the Activity page for logs
+### Connect Your MCP Client
+
+Add MCPbox to your MCP client config (Claude Code, Cursor, etc.):
+
+```json
+{
+  "mcpServers": {
+    "mcpbox": {
+      "url": "http://localhost:8000/mcp"
+    }
+  }
+}
+```
+
+The LLM will discover all 24 `mcpbox_*` management tools automatically and can start building.
 
 ## Architecture
 
@@ -134,62 +108,58 @@ open http://localhost:3000
                     └───────────────┘
 ```
 
+Two modes: **Local** (no auth, MCP client connects to `localhost:8000/mcp`) and **Remote** (OAuth 2.1 + OIDC via Cloudflare Worker → VPC tunnel → gateway).
+
+## Key Features
+
+### Self-Extending via MCP
+
+The LLM doesn't just use tools — it builds them. MCPbox exposes [24 management tools](docs/MCP-MANAGEMENT-TOOLS.md) (`mcpbox_*`) for creating servers, tools, secrets, modules, and managing the approval workflow.
+
+### Security-First Design
+
+- **Sandboxed Execution** — restricted builtins, dunder blocking, whitelist imports, resource limits (256MB/60s CPU)
+- **SSRF Prevention** — URL validation blocks private IPs, metadata endpoints, with DNS rebinding protection
+- **Server Secrets** — AES-256-GCM encrypted per-server secrets (LLMs create placeholders, admins set values)
+- **Separate MCP Gateway** — tunnel-exposed service physically cannot serve admin endpoints
+- **Timing-Safe Auth** — constant-time token comparison via `secrets.compare_digest`
+
+### Cloudflare Remote Access
+
+- Named tunnels with Workers VPC (no public URL)
+- OAuth 2.1 + OIDC authentication via Cloudflare Access for SaaS
+- [Automated setup wizard](docs/CLOUDFLARE-SETUP-WIZARD.md) handles tunnel, worker, DNS, and MCP server configuration
+- Works with Claude, ChatGPT, Cursor, and any MCP-compatible client
+
 ## Documentation
 
-- [CLAUDE.md](CLAUDE.md) - **Start here** - Project context for AI coding assistants and developers
-- [Architecture Overview](docs/ARCHITECTURE.md) - Full technical design
-- [Production Deployment](docs/PRODUCTION-DEPLOYMENT.md) - Deployment guide
-- [Remote Access Setup](docs/REMOTE-ACCESS-SETUP.md) - Cloudflare tunnel configuration
-- [MCP Management Tools](docs/MCP-MANAGEMENT-TOOLS.md) - MCP tool reference
-- [Cloudflare Setup Wizard](docs/CLOUDFLARE-SETUP-WIZARD.md) - Automated remote access setup
-- [Future Epics](docs/FUTURE-EPICS.md) - Post-MVP features
-
-## Development Status
-
-MCPbox is **stable and production-ready** with the following epics implemented:
-
-| Epic | Status | Description |
-|------|--------|-------------|
-| Epic 1 | ✅ Complete | Foundation - Docker setup, backend skeleton, database |
-| Epic 4 | ✅ Complete | Cloudflare Tunnel - Named tunnel support with Workers VPC |
-| Epic 5 | ✅ Complete | Observability - Activity logging and monitoring |
-| Epic 6 | ✅ Complete | Python Code Tools - Custom Python tool execution |
-| Epic 7 | ✅ Complete | Tool Approval Workflow - Draft/review/publish lifecycle |
-
-*Note: Legacy API Builder (Epic 2) and OpenAPI Import (Epic 3) were removed in favor of MCP-first architecture.*
-
-### Recent Improvements
-
-- ✅ Server secrets - encrypted key-value secrets per server (LLMs create placeholders, admins set values)
-- ✅ Tool execution logging - per-tool invocation history with args, results, errors
-- ✅ Server recovery - automatic re-registration after sandbox restart
-- ✅ Tool change notifications - MCP `tools/list_changed` broadcast
-- ✅ Tool versioning with rollback support
-- ✅ Access for SaaS (OIDC) - Cloudflare Access as OIDC identity provider
-- ✅ MCP session management - stateful `Mcp-Session-Id` support
-- ✅ MCP-first architecture - tools created via 24 `mcpbox_*` MCP tools
-- ✅ Tool approval workflow with draft/pending/approved states
-- ✅ Separate MCP Gateway for secure tunnel access
-- ✅ Workers VPC integration (no public tunnel URL)
-- ✅ Cloudflare setup wizard for automated remote access configuration
+| Document | Description |
+|----------|-------------|
+| [CLAUDE.md](CLAUDE.md) | Project context for AI assistants and developers |
+| [Architecture](docs/ARCHITECTURE.md) | Technical design, module map, database schema |
+| [Production Deployment](docs/PRODUCTION-DEPLOYMENT.md) | Environment variables, HTTPS, monitoring |
+| [Remote Access Setup](docs/REMOTE-ACCESS-SETUP.md) | Cloudflare tunnel configuration |
+| [MCP Management Tools](docs/MCP-MANAGEMENT-TOOLS.md) | Full reference for all 24 `mcpbox_*` tools |
+| [Setup Wizard](docs/CLOUDFLARE-SETUP-WIZARD.md) | Automated remote access setup |
+| [Security](docs/SECURITY.md) | Security risk registry and mitigations |
+| [All Documentation](docs/README.md) | Complete documentation index |
 
 ## Running Tests
 
 ```bash
-# Backend tests (requires PostgreSQL or Docker for testcontainers)
-cd backend
-pip install -r requirements-dev.txt
-pytest tests -v
+# All checks (format, lint, tests) — what CI runs
+./scripts/pre-pr-check.sh
 
-# Sandbox tests (includes sandbox escape prevention tests)
-cd sandbox
-pip install -r requirements.txt -r requirements-dev.txt
-pytest tests -v
-
-# Lint check
-ruff check backend/app sandbox/app
-ruff format --check backend/app sandbox/app
+# Individual test suites
+cd backend && pytest tests -v       # requires Docker (testcontainers)
+cd sandbox && pytest tests -v
+cd frontend && npm test
+cd worker && npm test
 ```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
 ## License
 
@@ -198,17 +168,6 @@ MCPbox is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE).
 - **Personal/Non-Commercial Use**: Free
 - **Commercial Use**: Requires a commercial license (contact for pricing)
 
-## Contributing
-
-Contributions are welcome! Please:
-1. Check existing issues before creating new ones
-2. Run tests before submitting PRs
-3. Follow the existing code style
-
 ## Security
 
 If you discover a security vulnerability, please open a [GitHub Security Advisory](https://docs.github.com/en/code-security/security-advisories) on this repository instead of opening a public issue.
-
----
-
-Built for the homelab community. [Competitive analysis](docs/COMPETITIVE-ANALYSIS.md) — how MCPBox compares to the MCP ecosystem.

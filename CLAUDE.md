@@ -80,12 +80,10 @@ Two modes: **Local** (no auth, local MCP client → localhost:8000/mcp) and **Re
 | [docs/TESTING.md](docs/TESTING.md) | Test coverage map, critical gaps, infrastructure |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Architecture decision records (15 ADRs) |
 | [docs/API-CONTRACTS.md](docs/API-CONTRACTS.md) | Internal + external API contracts and schemas |
-| [docs/INCONSISTENCIES.md](docs/INCONSISTENCIES.md) | Technical debt, dead code, naming issues |
 | [docs/AUTH-FLOW.md](docs/AUTH-FLOW.md) | Worker + Gateway auth flow details |
 | [docs/PRODUCTION-DEPLOYMENT.md](docs/PRODUCTION-DEPLOYMENT.md) | Production env vars, HTTPS, monitoring |
 | [docs/MCP-MANAGEMENT-TOOLS.md](docs/MCP-MANAGEMENT-TOOLS.md) | 24 `mcpbox_*` MCP tool reference |
 | [docs/INCIDENT-RESPONSE.md](docs/INCIDENT-RESPONSE.md) | Operational runbooks for failures |
-| [docs/CONSIDER-REMOVING.md](docs/CONSIDER-REMOVING.md) | Pre-release cleanup candidates (dead code, duplicates, vestigial features) |
 | [docs/FRONTEND-STANDARDS.md](docs/FRONTEND-STANDARDS.md) | Frontend style guide: colors, buttons, focus, ARIA, spacing, typography |
 
 ## Workflow Rules
@@ -95,7 +93,6 @@ Two modes: **Local** (no auth, local MCP client → localhost:8000/mcp) and **Re
 - After adding/modifying tests → update `docs/TESTING.md`
 - After architectural decisions → add entry to `docs/DECISIONS.md`
 - After frontend UI changes → follow `docs/FRONTEND-STANDARDS.md`
-- Periodically check `docs/INCONSISTENCIES.md` and resolve items
 - Always run `./scripts/pre-pr-check.sh` before PRs
 
 ## Known Gotchas
@@ -107,7 +104,7 @@ Two modes: **Local** (no auth, local MCP client → localhost:8000/mcp) and **Re
 5. **Sandbox stdout race** — ~~`sys.stdout` globally replaced during execution. Concurrent tools can leak output.~~ **Already mitigated**: `print` is overridden per-execution via a custom function injected into the execution namespace. No global `sys.stdout` replacement occurs.
 6. **Two entry points** — `backend/app/main.py` (admin) and `backend/app/mcp_only.py` (gateway) have separate middleware stacks but share lifespan logic via `backend/app/core/shared_lifespan.py`. Middleware changes still need to be applied to both; lifespan changes go in the shared module.
 7. **Encryption key required** — `MCPBOX_ENCRYPTION_KEY` must be exactly 64 hex chars. `SANDBOX_API_KEY` must be 32+ chars.
-8. **Route prefix double-nesting** — ~~`/api/settings/settings` endpoint has doubled prefix.~~ **Fixed**: endpoint is now `/api/settings`. See [INCONSISTENCIES.md](docs/INCONSISTENCIES.md).
+8. **Route prefix double-nesting** — ~~`/api/settings/settings` endpoint has doubled prefix.~~ **Fixed**: endpoint is now `/api/settings`.
 9. **alembic upgrade head required** — Auto table creation disabled. Run migrations before first start.
 10. **Service token comparison** — Must use `secrets.compare_digest()` (constant-time). Never use `==`.
 

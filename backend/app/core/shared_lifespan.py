@@ -2,7 +2,7 @@
 
 Both backend/app/main.py and backend/app/mcp_only.py share the same core
 startup/shutdown sequence. This module extracts the common parts to avoid
-duplication (see docs/CONSIDER-REMOVING.md §9a).
+duplication.
 """
 
 import asyncio
