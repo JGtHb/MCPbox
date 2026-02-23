@@ -93,9 +93,7 @@ async def test_set_secret_value(async_client: AsyncClient, test_server, admin_he
     assert data["key_name"] == "MY_TOKEN"
 
 
-async def test_secret_value_not_in_response(
-    async_client: AsyncClient, test_server, admin_headers
-):
+async def test_secret_value_not_in_response(async_client: AsyncClient, test_server, admin_headers):
     """Test that the actual secret value never appears in any API response."""
     server_id = test_server["id"]
     secret_value = "super-secret-do-not-leak"
@@ -158,9 +156,7 @@ async def test_delete_secret(async_client: AsyncClient, test_server, admin_heade
     assert "TEMP_KEY" not in key_names
 
 
-async def test_create_secret_nonexistent_server(
-    async_client: AsyncClient, admin_headers
-):
+async def test_create_secret_nonexistent_server(async_client: AsyncClient, admin_headers):
     """Test that creating a secret for a nonexistent server returns 404."""
     response = await async_client.post(
         f"/api/servers/{NONEXISTENT_SERVER_ID}/secrets",
@@ -191,9 +187,7 @@ async def test_create_duplicate_key(async_client: AsyncClient, test_server, admi
     assert response.status_code == 409
 
 
-async def test_set_value_nonexistent_secret(
-    async_client: AsyncClient, test_server, admin_headers
-):
+async def test_set_value_nonexistent_secret(async_client: AsyncClient, test_server, admin_headers):
     """Test that setting a value on a nonexistent secret returns 404."""
     server_id = test_server["id"]
     response = await async_client.put(
@@ -204,9 +198,7 @@ async def test_set_value_nonexistent_secret(
     assert response.status_code == 404
 
 
-async def test_delete_nonexistent_secret(
-    async_client: AsyncClient, test_server, admin_headers
-):
+async def test_delete_nonexistent_secret(async_client: AsyncClient, test_server, admin_headers):
     """Test that deleting a nonexistent secret returns 404."""
     server_id = test_server["id"]
     response = await async_client.delete(

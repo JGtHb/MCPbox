@@ -5,14 +5,14 @@
 - **Status**: Active
 - **Context**: The project needed a way for LLMs to create tools. Options included visual workflow builders (like n8n/Node-RED), API configuration (HTTP method + URL + headers), or code-first (Python with `async def main()`). An earlier "API Config" mode existed but was removed.
 - **Decision**: All tools use Python code only. Tool creation happens via `mcpbox_*` MCP management tools invoked by external LLMs. No embedded LLM, no visual builders, no API spec import.
-- **Rationale**: Python can do everything visual builders and API config can, plus more. Code diffs cleanly (vs. JSON workflow blobs). LLMs excel at writing Python. One execution model to secure and maintain. No API key management needed — users leverage existing Claude access.
+- **Rationale**: Python can do everything visual builders and API config can, plus more. Code diffs cleanly (vs. JSON workflow blobs). LLMs excel at writing Python. One execution model to secure and maintain. No API key management needed — users leverage existing LLM access.
 - **Consequences**: Higher barrier for non-developer users. Full power of Python available to tool authors. Simpler codebase (one execution path). Requires robust sandbox security.
 - **Affected modules**: `backend/app/services/mcp_management.py`, `sandbox/app/executor.py`, `sandbox/app/routes.py`
 
 ## ADR-002: Separate MCP Gateway Service
 - **Date**: Inferred (visible in docker-compose.yml architecture)
 - **Status**: Active
-- **Context**: The MCP endpoint needs to be tunnel-accessible for remote Claude Web access. But admin API endpoints (`/api/*`) must remain local-only.
+- **Context**: The MCP endpoint needs to be tunnel-accessible for remote MCP client access. But admin API endpoints (`/api/*`) must remain local-only.
 - **Decision**: Run a separate Docker service (`mcp-gateway`) using `app.mcp_only:app` that only exposes `/mcp` and `/health`. Shares backend codebase but with different entry point.
 - **Rationale**: Physical separation — the tunnel-exposed service cannot serve admin endpoints even if tunnel or Worker is compromised. Defense in depth.
 - **Consequences**: Two FastAPI processes sharing the same codebase. Duplicate middleware setup in `main.py` and `mcp_only.py`. Must keep both entry points synchronized. Resource overhead of second process (mitigated: 512MB limit).
@@ -30,7 +30,7 @@
 ## ADR-004: Hybrid Architecture (Local-First + Optional Remote)
 - **Date**: Inferred (Epic 4: Cloudflare Tunnel)
 - **Status**: Active
-- **Context**: Users need both local access (Claude Desktop) and remote access (Claude Web). Public tunnel exposure creates security risk.
+- **Context**: Users need both local access (desktop MCP clients) and remote access (web-based MCP clients). Public tunnel exposure creates security risk.
 - **Decision**: Admin panel bound to `127.0.0.1` by default, with built-in nginx reverse proxy for deployment behind external proxies (Traefik, Caddy, etc.). MCP gateway optionally exposed via Cloudflare Workers VPC (no public hostname). Worker provides OAuth 2.1 + OIDC authentication layer.
 - **Rationale**: Workers VPC eliminates public attack surface — tunnel has no URL, only Worker can access it. Local mode requires zero configuration. Remote mode adds 10 security layers.
 - **Consequences**: Complex authentication stack (OAuth 2.1 + OIDC + service token). Cloudflare dependency for remote access. Setup wizard needed (6 steps). Two auth modes to maintain and test.
@@ -86,7 +86,7 @@
 - **Status**: Active
 - **Context**: Remote MCP access needs authentication. Options: API keys, custom OAuth server, or delegating to identity provider.
 - **Decision**: Cloudflare Worker wrapped with `@cloudflare/workers-oauth-provider`. User identity via OIDC upstream to Cloudflare Access for SaaS. Worker stores verified email in encrypted OAuth token props. Service token header for defense-in-depth.
-- **Rationale**: No server-side JWT verification needed — user identity verified at authorization time. Leverages Cloudflare's infrastructure (KV for tokens, Access for identity). Supports Claude Web's OAuth 2.1 flow natively.
+- **Rationale**: No server-side JWT verification needed — user identity verified at authorization time. Leverages Cloudflare's infrastructure (KV for tokens, Access for identity). Supports OAuth 2.1 flows natively (Claude, ChatGPT, etc.).
 - **Consequences**: Cloudflare vendor dependency for remote access. Complex auth stack (3 layers). Cookie size limits from OIDC state. JWKS caching needed for performance.
 - **Affected modules**: `worker/src/index.ts`, `worker/src/access-handler.ts`, `backend/app/services/mcp_oauth_client.py`
 

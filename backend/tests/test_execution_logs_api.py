@@ -1,7 +1,5 @@
 """Tests for global execution logs API endpoints."""
 
-from uuid import uuid4
-
 import pytest
 from httpx import AsyncClient
 
@@ -108,9 +106,7 @@ class TestListAllLogs:
             assert item["success"] is False
 
     @pytest.mark.asyncio
-    async def test_pagination(
-        self, async_client: AsyncClient, admin_headers, execution_logs
-    ):
+    async def test_pagination(self, async_client: AsyncClient, admin_headers, execution_logs):
         """Test pagination works correctly."""
         response = await async_client.get(
             "/api/execution-logs?page=1&page_size=2", headers=admin_headers
@@ -149,9 +145,7 @@ class TestExecutionStats:
     @pytest.mark.asyncio
     async def test_stats_empty(self, async_client: AsyncClient, admin_headers):
         """Test stats when no logs exist."""
-        response = await async_client.get(
-            "/api/execution-logs/stats", headers=admin_headers
-        )
+        response = await async_client.get("/api/execution-logs/stats", headers=admin_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -164,13 +158,9 @@ class TestExecutionStats:
         assert data["unique_users"] == 0
 
     @pytest.mark.asyncio
-    async def test_stats_with_data(
-        self, async_client: AsyncClient, admin_headers, execution_logs
-    ):
+    async def test_stats_with_data(self, async_client: AsyncClient, admin_headers, execution_logs):
         """Test stats return correct aggregate values."""
-        response = await async_client.get(
-            "/api/execution-logs/stats", headers=admin_headers
-        )
+        response = await async_client.get("/api/execution-logs/stats", headers=admin_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -196,13 +186,9 @@ class TestExecutionStats:
         assert data["period_hours"] == 1
 
     @pytest.mark.asyncio
-    async def test_stats_response_structure(
-        self, async_client: AsyncClient, admin_headers
-    ):
+    async def test_stats_response_structure(self, async_client: AsyncClient, admin_headers):
         """Test that stats response has all expected fields."""
-        response = await async_client.get(
-            "/api/execution-logs/stats", headers=admin_headers
-        )
+        response = await async_client.get("/api/execution-logs/stats", headers=admin_headers)
 
         assert response.status_code == 200
         data = response.json()

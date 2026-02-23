@@ -663,20 +663,27 @@ class CloudflareService:
                 src_dir = os.path.join(tmpdir, "src")
                 os.makedirs(src_dir, exist_ok=True)
                 worker_src_dir = "/app/worker/src"
-                if os.path.isdir(worker_src_dir):
-                    for filename in os.listdir(worker_src_dir):
-                        if filename.endswith(".ts") and not filename.endswith(".test.ts"):
-                            src_path = os.path.join(worker_src_dir, filename)
-                            dst_path = os.path.join(src_dir, filename)
-                            with open(src_path) as sf, open(dst_path, "w") as df:
-                                df.write(sf.read())
-                            logger.info(f"Copied worker source: {filename}")
-                else:
-                    # Fallback: write just index.ts from _get_worker_code()
-                    worker_code = self._get_worker_code()
-                    worker_path = os.path.join(src_dir, "index.ts")
-                    with open(worker_path, "w") as f:
-                        f.write(worker_code)
+                if not os.path.isdir(worker_src_dir):
+                    raise CloudflareAPIError(
+                        f"Worker source directory not found at {worker_src_dir}. "
+                        "The worker TypeScript source must be available in the container. "
+                        "Ensure the backend Docker image was built with the project root "
+                        "as the build context (see docker-compose.yml)."
+                    )
+                ts_files_copied = 0
+                for filename in os.listdir(worker_src_dir):
+                    if filename.endswith(".ts") and not filename.endswith(".test.ts"):
+                        src_path = os.path.join(worker_src_dir, filename)
+                        dst_path = os.path.join(src_dir, filename)
+                        with open(src_path) as sf, open(dst_path, "w") as df:
+                            df.write(sf.read())
+                        logger.info(f"Copied worker source: {filename}")
+                        ts_files_copied += 1
+                if ts_files_copied == 0:
+                    raise CloudflareAPIError(
+                        f"No TypeScript source files found in {worker_src_dir}. "
+                        "Cannot deploy worker without source code."
+                    )
 
                 # Write package.json for npm dependencies
                 package_json = self._get_worker_package_json()
@@ -885,77 +892,23 @@ id = "{kv_namespace_id}"
             await self.db.flush()
             raise
 
-    def _get_worker_code(self) -> str:
-        """Get the Worker TypeScript source code.
-
-        Reads the worker source from the mounted volume.
-        Wrangler will compile TypeScript to JavaScript during deployment.
-        """
-        import os
-
-        worker_path = "/app/worker/src/index.ts"
-        if os.path.exists(worker_path):
-            with open(worker_path) as f:
-                return f.read()
-
-        # Fallback: minimal embedded worker if source not found
-        logger.warning("Worker source not found at %s, using embedded fallback", worker_path)
-        return """
-// MCPbox MCP Proxy Worker (fallback - source file not found)
-export default {
-  async fetch(request, env) {
-    const corsHeaders = {
-      'Access-Control-Allow-Origin': 'https://mcp.claude.ai',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    };
-    if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: corsHeaders });
-    }
-    if (!env.MCPBOX_TUNNEL || !env.MCPBOX_SERVICE_TOKEN) {
-      return new Response(JSON.stringify({ error: 'Worker not configured' }), {
-        status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders },
-      });
-    }
-    const url = new URL(request.url);
-    const path = url.pathname;
-    if (!path.startsWith('/mcp') && !path.startsWith('/health')) {
-      return new Response(JSON.stringify({ error: 'Not found' }), {
-        status: 404, headers: { 'Content-Type': 'application/json', ...corsHeaders },
-      });
-    }
-    const headers = new Headers(request.headers);
-    headers.set('X-MCPbox-Service-Token', env.MCPBOX_SERVICE_TOKEN);
-    try {
-      const response = await env.MCPBOX_TUNNEL.fetch(`http://mcp-gateway:8002${path}${url.search}`, {
-        method: request.method, headers, body: request.body,
-      });
-      const responseHeaders = new Headers(response.headers);
-      Object.entries(corsHeaders).forEach(([k, v]) => responseHeaders.set(k, v));
-      return new Response(response.body, { status: response.status, headers: responseHeaders });
-    } catch (error) {
-      return new Response(JSON.stringify({ error: 'Failed to connect to MCPbox' }), {
-        status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders },
-      });
-    }
-  },
-};
-"""
-
     def _get_worker_package_json(self) -> str:
         """Get the Worker package.json source.
 
-        Reads from the mounted volume. Contains dependencies like
-        @cloudflare/workers-oauth-provider.
+        Reads from the baked-in copy in the Docker image.  Contains
+        dependencies like @cloudflare/workers-oauth-provider.
         """
         package_path = "/app/worker/package.json"
         if os.path.exists(package_path):
             with open(package_path) as f:
                 return f.read()
 
-        # Fallback: minimal package.json if source not found
-        logger.warning("Worker package.json not found at %s, using embedded fallback", package_path)
-        return '{"name":"mcpbox-proxy","version":"1.0.0","dependencies":{"@cloudflare/workers-oauth-provider":"0.2.2"}}'
+        raise CloudflareAPIError(
+            f"Worker package.json not found at {package_path}. "
+            "The worker source must be available in the container. "
+            "Ensure the backend Docker image was built with the project root "
+            "as the build context (see docker-compose.yml)."
+        )
 
     async def _create_access_policy(
         self,
@@ -1349,7 +1302,7 @@ compatibility_flags = ["{settings.cf_worker_compatibility_flags}"]
         Creates a SaaS OIDC Access Application in Cloudflare (if not already
         created), applies the Access Policy, and syncs OIDC secrets to the
         Worker. After this step, the Worker URL can be used directly by MCP
-        clients like Claude Web or OpenAI.
+        clients like Claude, ChatGPT, or other MCP-compatible applications.
 
         This combines what was previously steps 5 (MCP Server), 6 (Portal),
         and 7 (JWT Config) into a single step.
@@ -1515,8 +1468,7 @@ compatibility_flags = ["{settings.cf_worker_compatibility_flags}"]
                 worker_url=config.worker_url or "",
                 worker_test_result=worker_test_result,
                 message=(
-                    "OIDC configured. Add this URL to Claude or any MCP client: "
-                    f"{config.worker_url}/mcp"
+                    f"OIDC configured. Add this URL to your MCP client: {config.worker_url}/mcp"
                 ),
             )
 

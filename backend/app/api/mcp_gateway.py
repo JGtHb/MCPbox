@@ -1,6 +1,6 @@
 """MCP Gateway - routes requests to the shared sandbox service.
 
-Also exposes MCPbox management tools that allow external LLMs (like Claude Code)
+Also exposes MCPbox management tools that allow external LLMs
 to create, update, and manage MCP servers and tools programmatically.
 
 Authentication:

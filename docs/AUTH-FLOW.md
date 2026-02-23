@@ -98,7 +98,7 @@ RFC 9728 PRM tells MCP clients where to find the OAuth authorization server:
 }
 ```
 
-Served at two paths because Cloudflare sync probes the root path while claude.ai users add the URL as `https://worker.workers.dev/mcp`.
+Served at two paths because Cloudflare sync probes the root path while MCP clients add the URL as `https://worker.workers.dev/mcp`.
 
 ### Redirect URI Validation
 
@@ -107,6 +107,9 @@ OAuth client registration validates redirect URIs against:
 **Static patterns:**
 - `https://mcp.claude.ai/*`
 - `https://claude.ai/*`
+- `https://chatgpt.com/*`
+- `https://chat.openai.com/*`
+- `https://platform.openai.com/*`
 - `https://one.dash.cloudflare.com/*`
 - `http://localhost[:port]/*`
 - `http://127.0.0.1[:port]/*`
@@ -222,7 +225,7 @@ Secrets are pushed to the Worker at different wizard steps:
 
 Step 5 creates the SaaS OIDC Access Application, stores the credentials, and syncs all secrets to the Worker in a single operation. The deploy script (`scripts/deploy-worker.sh --set-secrets`) can also push them for re-deployment after code changes.
 
-MCP clients (Claude Web, OpenAI, etc.) connect directly to the Worker URL — no MCP Server or Portal objects are needed.
+MCP clients (Claude, ChatGPT, etc.) connect directly to the Worker URL — no MCP Server or Portal objects are needed.
 
 **Important:** After the wizard regenerates a service token (e.g., re-running setup), you must either re-run step 5 or run `deploy-worker.sh --set-secrets` to sync the new token to the Worker.
 

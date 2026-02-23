@@ -410,6 +410,59 @@ describe('MCPbox Proxy Worker', () => {
       expect(response.status).not.toBe(400);
     });
 
+    it('accepts valid redirect URI (chatgpt.com)', async () => {
+      const env = createBaseEnv();
+      const request = new Request('https://example.com/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          redirect_uris: ['https://chatgpt.com/connector_platform_oauth_redirect'],
+          grant_types: ['authorization_code'],
+          response_types: ['code'],
+          token_endpoint_auth_method: 'none',
+        }),
+      });
+      const ctx = createExecutionContext();
+
+      const response = await worker.fetch(request, env, ctx as any);
+
+      expect(response.status).not.toBe(400);
+    });
+
+    it('accepts valid redirect URI (chat.openai.com)', async () => {
+      const env = createBaseEnv();
+      const request = new Request('https://example.com/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          redirect_uris: ['https://chat.openai.com/oauth/callback'],
+          grant_types: ['authorization_code'],
+        }),
+      });
+      const ctx = createExecutionContext();
+
+      const response = await worker.fetch(request, env, ctx as any);
+
+      expect(response.status).not.toBe(400);
+    });
+
+    it('accepts valid redirect URI (platform.openai.com)', async () => {
+      const env = createBaseEnv();
+      const request = new Request('https://example.com/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          redirect_uris: ['https://platform.openai.com/apps-manage/oauth'],
+          grant_types: ['authorization_code'],
+        }),
+      });
+      const ctx = createExecutionContext();
+
+      const response = await worker.fetch(request, env, ctx as any);
+
+      expect(response.status).not.toBe(400);
+    });
+
     it('accepts valid redirect URI (localhost)', async () => {
       const env = createBaseEnv();
       const request = new Request('https://example.com/register', {
@@ -662,6 +715,45 @@ describe('MCPbox Proxy Worker', () => {
       const response = await worker.fetch(request, env, ctx as any);
 
       expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://one.dash.cloudflare.com');
+    });
+
+    it('allows https://chatgpt.com origin', async () => {
+      const env = createBaseEnv();
+      const request = new Request('https://example.com/', {
+        method: 'OPTIONS',
+        headers: { Origin: 'https://chatgpt.com' },
+      });
+      const ctx = createExecutionContext();
+
+      const response = await worker.fetch(request, env, ctx as any);
+
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://chatgpt.com');
+    });
+
+    it('allows https://chat.openai.com origin', async () => {
+      const env = createBaseEnv();
+      const request = new Request('https://example.com/', {
+        method: 'OPTIONS',
+        headers: { Origin: 'https://chat.openai.com' },
+      });
+      const ctx = createExecutionContext();
+
+      const response = await worker.fetch(request, env, ctx as any);
+
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://chat.openai.com');
+    });
+
+    it('allows https://platform.openai.com origin', async () => {
+      const env = createBaseEnv();
+      const request = new Request('https://example.com/', {
+        method: 'OPTIONS',
+        headers: { Origin: 'https://platform.openai.com' },
+      });
+      const ctx = createExecutionContext();
+
+      const response = await worker.fetch(request, env, ctx as any);
+
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://platform.openai.com');
     });
 
     it('falls back to https://mcp.claude.ai for non-allowed origins', async () => {

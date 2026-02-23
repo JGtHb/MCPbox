@@ -1339,7 +1339,7 @@ class MCPManagementService:
 
                 message = (
                     f"Tool '{tool.name}' has been auto-approved and registered with the sandbox. "
-                    "Important: MCP clients (Claude Desktop, Claude Web, mobile) do not currently "
+                    "Important: Most MCP clients do not currently "
                     "support automatic tool list refresh. The user will need to restart or refresh "
                     "their client to see the new tool."
                 )

@@ -598,8 +598,8 @@ function AllowedOriginsSection({ configId }: { configId: string | null }) {
       <div className="mb-4">
         <h3 className="text-lg font-medium text-on-base">Allowed Origins</h3>
         <p className="text-sm text-subtle mt-1">
-          Additional CORS origins and OAuth redirect URIs for non-Claude MCP clients.
-          Built-in origins (claude.ai, localhost, etc.) are always included.
+          Additional CORS origins and OAuth redirect URIs for custom MCP clients.
+          Built-in origins (Claude, ChatGPT, OpenAI, Cloudflare, localhost) are always included.
         </p>
       </div>
 
@@ -714,7 +714,7 @@ function AllowedOriginsSection({ configId }: { configId: string | null }) {
       )}
 
       <p className="mt-4 text-xs text-subtle">
-        Built-in origins (claude.ai, mcp.claude.ai, one.dash.cloudflare.com, localhost) are always allowed. These are additional origins for other MCP clients.
+        Built-in origins (Claude, ChatGPT, OpenAI, Cloudflare, localhost) are always allowed. These are additional origins for other MCP clients.
       </p>
     </div>
   )

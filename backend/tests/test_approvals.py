@@ -1540,7 +1540,10 @@ async def test_submit_already_pending_tool_fails(
     )
     assert response.status_code == 400
     # request_publish raises ValueError for non-draft/non-rejected tools
-    assert "draft" in response.json()["detail"].lower() or "rejected" in response.json()["detail"].lower()
+    assert (
+        "draft" in response.json()["detail"].lower()
+        or "rejected" in response.json()["detail"].lower()
+    )
 
 
 @pytest.mark.asyncio

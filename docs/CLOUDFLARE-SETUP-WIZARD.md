@@ -73,7 +73,7 @@ The wizard automates the entire remote access setup process, replacing the manua
 |  |  + Adds X-MCPbox-Service-Token header (defense-in-depth)             | |
 |  |  + Sets X-MCPbox-User-Email from OIDC-verified id_token              | |
 |  |  + Auth method always "oidc"                                         | |
-|  |  + CORS restricted to claude.ai domains                              | |
+|  |  + CORS restricted to known MCP client domains                       | |
 |  |  + OAuth tokens stored in KV namespace (OAUTH_KV)                    | |
 |  +--------------------------------------------------+--------------------+ |
 |                                                     |                      |
@@ -84,8 +84,8 @@ The wizard automates the entire remote access setup process, replacing the manua
                                                       v
                                                +--------------+
                                                |  MCP Clients |
-                                               | (Claude Web, |
-                                               |  etc.)       |
+                                               | (Claude,     |
+                                               |  ChatGPT,..) |
                                                +--------------+
 ```
 
@@ -100,7 +100,7 @@ MCP clients connect directly to the Worker URL (e.g., `https://mcpbox-proxy.you.
 | **3** | Worker | **id_token verification** (RS256, JWKS, iss/aud/nonce/exp/nbf) | Token forgery, replay |
 | **3b** | MCP Gateway | **Email-based authorization**: no email = sync-only (no tools/call) | Tool execution via sync path |
 | **4** | Worker | **Path validation** (`/mcp`, `/health` only) | Admin API access via tunnel |
-| **5** | Worker | **CORS whitelist** (`claude.ai` domains) | Cross-origin abuse |
+| **5** | Worker | **CORS whitelist** (known MCP client domains) | Cross-origin abuse |
 | **6** | Worker -> Tunnel | **Workers VPC** (private binding) | Public tunnel exposure |
 | **7** | Tunnel -> MCP Gateway | **Service Token** (`X-MCPbox-Service-Token`) | Defense in depth |
 | **8** | MCP Gateway | **Token validation** | Requests bypassing Worker |
@@ -277,7 +277,7 @@ JWKS URL:     https://{auth_domain}/cdn-cgi/access/certs
 |   Next steps:                               |
 |   1. Start tunnel: docker compose --profile |
 |      remote up -d cloudflared               |
-|   2. Add Worker URL to Claude Web settings  |
+|   2. Add Worker URL to your MCP client      |
 |   3. Complete OIDC authentication           |
 +---------------------------------------------+
 ```
@@ -447,7 +447,7 @@ cd worker && npx wrangler secret list
 # ACCESS_TOKEN_URL, ACCESS_AUTHORIZATION_URL, ACCESS_JWKS_URL, COOKIE_ENCRYPTION_KEY
 ```
 
-### 4. Test Full Flow with Claude Web
+### 4. Test Full Flow with an MCP Client
 
 1. Deploy Worker with VPC binding and `@cloudflare/workers-oauth-provider` wrapper
 2. Create Access for SaaS OIDC application with Worker callback URL
@@ -455,7 +455,7 @@ cd worker && npx wrangler secret list
 4. Redeploy Worker
 5. Verify direct Worker access returns 401 (no valid OAuth 2.1 token)
 6. Configure identity provider in Zero Trust dashboard (if not already)
-7. Add Worker URL (`https://mcpbox-proxy.your-account.workers.dev/mcp`) to Claude Web
+7. Add Worker URL (`https://mcpbox-proxy.your-account.workers.dev/mcp`) to your MCP client
 8. Complete OIDC authentication (redirected to Cloudflare Access)
 9. Test MCP tools (OIDC-authenticated users can list + execute)
 10. Verify sync still works (OAuth-only, can only list)

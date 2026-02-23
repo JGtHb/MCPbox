@@ -75,7 +75,7 @@ export function Tunnel() {
                 {cloudflareStatus?.worker_url && (
                   <div>
                     <label className="block text-sm font-medium text-subtle mb-2">
-                      MCP Endpoint URL (use this in Claude Web)
+                      MCP Endpoint URL
                     </label>
                     <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                       <input
@@ -120,14 +120,14 @@ export function Tunnel() {
 
             {/* How to use */}
             <div className="bg-surface rounded-lg shadow p-4 sm:p-6 mb-6">
-              <h3 className="text-lg font-medium text-on-base mb-4">How to Connect Claude Web</h3>
+              <h3 className="text-lg font-medium text-on-base mb-4">How to Connect</h3>
               <div className="space-y-4 text-sm text-subtle">
                 <ol className="list-decimal list-inside space-y-2">
-                  <li>Go to <a href="https://claude.ai" target="_blank" rel="noopener noreferrer" className="text-iris hover:underline">claude.ai</a> and open Settings</li>
+                  <li>Open your MCP client (Claude, ChatGPT, Cursor, etc.) and go to Settings</li>
                   <li>Navigate to Integrations or MCP Servers</li>
                   <li>Add your Worker URL: <code className="bg-hl-low px-2 py-0.5 rounded font-mono text-xs">{cloudflareStatus?.worker_url}/mcp</code></li>
                   <li>Authenticate when prompted (OAuth handled by the Worker)</li>
-                  <li>Your MCPbox tools will appear in Claude</li>
+                  <li>Your MCPbox tools will appear in the client</li>
                 </ol>
                 <p className="mt-3 text-xs text-muted">
                   If you just completed the setup wizard, it may take a few minutes for Cloudflare

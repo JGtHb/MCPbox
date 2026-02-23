@@ -2,8 +2,6 @@
 
 from uuid import uuid4
 
-import pytest
-
 from app.services.execution_log import ExecutionLogService
 
 
@@ -61,9 +59,7 @@ class TestCreateLog:
         assert log.input_args["password"] == "[REDACTED]"
         assert log.input_args["query"] == "safe"
 
-    async def test_create_log_truncates_long_result(
-        self, db_session, server_factory, tool_factory
-    ):
+    async def test_create_log_truncates_long_result(self, db_session, server_factory, tool_factory):
         """Pass result > 10,000 chars, verify truncated."""
         server = await server_factory()
         tool = await tool_factory(server=server)
@@ -133,9 +129,7 @@ class TestListByTool:
         assert logs[1].id == log2.id
         assert logs[2].id == log1.id
 
-    async def test_list_by_tool_filters_other_tools(
-        self, db_session, server_factory, tool_factory
-    ):
+    async def test_list_by_tool_filters_other_tools(self, db_session, server_factory, tool_factory):
         """Logs for a different tool should not appear."""
         server = await server_factory()
         tool_a = await tool_factory(server=server, name="tool_a")

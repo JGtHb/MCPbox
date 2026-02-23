@@ -393,8 +393,8 @@ async def update_worker_config(
 
     Saves the configuration to the database and syncs it to the Worker's
     KV namespace so the Worker picks it up immediately without redeployment.
-    Built-in origins (claude.ai, localhost, etc.) are always included by
-    the Worker — these are *additional* origins.
+    Built-in origins (Claude, ChatGPT, OpenAI, Cloudflare, localhost) are
+    always included by the Worker — these are *additional* origins.
     """
     try:
         result = await service.update_worker_config(
