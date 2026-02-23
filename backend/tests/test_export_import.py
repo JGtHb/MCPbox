@@ -473,9 +473,7 @@ class TestExportSignature:
         assert result["servers_created"] == 1
         assert any("signature" in w.lower() for w in result["warnings"])
 
-    async def test_import_without_signature_warns(
-        self, async_client: AsyncClient, admin_headers
-    ):
+    async def test_import_without_signature_warns(self, async_client: AsyncClient, admin_headers):
         """Test that import without signature succeeds with warning."""
         response = await async_client.post(
             "/api/export/import",

@@ -154,7 +154,9 @@ class TestDiscoverOAuthMetadata:
                 "resource": "https://mcp.example.com",
                 "authorization_servers": ["https://auth.example.com"],
             },
-            request=httpx.Request("GET", "https://mcp.example.com/.well-known/oauth-protected-resource"),
+            request=httpx.Request(
+                "GET", "https://mcp.example.com/.well-known/oauth-protected-resource"
+            ),
         )
         asm_response = httpx.Response(
             200,
@@ -164,7 +166,9 @@ class TestDiscoverOAuthMetadata:
                 "registration_endpoint": "https://auth.example.com/register",
                 "issuer": "https://auth.example.com",
             },
-            request=httpx.Request("GET", "https://auth.example.com/.well-known/oauth-authorization-server"),
+            request=httpx.Request(
+                "GET", "https://auth.example.com/.well-known/oauth-authorization-server"
+            ),
         )
 
         with patch("app.services.mcp_oauth_client._get_http_client") as mock_client_factory:

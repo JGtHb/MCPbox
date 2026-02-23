@@ -27,6 +27,7 @@ class TestDashboardEndpoint:
         assert data["stats"]["total_servers"] == 0
         assert data["stats"]["active_servers"] == 0
         assert data["stats"]["total_tools"] == 0
+
     @pytest.mark.asyncio
     async def test_dashboard_with_servers(
         self, async_client: AsyncClient, server_factory, admin_headers
@@ -304,4 +305,3 @@ class TestDashboardEndpoint:
 
         # Should be limited to 10 servers
         assert len(data["servers"]) <= 10
-

@@ -27,9 +27,7 @@ async def test_server(async_client: AsyncClient, admin_headers: dict):
 
 
 @pytest.fixture
-async def test_source(
-    db_session: AsyncSession, test_server: dict
-) -> ExternalMCPSource:
+async def test_source(db_session: AsyncSession, test_server: dict) -> ExternalMCPSource:
     """Create a test external MCP source directly in the database."""
     source = ExternalMCPSource(
         server_id=test_server["id"],
@@ -165,9 +163,7 @@ class TestGetExternalSource:
         assert data["name"] == "Test MCP Source"
         assert data["url"] == "https://example.com/mcp"
 
-    async def test_get_nonexistent_source(
-        self, async_client: AsyncClient, admin_headers: dict
-    ):
+    async def test_get_nonexistent_source(self, async_client: AsyncClient, admin_headers: dict):
         """Getting a non-existent source returns 404."""
         response = await async_client.get(
             f"/api/external-sources/sources/{uuid4()}",
@@ -199,9 +195,7 @@ class TestUpdateExternalSource:
         assert data["name"] == "Updated MCP Source"
         assert data["url"] == "https://new-url.example.com/mcp"
 
-    async def test_update_nonexistent_source(
-        self, async_client: AsyncClient, admin_headers: dict
-    ):
+    async def test_update_nonexistent_source(self, async_client: AsyncClient, admin_headers: dict):
         """Updating a non-existent source returns 404."""
         response = await async_client.put(
             f"/api/external-sources/sources/{uuid4()}",
@@ -234,9 +228,7 @@ class TestDeleteExternalSource:
         )
         assert response.status_code == 404
 
-    async def test_delete_nonexistent_source(
-        self, async_client: AsyncClient, admin_headers: dict
-    ):
+    async def test_delete_nonexistent_source(self, async_client: AsyncClient, admin_headers: dict):
         """Deleting a non-existent source returns 404."""
         response = await async_client.delete(
             f"/api/external-sources/sources/{uuid4()}",
