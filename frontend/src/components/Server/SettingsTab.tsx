@@ -209,8 +209,10 @@ export function SettingsTab({ server }: SettingsTabProps) {
           </div>
 
           <div className="sm:flex sm:justify-between sm:items-start">
-            <dt className="text-sm font-medium text-subtle">Network Mode</dt>
-            <dd className="mt-1 sm:mt-0 text-sm text-on-base capitalize">{server.network_mode}</dd>
+            <dt className="text-sm font-medium text-subtle">Network Access</dt>
+            <dd className="mt-1 sm:mt-0 text-sm text-on-base">
+              {server.allowed_hosts.length === 0 ? 'Isolated (no network access)' : `${server.allowed_hosts.length} allowed host(s)`}
+            </dd>
           </div>
           <div className="sm:flex sm:justify-between sm:items-start">
             <dt className="text-sm font-medium text-subtle">Default Timeout</dt>

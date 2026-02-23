@@ -85,6 +85,7 @@ async def _refresh_server_after_import(server: Server, db: AsyncSession) -> bool
             allowed_modules=allowed_modules,
             secrets=secrets,
             external_sources=external_sources_data,
+            allowed_hosts=server.allowed_hosts or [],
         )
 
         success = (

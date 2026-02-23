@@ -462,8 +462,6 @@ async def test_approve_network_request(
     # Verify host was added to server's allowed list
     await db_session.refresh(test_server)
     assert "api.example.com" in test_server.allowed_hosts
-    # Server should be switched to allowlist mode
-    assert test_server.network_mode == "allowlist"
 
 
 @pytest.mark.asyncio

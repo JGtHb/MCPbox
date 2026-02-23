@@ -41,11 +41,18 @@ describe('ServerCard', () => {
     expect(screen.getByText('1 tool')).toBeInTheDocument()
   })
 
-  it('displays network mode', () => {
-    const server = createMockServer({ network_mode: 'allowlist' })
+  it('displays isolated when no hosts', () => {
+    const server = createMockServer({ allowed_hosts: [] })
     render(<ServerCard server={server} />)
 
-    expect(screen.getByText('allowlist')).toBeInTheDocument()
+    expect(screen.getByText('Isolated')).toBeInTheDocument()
+  })
+
+  it('displays host count when hosts exist', () => {
+    const server = createMockServer({ allowed_hosts: ['api.github.com'] })
+    render(<ServerCard server={server} />)
+
+    expect(screen.getByText('1 host(s)')).toBeInTheDocument()
   })
 
   it('displays status badge', () => {

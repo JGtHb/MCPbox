@@ -62,7 +62,7 @@ async def list_servers(
             name=s.name,
             description=s.description,
             status=s.status,
-            network_mode=s.network_mode,
+            allowed_hosts=s.allowed_hosts or [],
             tool_count=getattr(s, "tool_count", 0),
             created_at=s.created_at,
         )
@@ -133,7 +133,6 @@ async def add_allowed_host(
 ) -> AllowedHostsResponse:
     """Add a host to a server's network allowlist.
 
-    Switches network_mode from 'isolated' to 'allowlist' if needed.
     Re-registers the server with the sandbox if it's running.
     """
     server = await service.get(server_id)
@@ -143,19 +142,11 @@ async def add_allowed_host(
             detail=f"Server {server_id} not found",
         )
 
-    # Initialize allowed_hosts if None
-    if server.allowed_hosts is None:
-        server.allowed_hosts = []
-
     # Deduplicate
     host = data.host.strip().lower()
     if host not in server.allowed_hosts:
         # Reassign list for PostgreSQL ARRAY dirty tracking
         server.allowed_hosts = [*server.allowed_hosts, host]
-
-    # Switch to allowlist mode if isolated
-    if server.network_mode == "isolated":
-        server.network_mode = "allowlist"
 
     await db.commit()
     await db.refresh(server)
@@ -165,7 +156,6 @@ async def add_allowed_host(
 
     return AllowedHostsResponse(
         server_id=server.id,
-        network_mode=server.network_mode,
         allowed_hosts=server.allowed_hosts or [],
     )
 
@@ -179,7 +169,6 @@ async def remove_allowed_host(
 ) -> AllowedHostsResponse:
     """Remove a host from a server's network allowlist.
 
-    Reverts to 'isolated' mode if the allowlist becomes empty.
     Re-registers the server with the sandbox if it's running.
     """
     server = await service.get(server_id)
@@ -190,19 +179,14 @@ async def remove_allowed_host(
         )
 
     host = host.strip().lower()
-    current_hosts = server.allowed_hosts or []
-    if host not in current_hosts:
+    if host not in server.allowed_hosts:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Host '{host}' is not in the allowlist",
         )
 
     # Remove host (reassign for PostgreSQL ARRAY dirty tracking)
-    server.allowed_hosts = [h for h in current_hosts if h != host]
-
-    # Revert to isolated if empty
-    if not server.allowed_hosts:
-        server.network_mode = "isolated"
+    server.allowed_hosts = [h for h in server.allowed_hosts if h != host]
 
     await db.commit()
     await db.refresh(server)
@@ -212,7 +196,6 @@ async def remove_allowed_host(
 
     return AllowedHostsResponse(
         server_id=server.id,
-        network_mode=server.network_mode,
         allowed_hosts=server.allowed_hosts or [],
     )
 
@@ -254,6 +237,7 @@ async def _refresh_server_registration_for_hosts(server: Any, db: AsyncSession) 
             allowed_modules=allowed_modules,
             secrets=secrets,
             external_sources=external_sources_data,
+            allowed_hosts=server.allowed_hosts or [],
         )
 
         success = (
@@ -287,7 +271,7 @@ def _to_response(server: Any) -> ServerResponse:
         name=server.name,
         description=server.description,
         status=server.status,
-        network_mode=server.network_mode,
+        allowed_hosts=server.allowed_hosts or [],
         default_timeout_ms=server.default_timeout_ms,
         created_at=server.created_at,
         updated_at=server.updated_at,

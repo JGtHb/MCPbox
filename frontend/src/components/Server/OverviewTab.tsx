@@ -76,10 +76,12 @@ export function OverviewTab({ server, serverStatus, toolCount }: OverviewTabProp
         <h3 className="text-lg font-medium text-on-base mb-4">Server Info</h3>
         <dl className="space-y-3">
           <div className="flex justify-between">
-            <dt className="text-subtle">Network Mode</dt>
-            <dd className="text-on-base capitalize">{server.network_mode}</dd>
+            <dt className="text-subtle">Network Access</dt>
+            <dd className="text-on-base">
+              {server.allowed_hosts.length === 0 ? 'Isolated (no network)' : `${server.allowed_hosts.length} allowed host(s)`}
+            </dd>
           </div>
-          {server.network_mode === 'allowlist' && server.allowed_hosts && server.allowed_hosts.length > 0 && (
+          {server.allowed_hosts.length > 0 && (
             <div className="flex justify-between">
               <dt className="text-subtle">Allowed Hosts</dt>
               <dd className="text-on-base text-right">

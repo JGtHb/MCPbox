@@ -640,13 +640,6 @@ class ApprovalService:
         # Add host to server's allowed hosts
         server = request.tool.server
 
-        # Switch server to allowlist mode if not already
-        if server.network_mode == "isolated":
-            server.network_mode = "allowlist"
-
-        if server.allowed_hosts is None:
-            server.allowed_hosts = []
-
         # Add host (with optional port) to allowed hosts
         host_entry = request.host
         if host_entry not in server.allowed_hosts:

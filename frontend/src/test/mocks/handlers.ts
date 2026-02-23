@@ -11,7 +11,7 @@ export const createMockServer = (overrides?: Partial<Server>): Server => ({
   name: 'Test Server',
   description: 'A test server',
   status: 'ready',
-  network_mode: 'isolated',
+  allowed_hosts: [],
   tool_count: 2,
   created_at: '2024-01-01T00:00:00Z',
   updated_at: '2024-01-01T00:00:00Z',
@@ -20,7 +20,6 @@ export const createMockServer = (overrides?: Partial<Server>): Server => ({
 
 export const createMockServerDetail = (overrides?: Partial<ServerDetail>): ServerDetail => ({
   ...createMockServer(),
-  allowed_hosts: null,
   default_timeout_ms: 30000,
   // NOTE: allowed_modules removed - now global in Settings
   ...overrides,

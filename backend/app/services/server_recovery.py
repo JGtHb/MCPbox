@@ -128,9 +128,6 @@ async def _register_server(db: AsyncSession, server: Server, sandbox_client: San
             }
         )
 
-    # Determine allowed hosts for network access enforcement
-    allowed_hosts = server.allowed_hosts if server.network_mode == "allowlist" else None
-
     result = await sandbox_client.register_server(
         server_id=str(server.id),
         server_name=server.name,
@@ -138,7 +135,7 @@ async def _register_server(db: AsyncSession, server: Server, sandbox_client: San
         allowed_modules=allowed_modules,
         secrets=secrets,
         external_sources=external_sources_data,
-        allowed_hosts=allowed_hosts,
+        allowed_hosts=server.allowed_hosts or [],
     )
 
     if result.get("success"):

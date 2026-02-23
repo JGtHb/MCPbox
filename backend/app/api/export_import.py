@@ -94,6 +94,8 @@ class ExportedServer(BaseModel):
     name: str
     description: str | None
     tools: list[ExportedTool]
+    allowed_hosts: list[str] = []
+    default_timeout_ms: int = 30000
 
 
 class ExportResponse(BaseModel):
@@ -111,6 +113,8 @@ class ImportServerRequest(BaseModel):
     name: str
     description: str | None = None
     tools: list[ExportedTool] = []
+    allowed_hosts: list[str] = []
+    default_timeout_ms: int = 30000
 
 
 class ImportRequest(BaseModel):
@@ -163,6 +167,8 @@ async def export_all_servers(
                 name=server.name,
                 description=server.description,
                 tools=exported_tools,
+                allowed_hosts=server.allowed_hosts or [],
+                default_timeout_ms=server.default_timeout_ms,
             )
         )
 
@@ -218,6 +224,8 @@ async def export_server(
         name=server.name,
         description=server.description,
         tools=exported_tools,
+        allowed_hosts=server.allowed_hosts or [],
+        default_timeout_ms=server.default_timeout_ms,
     )
 
 
@@ -289,6 +297,10 @@ async def import_servers(
                     description=server_data.description,
                 )
                 server = await server_service.create(server_create)
+
+                # Apply additional settings from export
+                server.allowed_hosts = server_data.allowed_hosts or []
+                server.default_timeout_ms = server_data.default_timeout_ms
 
                 # Create all tools - if any fail, entire server is rolled back
                 server_tools_created = 0
