@@ -1,0 +1,51 @@
+---
+title: Environment Variables
+parent: Reference
+nav_order: 2
+---
+
+# Environment Variables
+
+All configuration is done via the `.env` file in the project root.
+
+## Required
+
+| Variable | Description | How to generate |
+|----------|-------------|-----------------|
+| `MCPBOX_ENCRYPTION_KEY` | 32-byte hex key for encrypting server secrets (AES-256-GCM) | `openssl rand -hex 32` |
+| `POSTGRES_PASSWORD` | PostgreSQL database password | `openssl rand -hex 16` |
+| `SANDBOX_API_KEY` | Backend-to-sandbox authentication key (min 32 chars) | `openssl rand -hex 32` |
+
+{: .important }
+Each secret must be a unique value. MCPBox validates on startup that secrets are different and logs a warning if duplicates are detected.
+
+## Optional
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `JWT_SECRET_KEY` | derived from `MCPBOX_ENCRYPTION_KEY` | JWT signing key for admin panel auth. Set explicitly for better security. |
+| `MCPBOX_FRONTEND_PORT` | `3000` | Host port for the web UI |
+| `MCPBOX_BACKEND_PORT` | `8000` | Host port for the backend API |
+| `CORS_ORIGINS` | `http://localhost:3000` | Admin CORS origins (only needed for direct backend access) |
+| `MCP_CORS_ORIGINS` | `https://mcp.claude.ai,https://claude.ai` | MCP gateway CORS origins |
+| `LOG_LEVEL` | `INFO` | Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
+| `LOG_RETENTION_DAYS` | `30` | Days to keep activity logs |
+| `RATE_LIMIT_REQUESTS_PER_MINUTE` | `100` | API rate limit per client |
+| `ENABLE_METRICS` | `true` | Enable Prometheus `/metrics` endpoint |
+| `ALERT_WEBHOOK_URL` | (none) | Webhook URL for critical alerts (Discord, Slack, or generic HTTP) |
+
+## Database
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | (from compose) | PostgreSQL connection string |
+| `DB_POOL_SIZE` | `20` | Base connection pool size |
+| `DB_MAX_OVERFLOW` | `20` | Additional connections allowed above pool size |
+| `DB_POOL_TIMEOUT` | `30` | Seconds to wait for a connection |
+| `DB_POOL_RECYCLE` | `1800` | Recycle connections after this many seconds |
+
+## Remote Access
+
+Remote access tokens (tunnel token, service token, OIDC credentials) are stored in the database and managed by the [setup wizard]({% link guides/remote-access.md %}). No additional environment variables are needed.
+
+After completing the wizard, run `./scripts/deploy-worker.sh --set-secrets` to push tokens to the Cloudflare Worker.
