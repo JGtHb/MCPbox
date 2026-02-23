@@ -15,6 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.auth import get_current_user
 from app.core import get_db
+from app.models import ModuleRequest as ModuleRequestModel
 from app.models import NetworkAccessRequest as NetworkAccessRequestModel
 from app.models import Tool
 from app.schemas.approval import (
@@ -469,12 +470,15 @@ async def get_pending_module_requests(
 async def take_module_request_action(
     request_id: UUID,
     action: ModuleRequestAction,
+    db: AsyncSession = Depends(get_db),
     service: ApprovalService = Depends(get_approval_service),
     admin_identity: str = Depends(get_admin_identity),
 ) -> ModuleRequestResponse:
     """Approve or reject a module whitelist request.
 
-    Approval will add the module to the server's allowed modules list.
+    Approval will add the module to the global allowed modules list and
+    re-register the server with the sandbox so the change takes effect
+    immediately without requiring a restart.
     Rejection requires a reason.
     Admin identity is extracted from verified JWT token.
     """
@@ -484,6 +488,21 @@ async def take_module_request_action(
                 request_id=request_id,
                 approved_by=admin_identity,
             )
+
+            # Re-register server so the updated module list takes effect immediately
+            try:
+                stmt = (
+                    select(Tool)
+                    .where(Tool.id == request.tool_id)
+                    .options(selectinload(Tool.server))
+                )
+                tool_result = await db.execute(stmt)
+                tool = tool_result.scalar_one_or_none()
+                if tool:
+                    await _refresh_server_registration(tool, db)
+            except Exception as e:
+                logger.warning(f"Failed to refresh server after module approval: {e}")
+
             return ModuleRequestResponse.model_validate(request)
         else:
             if not action.reason:
@@ -513,12 +532,14 @@ async def take_module_request_action(
 @router.post("/modules/{request_id}/revoke", response_model=ModuleRequestResponse)
 async def revoke_module_request(
     request_id: UUID,
+    db: AsyncSession = Depends(get_db),
     service: ApprovalService = Depends(get_approval_service),
     admin_identity: str = Depends(get_admin_identity),
 ) -> ModuleRequestResponse:
     """Revoke an approved module whitelist request back to pending status.
 
-    The module is removed from the global allowed modules list.
+    The module is removed from the global allowed modules list and the server
+    is re-registered with the sandbox so the change takes effect immediately.
     Admin identity is extracted from verified JWT token.
     """
     try:
@@ -526,6 +547,17 @@ async def revoke_module_request(
             request_id=request_id,
             revoked_by=admin_identity,
         )
+
+        # Re-register server so the revoked module is removed immediately
+        try:
+            stmt = select(Tool).where(Tool.id == request.tool_id).options(selectinload(Tool.server))
+            tool_result = await db.execute(stmt)
+            tool = tool_result.scalar_one_or_none()
+            if tool:
+                await _refresh_server_registration(tool, db)
+        except Exception as e:
+            logger.warning(f"Failed to refresh server after module revocation: {e}")
+
         return ModuleRequestResponse.model_validate(request)
     except ValueError as e:
         error_msg = str(e)
@@ -542,12 +574,15 @@ async def revoke_module_request(
 @router.post("/modules/bulk-action", response_model=BulkActionResponse)
 async def bulk_module_request_action(
     action: BulkModuleRequestAction,
+    db: AsyncSession = Depends(get_db),
     service: ApprovalService = Depends(get_approval_service),
     admin_identity: str = Depends(get_admin_identity),
 ) -> BulkActionResponse:
     """Approve or reject multiple module requests at once.
 
-    Approval will add the modules to the respective server's allowed modules list.
+    Approval will add the modules to the global allowed modules list and
+    re-register affected servers with the sandbox so changes take effect
+    immediately.
     Rejection requires a reason.
     Admin identity is extracted from verified JWT token.
     """
@@ -562,6 +597,29 @@ async def bulk_module_request_action(
             request_ids=action.request_ids,
             approved_by=admin_identity,
         )
+
+        # Re-register affected servers so the updated module list takes effect
+        refreshed_servers: set[str] = set()
+        for request_id in action.request_ids:
+            if not any(f["id"] == request_id for f in result["failed"]):
+                try:
+                    stmt = (
+                        select(Tool)
+                        .join(
+                            ModuleRequestModel,
+                            ModuleRequestModel.tool_id == Tool.id,
+                        )
+                        .where(ModuleRequestModel.id == request_id)
+                        .options(selectinload(Tool.server))
+                    )
+                    tool_result = await db.execute(stmt)
+                    tool = tool_result.scalar_one_or_none()
+                    if tool and str(tool.server_id) not in refreshed_servers:
+                        refreshed = await _refresh_server_registration(tool, db)
+                        if refreshed:
+                            refreshed_servers.add(str(tool.server_id))
+                except Exception as e:
+                    logger.warning(f"Failed to refresh server for module request {request_id}: {e}")
     else:
         result = await service.bulk_reject_module_requests(
             request_ids=action.request_ids,

@@ -1788,3 +1788,173 @@ async def test_bulk_approve_network_requests_triggers_server_reregistration(
     )
     for host in ["api.bulk1.com", "api.bulk2.com", "api.bulk3.com"]:
         assert host in passed_hosts
+
+
+# =============================================================================
+# Module Approval → Sandbox Re-registration Tests
+# =============================================================================
+# Regression tests: approving/revoking module requests should immediately
+# re-register the server with the sandbox so the updated allowed_modules
+# list takes effect without restart.
+
+
+@pytest.fixture
+async def running_server_pending_module_request(
+    db_session: AsyncSession, running_server_tool: Tool
+) -> ModuleRequest:
+    """Create a pending module request on a running server."""
+    request = ModuleRequest(
+        tool_id=running_server_tool.id,
+        module_name="numpy",
+        justification="Need numpy for numerical computation",
+        requested_by="test@example.com",
+        status="pending",
+    )
+    db_session.add(request)
+    await db_session.flush()
+    await db_session.refresh(request)
+    return request
+
+
+@pytest.fixture
+async def running_server_approved_module_request(
+    db_session: AsyncSession, running_server_tool: Tool
+) -> ModuleRequest:
+    """Create an approved module request on a running server."""
+    from datetime import UTC, datetime
+
+    request = ModuleRequest(
+        tool_id=running_server_tool.id,
+        module_name="scipy",
+        justification="Need scipy for scientific computing",
+        requested_by="dev@example.com",
+        status="approved",
+        reviewed_by="admin@example.com",
+        reviewed_at=datetime.now(UTC),
+    )
+    db_session.add(request)
+    await db_session.flush()
+    await db_session.refresh(request)
+    return request
+
+
+@pytest.mark.asyncio
+async def test_approve_module_request_triggers_server_reregistration(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    running_server_pending_module_request: ModuleRequest,
+    running_server: Server,
+    db_session: AsyncSession,
+    mock_sandbox_client,
+):
+    """Approving a module request re-registers the server with sandbox.
+
+    Regression test: previously, approving a module only updated the global
+    allowed modules in the DB but did not push the change to the running
+    sandbox, requiring a manual server restart for the new module to work.
+    """
+    mock_sandbox_client.register_server = AsyncMock(
+        return_value={"success": True, "tools_registered": 1}
+    )
+    # Mock install_package since module approval triggers it
+    mock_sandbox_client.install_package = AsyncMock(
+        return_value={"status": "installed", "package_name": "numpy", "version": "1.0"}
+    )
+
+    response = await async_client.post(
+        f"/api/approvals/modules/{running_server_pending_module_request.id}/action",
+        json={"action": "approve"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "approved"
+
+    # Verify the server was re-registered with the sandbox
+    mock_sandbox_client.register_server.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_revoke_module_request_triggers_server_reregistration(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    running_server_approved_module_request: ModuleRequest,
+    running_server: Server,
+    db_session: AsyncSession,
+    mock_sandbox_client,
+):
+    """Revoking a module request re-registers the server with sandbox.
+
+    Regression test: ensures that revoking a module pushes the updated
+    (reduced) allowed_modules to the sandbox immediately.
+    """
+    mock_sandbox_client.register_server = AsyncMock(
+        return_value={"success": True, "tools_registered": 1}
+    )
+
+    response = await async_client.post(
+        f"/api/approvals/modules/{running_server_approved_module_request.id}/revoke",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "pending"
+
+    # Verify the server was re-registered with the sandbox
+    mock_sandbox_client.register_server.assert_called_once()
+
+
+@pytest.fixture
+async def multiple_running_server_pending_module_requests(
+    db_session: AsyncSession, running_server_tool: Tool
+) -> list[ModuleRequest]:
+    """Create multiple pending module requests on a running server."""
+    requests = []
+    for module_name in ["pandas", "matplotlib", "seaborn"]:
+        req = ModuleRequest(
+            tool_id=running_server_tool.id,
+            module_name=module_name,
+            justification=f"Need {module_name} for data visualization",
+            requested_by="test@example.com",
+            status="pending",
+        )
+        db_session.add(req)
+        requests.append(req)
+    await db_session.flush()
+    for req in requests:
+        await db_session.refresh(req)
+    return requests
+
+
+@pytest.mark.asyncio
+async def test_bulk_approve_module_requests_triggers_server_reregistration(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    multiple_running_server_pending_module_requests: list[ModuleRequest],
+    running_server: Server,
+    db_session: AsyncSession,
+    mock_sandbox_client,
+):
+    """Bulk approving module requests re-registers affected servers.
+
+    Regression test: ensures bulk module approval pushes the updated
+    allowed_modules to the sandbox without requiring a server restart.
+    """
+    mock_sandbox_client.register_server = AsyncMock(
+        return_value={"success": True, "tools_registered": 1}
+    )
+    mock_sandbox_client.install_package = AsyncMock(
+        return_value={"status": "installed", "package_name": "test", "version": "1.0"}
+    )
+
+    request_ids = [str(r.id) for r in multiple_running_server_pending_module_requests]
+    response = await async_client.post(
+        "/api/approvals/modules/bulk-action",
+        json={"request_ids": request_ids, "action": "approve"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["processed_count"] == 3
+
+    # Server should be re-registered (at least once, deduplicated per server)
+    assert mock_sandbox_client.register_server.call_count >= 1
