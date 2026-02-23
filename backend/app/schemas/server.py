@@ -25,7 +25,6 @@ class ServerUpdate(BaseModel):
 
     name: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = Field(None, max_length=2000)
-    network_mode: str | None = Field(None, pattern="^(isolated|allowlist)$")
     default_timeout_ms: int | None = Field(None, ge=1000, le=300000)
     # NOTE: allowed_modules removed - now global in Settings
 
@@ -50,7 +49,7 @@ class ServerResponse(BaseModel):
     name: str
     description: str | None
     status: str
-    network_mode: str
+    allowed_hosts: list[str] = []
     default_timeout_ms: int
     created_at: datetime
     updated_at: datetime
@@ -67,7 +66,7 @@ class ServerListResponse(BaseModel):
     name: str
     description: str | None
     status: str
-    network_mode: str
+    allowed_hosts: list[str] = []
     tool_count: int = 0
     created_at: datetime
 
@@ -102,7 +101,6 @@ class AllowedHostsResponse(BaseModel):
     """Schema for allowed hosts response after add/remove."""
 
     server_id: UUID
-    network_mode: str
     allowed_hosts: list[str]
 
 

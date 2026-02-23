@@ -7,14 +7,13 @@ export interface Server {
   name: string
   description: string | null
   status: 'imported' | 'ready' | 'running' | 'stopped' | 'error'
-  network_mode: 'isolated' | 'allowlist'
+  allowed_hosts: string[]
   tool_count: number
   created_at: string
   updated_at: string
 }
 
 export interface ServerDetail extends Server {
-  allowed_hosts: string[] | null
   default_timeout_ms: number
   // NOTE: allowed_modules removed - now global in Settings
 }
@@ -27,7 +26,6 @@ export interface ServerDetail extends Server {
 export interface ServerUpdate {
   name?: string
   description?: string | null
-  network_mode?: 'isolated' | 'allowlist'
   default_timeout_ms?: number
 }
 
@@ -95,7 +93,6 @@ export async function fetchServerStatus(id: string): Promise<ContainerStatus> {
 // Host management types and functions
 export interface AllowedHostsResponse {
   server_id: string
-  network_mode: string
   allowed_hosts: string[]
 }
 

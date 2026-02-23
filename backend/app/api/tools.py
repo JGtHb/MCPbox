@@ -194,9 +194,7 @@ async def test_code(
     server = await server_service.get(tool.server_id)
     secret_service = ServerSecretService(db)
     secrets = await secret_service.get_decrypted_for_injection(tool.server_id)
-    allowed_hosts: list[str] | None = None
-    if server and server.network_mode == "allowlist":
-        allowed_hosts = server.allowed_hosts or []
+    allowed_hosts = (server.allowed_hosts or []) if server else []
 
     start_ms = time.monotonic()
     try:
@@ -383,6 +381,7 @@ async def update_tool(
                     allowed_modules=allowed_modules,
                     secrets=secrets,
                     external_sources=external_sources,
+                    allowed_hosts=server.allowed_hosts or [],
                 )
 
                 # Notify MCP clients
@@ -447,6 +446,7 @@ async def delete_tool(
                 allowed_modules=allowed_modules,
                 secrets=secrets,
                 external_sources=external_sources,
+                allowed_hosts=server.allowed_hosts or [],
             )
 
             from app.services.tool_change_notifier import fire_and_forget_notify

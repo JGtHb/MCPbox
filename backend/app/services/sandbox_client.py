@@ -198,7 +198,7 @@ class SandboxClient:
             allowed_modules: Custom list of allowed Python modules (None = use defaults)
             secrets: Dict of secret key→value pairs for injection into tool namespace
             external_sources: List of external MCP source configs for passthrough tools
-            allowed_hosts: Approved network hostnames (None = no restriction)
+            allowed_hosts: Approved network hostnames ([] = no network access)
 
         Returns:
             Registration result with success status and tool count

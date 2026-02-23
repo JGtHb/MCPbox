@@ -84,7 +84,7 @@ export function ServerCard({ server }: ServerCardProps) {
               </span>
             </span>
             <span className="text-muted" aria-hidden="true">|</span>
-            <span className="capitalize">{server.network_mode}</span>
+            <span>{server.allowed_hosts.length === 0 ? 'Isolated' : `${server.allowed_hosts.length} host(s)`}</span>
           </div>
 
           <div className="flex items-center space-x-2">

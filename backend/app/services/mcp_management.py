@@ -190,7 +190,7 @@ MCP_MANAGEMENT_TOOLS = [
     },
     {
         "name": "mcpbox_test_code",
-        "description": "Test a saved tool by running its current code against the sandbox. Requires a tool_id — use mcpbox_create_tool or mcpbox_update_tool first, then test here. The test run is saved to the tool's execution history labelled as a test. Testing is blocked if the admin requires approval and the tool has not yet been approved.",
+        "description": "Test a saved tool by running its current code against the sandbox. Requires a tool_id — use mcpbox_create_tool or mcpbox_update_tool first, then test here. The test run is saved to the tool's execution history labelled as a test. Testing is blocked if the admin requires approval and the tool has not yet been approved. NOTE: This tool is for development and debugging only. To use a tool normally, call it directly by name — do NOT use mcpbox_test_code as a substitute for invoking tools.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -690,7 +690,7 @@ class MCPManagementService:
             "name": server.name,
             "description": server.description,
             "status": server.status,
-            "network_mode": server.network_mode,
+            "allowed_hosts": server.allowed_hosts or [],
             "default_timeout_ms": server.default_timeout_ms,
             "created_at": server.created_at.isoformat() if server.created_at else None,
             "updated_at": server.updated_at.isoformat() if server.updated_at else None,
@@ -942,6 +942,7 @@ class MCPManagementService:
                             allowed_modules=allowed_modules,
                             secrets=secrets,
                             external_sources=external_sources,
+                            allowed_hosts=server.allowed_hosts or [],
                         )
 
                         # Notify MCP clients (same-process, gateway)
@@ -1015,6 +1016,7 @@ class MCPManagementService:
                     allowed_modules=allowed_modules,
                     secrets=secrets,
                     external_sources=external_sources,
+                    allowed_hosts=server.allowed_hosts or [],
                 )
 
                 from app.services.tool_change_notifier import (
@@ -1084,6 +1086,7 @@ class MCPManagementService:
                 allowed_modules=allowed_modules,
                 secrets=secrets,
                 external_sources=external_sources_data,
+                allowed_hosts=server.allowed_hosts or [],
             )
 
             if not result.get("success"):
@@ -1254,9 +1257,7 @@ class MCPManagementService:
         server = await self._server_service.get(tool.server_id)
         secret_service = ServerSecretService(self.db)
         secrets = await secret_service.get_decrypted_for_injection(tool.server_id)
-        allowed_hosts: list[str] | None = None
-        if server and server.network_mode == "allowlist":
-            allowed_hosts = server.allowed_hosts or []
+        allowed_hosts = (server.allowed_hosts or []) if server else []
 
         start_time = time.monotonic()
         try:

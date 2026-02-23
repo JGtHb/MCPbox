@@ -17,7 +17,6 @@ async def host_server(db_session: AsyncSession) -> Server:
         name="Host Test Server",
         description="Server for testing host management",
         status="imported",
-        network_mode="isolated",
     )
     db_session.add(server)
     await db_session.flush()
@@ -32,7 +31,6 @@ async def server_with_hosts(db_session: AsyncSession) -> Server:
         name="Server With Hosts",
         description="Server with existing hosts",
         status="imported",
-        network_mode="allowlist",
         allowed_hosts=["api.github.com", "api.stripe.com"],
     )
     db_session.add(server)
@@ -64,35 +62,10 @@ async def test_add_allowed_host(
 
     assert data["server_id"] == str(host_server.id)
     assert "api.github.com" in data["allowed_hosts"]
-    assert data["network_mode"] == "allowlist"
 
     # Verify in database
     await db_session.refresh(host_server)
     assert "api.github.com" in host_server.allowed_hosts
-
-
-@pytest.mark.asyncio
-async def test_add_host_switches_network_mode(
-    async_client: AsyncClient,
-    admin_headers: dict,
-    host_server: Server,
-    db_session: AsyncSession,
-):
-    """Test that adding a host switches network mode from isolated to allowlist."""
-    # Verify initial state
-    assert host_server.network_mode == "isolated"
-
-    response = await async_client.post(
-        f"/api/servers/{host_server.id}/allowed-hosts",
-        json={"host": "example.com"},
-        headers=admin_headers,
-    )
-    assert response.status_code == 200
-    data = response.json()
-    assert data["network_mode"] == "allowlist"
-
-    await db_session.refresh(host_server)
-    assert host_server.network_mode == "allowlist"
 
 
 @pytest.mark.asyncio
@@ -169,25 +142,23 @@ async def test_remove_allowed_host(
 
     assert "api.github.com" not in data["allowed_hosts"]
     assert "api.stripe.com" in data["allowed_hosts"]
-    assert data["network_mode"] == "allowlist"
 
     await db_session.refresh(server_with_hosts)
     assert "api.github.com" not in server_with_hosts.allowed_hosts
 
 
 @pytest.mark.asyncio
-async def test_remove_last_host_reverts_to_isolated(
+async def test_remove_last_host_results_in_empty_list(
     async_client: AsyncClient,
     admin_headers: dict,
     db_session: AsyncSession,
 ):
-    """Test that removing the last host reverts network mode to isolated."""
+    """Test that removing the last host results in an empty allowlist."""
     # Create a server with a single host
     server = Server(
         name="Single Host Server",
         description="Server with one host",
         status="imported",
-        network_mode="allowlist",
         allowed_hosts=["only-host.example.com"],
     )
     db_session.add(server)
@@ -203,10 +174,9 @@ async def test_remove_last_host_reverts_to_isolated(
     data = response.json()
 
     assert data["allowed_hosts"] == []
-    assert data["network_mode"] == "isolated"
 
     await db_session.refresh(server)
-    assert server.network_mode == "isolated"
+    assert server.allowed_hosts == []
 
 
 @pytest.mark.asyncio

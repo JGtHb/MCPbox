@@ -23,13 +23,6 @@ ServerStatus = Enum(
     create_constraint=True,
 )
 
-NetworkMode = Enum(
-    "isolated",
-    "allowlist",
-    name="network_mode",
-    create_constraint=True,
-)
-
 
 class Server(BaseModel):
     """MCP Server model.
@@ -50,15 +43,12 @@ class Server(BaseModel):
         default="imported",
     )
 
-    # Network configuration
-    network_mode: Mapped[str] = mapped_column(
-        NetworkMode,
-        nullable=False,
-        default="isolated",
-    )
-    allowed_hosts: Mapped[list[str] | None] = mapped_column(
+    # Network configuration: empty list = no network access (truly isolated)
+    allowed_hosts: Mapped[list[str]] = mapped_column(
         ARRAY(String(255)),
-        nullable=True,
+        nullable=False,
+        default=list,
+        server_default="{}",
     )
 
     # Resource limits (per architecture doc)
