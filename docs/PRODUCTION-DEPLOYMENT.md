@@ -12,7 +12,7 @@ This guide covers deploying MCPbox in a production environment.
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-org/MCPbox.git
+git clone https://github.com/JGtHb/MCPbox.git
 cd MCPbox
 
 # 2. Create environment file

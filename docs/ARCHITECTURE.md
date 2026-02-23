@@ -125,11 +125,12 @@ services:
 
 ### Docker Networks
 
-| Network | Services | Purpose |
-|---------|----------|---------|
-| `mcpbox-internal` | backend, mcp-gateway, cloudflared | Internal service communication |
-| `mcpbox-sandbox` | backend, mcp-gateway, sandbox | Sandbox access |
-| `mcpbox-db` | backend, mcp-gateway, sandbox, postgres | Database access |
+| Network | Services | Internal | Purpose |
+|---------|----------|----------|---------|
+| `mcpbox-internal` | frontend, backend, mcp-gateway, cloudflared | No | Service communication (nginx proxy, tunnel) |
+| `mcpbox-sandbox` | backend, mcp-gateway, sandbox | Yes | Sandbox access (no external egress) |
+| `mcpbox-sandbox-external` | sandbox | No | Sandbox outbound access (PyPI, whitelisted hosts) |
+| `mcpbox-db` | backend, mcp-gateway, postgres | Yes | Database access (no external egress) |
 
 ---
 
