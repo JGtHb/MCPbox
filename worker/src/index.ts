@@ -74,12 +74,18 @@ const CORS_HEADERS_LIST = 'Content-Type, Authorization, Mcp-Session-Id';
 const BUILTIN_CORS_ORIGINS = [
   'https://mcp.claude.ai',
   'https://claude.ai',
+  'https://chatgpt.com',
+  'https://chat.openai.com',
+  'https://platform.openai.com',
   'https://one.dash.cloudflare.com',
 ];
 
 const BUILTIN_REDIRECT_PATTERNS = [
   /^https:\/\/mcp\.claude\.ai\//,
   /^https:\/\/claude\.ai\//,
+  /^https:\/\/chatgpt\.com\//,
+  /^https:\/\/chat\.openai\.com\//,
+  /^https:\/\/platform\.openai\.com\//,
   /^https:\/\/one\.dash\.cloudflare\.com\//,
   /^http:\/\/localhost(:\d+)?\//,
   /^http:\/\/127\.0\.0\.1(:\d+)?\//,

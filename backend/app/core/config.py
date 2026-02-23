@@ -80,8 +80,8 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
 
     # MCP CORS - separate from admin panel, for tunnel-exposed MCP gateway
-    # Defaults to Claude AI origins; add other AI service origins as needed
-    mcp_cors_origins: str = "https://mcp.claude.ai,https://claude.ai"
+    # Defaults include Claude, ChatGPT, and OpenAI origins
+    mcp_cors_origins: str = "https://mcp.claude.ai,https://claude.ai,https://chatgpt.com,https://chat.openai.com,https://platform.openai.com"
 
     # Sandbox - requires API key for authentication
     sandbox_api_key: str = ""

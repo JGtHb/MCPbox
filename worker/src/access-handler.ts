@@ -553,6 +553,9 @@ async function isKnownClient(redirectUri: string, env: Env): Promise<boolean> {
   const knownPatterns = [
     /^https:\/\/mcp\.claude\.ai\//,
     /^https:\/\/claude\.ai\//,
+    /^https:\/\/chatgpt\.com\//,
+    /^https:\/\/chat\.openai\.com\//,
+    /^https:\/\/platform\.openai\.com\//,
     /^https:\/\/one\.dash\.cloudflare\.com\//,
     /^http:\/\/localhost(:\d+)?\//,
     /^http:\/\/127\.0\.0\.1(:\d+)?\//,
