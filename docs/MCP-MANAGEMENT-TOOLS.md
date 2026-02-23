@@ -1,10 +1,10 @@
 # MCPbox Management Tools
 
-MCPbox exposes management functions as MCP tools, allowing external LLMs (like Claude Code) to create, configure, and manage MCP servers and tools programmatically.
+MCPbox exposes management functions as MCP tools, allowing external LLMs to create, configure, and manage MCP servers and tools programmatically.
 
 ## Overview
 
-Instead of requiring users to configure an API key for embedded LLM features, MCPbox exposes its management operations as MCP tools. This allows users to leverage their existing Claude access (via Claude Code, Claude Web, etc.) to build and manage their MCP infrastructure.
+Instead of requiring users to configure an API key for embedded LLM features, MCPbox exposes its management operations as MCP tools. This allows users to leverage their existing LLM access (via any MCP-compatible client) to build and manage their MCP infrastructure.
 
 **Important**: Tools created via these MCP tools start in **draft** status and must go through an admin approval workflow before becoming available.
 
@@ -274,7 +274,7 @@ All tools return structured responses:
 ## Security Notes
 
 1. **Authentication**:
-   - **Local mode**: No auth required (Claude Desktop via localhost)
+   - **Local mode**: No auth required (local MCP clients via localhost)
    - **Remote mode**: Service token validation (Cloudflare Worker adds X-MCPbox-Service-Token)
 2. **Approval Workflow**: All tools must be approved by admin before becoming available
 3. **Input Validation**: Tool names must be lowercase alphanumeric with underscores
@@ -285,7 +285,7 @@ All tools return structured responses:
 
 ```
 LOCAL MODE:                                REMOTE MODE:
-Claude Desktop                             Claude Web
+Local MCP Client                       Remote MCP Client
     |                                          |
     | localhost                                | MCP Protocol (HTTPS)
     v                                          v

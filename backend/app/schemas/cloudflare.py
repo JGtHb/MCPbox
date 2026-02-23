@@ -226,7 +226,7 @@ class ConfigureJwtResponse(BaseModel):
     team_domain: str
     worker_url: str = Field(
         default="",
-        description="Worker URL — add this to Claude or any MCP client",
+        description="Worker URL — add this to your MCP client",
     )
     worker_test_result: str = Field(
         description="Result of testing direct Worker access (should be 401)"
@@ -315,7 +315,7 @@ class UpdateWorkerConfigRequest(BaseModel):
     """Request to update Worker CORS origins and OAuth redirect URIs.
 
     These are *additional* origins/URIs beyond the built-in defaults
-    (claude.ai, mcp.claude.ai, one.dash.cloudflare.com, localhost).
+    (Claude, ChatGPT, OpenAI, Cloudflare, localhost).
     """
 
     config_id: UUID
@@ -324,7 +324,7 @@ class UpdateWorkerConfigRequest(BaseModel):
         max_length=20,
         description=(
             "Additional CORS origins to allow (e.g., 'https://my-mcp-client.example.com'). "
-            "Built-in origins (claude.ai, etc.) are always included."
+            "Built-in origins (Claude, ChatGPT, OpenAI, Cloudflare, localhost) are always included."
         ),
     )
     allowed_redirect_uris: list[str] = Field(
@@ -333,7 +333,7 @@ class UpdateWorkerConfigRequest(BaseModel):
         description=(
             "Additional OAuth redirect URI prefixes to allow "
             "(e.g., 'https://my-mcp-client.example.com/'). "
-            "Built-in patterns (claude.ai, localhost, etc.) are always included."
+            "Built-in patterns (Claude, ChatGPT, OpenAI, Cloudflare, localhost) are always included."
         ),
     )
 

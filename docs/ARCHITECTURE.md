@@ -24,7 +24,7 @@ MCPbox is a self-hosted platform where LLMs extend their own capabilities by wri
 1. **Self-Extending Tool Creation** - LLMs write Python code via `mcpbox_create_tool` that becomes permanent, callable MCP tools
 2. **Human-in-the-Loop Approval** - All tools start as drafts; admins review and approve before publishing
 3. **Sandboxed Execution** - Tool code runs in a hardened sandbox with restricted builtins, import whitelisting, and SSRF prevention
-4. **Remote Access** - Optional Cloudflare Worker + tunnel integration for Claude Web access
+4. **Remote Access** - Optional Cloudflare Worker + tunnel integration for remote MCP client access
 
 ### Design Principles
 
@@ -41,7 +41,7 @@ MCPbox uses a **hybrid architecture** - local-first with optional remote access 
 
 - **Admin Panel**: Accessible locally only (ports bound to 127.0.0.1). JWT authentication required (defense-in-depth).
 - **MCP Gateway (/mcp)**:
-  - **Local mode**: No authentication required (for Claude Desktop via localhost)
+  - **Local mode**: No authentication required (for local MCP clients via localhost)
   - **Remote mode**: Exposed via Cloudflare Workers VPC tunnel with service token authentication
 
 **Key security properties:**
@@ -108,7 +108,7 @@ MCPbox uses a **hybrid architecture** - local-first with optional remote access 
 |                                        |                                   |
 +----------------------------------------+----------------------------------+
                                          |
-                     MCP Clients (Claude Web, etc.)
+                     MCP Clients (Claude, ChatGPT, etc.)
 ```
 
 ### Container Architecture
@@ -336,7 +336,7 @@ backend/
 The MCP gateway runs as a **separate Docker service** (`mcp-gateway:8002`) using `app.mcp_only:app`. It shares the backend codebase but only exposes `/mcp` and `/health` endpoints. This ensures the tunnel can **never** reach admin API endpoints.
 
 **Responsibilities:**
-- Terminate MCP Streamable HTTP connections from Claude (stateful sessions via `Mcp-Session-Id`)
+- Terminate MCP Streamable HTTP connections from MCP clients (stateful sessions via `Mcp-Session-Id`)
 - Validate service token header (remote mode) or allow all (local mode)
 - Trust Worker-supplied `X-MCPbox-User-Email` header (when valid service token is present)
 - Proxy tool execution requests to the sandbox
@@ -376,7 +376,7 @@ worker/
 - Wrapped with `@cloudflare/workers-oauth-provider`
 - Path whitelist: only `/mcp` and `/health` allowed
 - OIDC upstream: verifies id_token from Cloudflare Access (RS256, JWKS, iss/aud/nonce/exp/nbf)
-- CORS restricted to `claude.ai` domains
+- CORS restricted to known MCP client domains (Claude, ChatGPT, OpenAI, Cloudflare)
 - Service token injection (`X-MCPbox-Service-Token`)
 - User email from OIDC id_token stored in encrypted OAuth token props, set as `X-MCPbox-User-Email`
 - Auth method is always `oidc`
@@ -406,7 +406,7 @@ See `docs/MCP-MANAGEMENT-TOOLS.md` for complete documentation.
 ```
                         LOCAL MODE                         REMOTE MODE
                         ----------                         -----------
-Claude Desktop                                Claude Web
+Local MCP Client                          Remote MCP Client
     |                                             |
     | HTTP (localhost)                            | MCP Protocol (HTTPS)
     |                                             v
@@ -575,7 +575,7 @@ GET    /health                           # Health check
 MCPbox uses an **MCP-first approach** where external LLMs create tools via the `mcpbox_*` MCP tools rather than a visual builder.
 
 **Rationale:**
-- No API key management - users leverage existing Claude access
+- No API key management - users leverage existing LLM access
 - Better UX - LLM handles the complexity
 - Code-first - Python code is more maintainable than visual workflows
 - Full control - users can write any Python logic they need
@@ -622,8 +622,8 @@ MCPbox uses a **hybrid authentication model**:
 
 | Mode | Auth | Use Case |
 |------|------|----------|
-| Local (no service token in DB) | None | Claude Desktop via localhost |
-| Remote (service token from wizard) | OAuth 2.1 + OIDC + service token | Claude Web via Cloudflare |
+| Local (no service token in DB) | None | Local MCP clients via localhost |
+| Remote (service token from wizard) | OAuth 2.1 + OIDC + service token | Remote MCP clients via Cloudflare |
 
 **Remote mode auth paths:**
 

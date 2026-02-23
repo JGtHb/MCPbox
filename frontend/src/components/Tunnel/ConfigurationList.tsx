@@ -117,7 +117,7 @@ export function ConfigurationList({ onEdit, onCreateNew }: ConfigurationListProp
           </svg>
           <p className="text-subtle mb-1">No saved configurations yet</p>
           <p className="text-xs text-muted">
-            Create a configuration to connect to Claude via Cloudflare MCP Server Portals.
+            Create a configuration to enable remote MCP access via Cloudflare.
           </p>
           <button
             onClick={onCreateNew}

@@ -795,7 +795,7 @@ export function CloudflareWizard() {
                 <p className="text-sm text-pine">
                   This creates a Cloudflare Access for SaaS (OIDC) application and syncs
                   the credentials to your Worker. Users authenticate via Cloudflare Access
-                  when connecting from Claude or any MCP client.
+                  when connecting from any MCP client.
                 </p>
               </div>
 
@@ -962,7 +962,7 @@ export function CloudflareWizard() {
                   <div className="px-4 pb-4 space-y-4 border-t border-hl-med">
                     <div className="pt-3">
                       <p className="text-xs text-muted mb-3">
-                        Built-in origins (claude.ai, mcp.claude.ai, localhost) are always allowed.
+                        Built-in origins (Claude, ChatGPT, OpenAI, Cloudflare, localhost) are always allowed.
                         Add origins here for other MCP clients like Cursor, Continue, or custom clients.
                       </p>
 
@@ -1126,7 +1126,7 @@ export function CloudflareWizard() {
         <StepCard
           step={6}
           title="Connect"
-          description="Add your Worker URL to Claude or any MCP client."
+          description="Add your Worker URL to your MCP client."
           isActive={currentStep === 6}
           isComplete={false}
         >
@@ -1134,7 +1134,7 @@ export function CloudflareWizard() {
             <div className="space-y-4">
               <div className="p-4 bg-foam/10 border border-foam/20 rounded-lg">
                 <p className="text-sm text-foam mb-2">
-                  Setup complete! Add this URL to Claude Web, OpenAI, or any MCP client:
+                  Setup complete! Add this URL to your MCP client (Claude, ChatGPT, Cursor, etc.):
                 </p>
                 {workerUrl && (
                   <div className="flex items-center gap-2 mt-3">

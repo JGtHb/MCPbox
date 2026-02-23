@@ -53,7 +53,7 @@ docker-compose up -d
 
 ### Remote Access
 
-For Claude Web access via Cloudflare, all tokens (tunnel token, service token) are
+For remote MCP client access via Cloudflare, all tokens (tunnel token, service token) are
 stored in the database and managed by the setup wizard. No additional environment
 variables are needed. Run `./scripts/deploy-worker.sh --set-secrets` to push
 tokens to the Worker after completing the wizard.

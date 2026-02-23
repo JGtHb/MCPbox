@@ -243,7 +243,7 @@ function RemoteAccessStep({
         Remote Access
       </h2>
       <p className="text-sm text-subtle text-center mb-6">
-        Connect MCPbox to Cloudflare so you can use it from claude.ai, mobile, and other MCP clients.
+        Connect MCPbox to Cloudflare so you can use it from any MCP client, on any device.
       </p>
 
       <div className="rounded-lg border border-hl-med p-4 mb-6">
@@ -265,7 +265,7 @@ function RemoteAccessStep({
           <div>
             <p className="text-sm font-medium text-on-base mb-1">What this enables</p>
             <ul className="space-y-1 text-xs text-subtle">
-              <li>Use your tools from claude.ai via the MCP Portal</li>
+              <li>Use your tools from any remote MCP client</li>
               <li>Access MCPbox from any device, anywhere</li>
               <li>Secured with Cloudflare Access + OAuth 2.1</li>
             </ul>
@@ -291,7 +291,7 @@ function RemoteAccessStep({
           </svg>
           <div>
             <p className="text-sm text-subtle">
-              You only need this if you want remote access. For local-only use (e.g., Claude Desktop on the same machine), you can skip this.
+              You only need this if you want remote access. For local-only use (e.g., a desktop MCP client on the same machine), you can skip this.
             </p>
           </div>
         </div>

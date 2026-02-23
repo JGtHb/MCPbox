@@ -59,7 +59,7 @@ mcp-gateway:8002 (FastAPI, /mcp only) ◄── cloudflared (tunnel, optional)
                                             │
                                 Cloudflare Worker (OAuth 2.1 + OIDC)
                                             │
-                                       Claude Web
+                                    Remote MCP Clients
 ```
 
 - **frontend** (`nginx.conf.template`): React SPA + nginx reverse proxy to backend for `/api/*`, `/auth/*`, `/health`
@@ -68,7 +68,7 @@ mcp-gateway:8002 (FastAPI, /mcp only) ◄── cloudflared (tunnel, optional)
 - **sandbox**: Hardened Python executor, restricted builtins, SSRF prevention
 - **worker**: OAuth 2.1 proxy, OIDC identity, service token injection
 
-Two modes: **Local** (no auth, Claude Desktop → localhost:8000/mcp) and **Remote** (OAuth + OIDC + service token, Claude Web → Worker → VPC → tunnel → gateway).
+Two modes: **Local** (no auth, local MCP client → localhost:8000/mcp) and **Remote** (OAuth + OIDC + service token, remote MCP client → Worker → VPC → tunnel → gateway).
 
 ## Documentation References
 

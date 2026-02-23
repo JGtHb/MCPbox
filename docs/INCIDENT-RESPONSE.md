@@ -150,7 +150,7 @@ docker-compose restart backend mcp-gateway
 
 ## 4. Tunnel Disconnection
 
-**Symptoms:** Remote users (Claude Web) cannot reach MCPbox, cloudflared logs show connection errors.
+**Symptoms:** Remote MCP clients cannot reach MCPbox, cloudflared logs show connection errors.
 
 ### Diagnosis
 
@@ -300,5 +300,5 @@ After any incident:
 - [ ] Verify all services healthy: `curl http://localhost:8000/health/services`
 - [ ] Check circuit breakers are closed: `curl http://localhost:8000/health/circuits`
 - [ ] Review activity logs for anomalies
-- [ ] Verify remote access works (if configured): test from Claude Web
+- [ ] Verify remote access works (if configured): test from a remote MCP client
 - [ ] Document the incident and update this runbook if needed

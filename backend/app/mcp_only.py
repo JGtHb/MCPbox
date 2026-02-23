@@ -97,7 +97,7 @@ def create_mcp_app() -> FastAPI:
 
     # CORS (outermost — runs first, added last)
     # Restrict to MCP client origins only (separate from admin panel CORS).
-    # Configured via MCP_CORS_ORIGINS env var, defaults to claude.ai origins.
+    # Configured via MCP_CORS_ORIGINS env var. Defaults include Claude, ChatGPT, and OpenAI origins.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.mcp_cors_origins_list,

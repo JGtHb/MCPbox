@@ -1,6 +1,6 @@
-# Remote Access Setup (Claude Web via Cloudflare)
+# Remote Access Setup (via Cloudflare)
 
-This guide explains how to expose your MCPbox instance to Claude Web using Cloudflare Workers VPC. The tunnel has **no public hostname** - it's only accessible via your Worker.
+This guide explains how to expose your MCPbox instance to remote MCP clients (Claude, ChatGPT, Cursor, etc.) using Cloudflare Workers VPC. The tunnel has **no public hostname** - it's only accessible via your Worker.
 
 > **Recommended:** Use the [Setup Wizard](/tunnel/setup) for automated configuration. This manual guide is provided for reference and troubleshooting. See [CLOUDFLARE-SETUP-WIZARD.md](./CLOUDFLARE-SETUP-WIZARD.md) for wizard documentation.
 
@@ -42,7 +42,7 @@ This guide explains how to expose your MCPbox instance to Claude Web using Cloud
 |                                        |                                   |
 +----------------------------------------+----------------------------------+
                                          |
-                     MCP Clients (Claude Web, etc.)
+                     MCP Clients (Claude, ChatGPT, etc.)
 ```
 
 MCP clients connect directly to the Worker URL (e.g., `https://mcpbox-proxy.you.workers.dev/mcp`). There are no MCP Server or Portal objects required -- the Worker handles OAuth 2.1 and OIDC authentication directly.
@@ -59,7 +59,7 @@ MCPbox uses a **defense-in-depth** architecture with multiple security layers.
 | **2** | Worker -> Cloudflare Access | OIDC upstream (Access for SaaS) | Unverified user identity |
 | **3** | Worker | OIDC id_token verification (RS256, JWKS, iss/aud/nonce/exp/nbf) | Token forgery, replay attacks |
 | **4** | Worker | Path validation (`/mcp`, `/health` only) | Admin API access via tunnel |
-| **5** | Worker | CORS whitelist (`claude.ai` domains) | Cross-origin request abuse |
+| **5** | Worker | CORS whitelist (known MCP client domains) | Cross-origin request abuse |
 | **6** | Worker -> Tunnel | Workers VPC (private binding) | Public tunnel exposure |
 | **7** | Tunnel -> MCP Gateway | Service Token header | Defense in depth |
 | **8** | MCP Gateway | Token validation + email-based method authorization | Requests bypassing Worker, anonymous tool execution |
@@ -109,7 +109,7 @@ The Worker verifies OIDC id_tokens from Cloudflare Access at authorization time:
 
 2. **Service Token is defense-in-depth** -- The `X-MCPbox-Service-Token` header is validated by MCPbox even though the tunnel is already private. This protects against potential VPC binding misconfigurations. Service token failures return 403 Forbidden.
 
-3. **CORS provides zero protection against non-browser attackers** -- CORS headers are set to `claude.ai` domains. However:
+3. **CORS provides zero protection against non-browser attackers** -- CORS headers are set to known MCP client domains (Claude, ChatGPT, OpenAI, Cloudflare). However:
    - CORS is purely a browser-enforced policy, not a server-side security control
    - Any non-browser client (`curl`, Python scripts, custom tools) can freely ignore CORS headers
    - When an attacker runs `curl -X POST https://your-worker.workers.dev/mcp`, CORS has no effect
@@ -232,10 +232,11 @@ The OIDC configuration (Access for SaaS) is set up during the wizard's "Configur
 
 ## Step 4: Connect MCP Clients
 
-1. In Claude Web, go to **Settings** -> **Integrations** -> **MCP Servers**
-2. Click **Add Server** and enter your Worker URL **with `/mcp` path** (e.g., `https://mcpbox-proxy.yourname.workers.dev/mcp`)
-3. Complete OAuth authentication (the Worker redirects to Cloudflare Access for OIDC login)
-4. Your MCPbox tools should now appear in Claude's tool list
+1. Open your MCP client (Claude, ChatGPT, Cursor, etc.) and go to **Settings**
+2. Navigate to **Integrations** or **MCP Servers**
+3. Click **Add Server** and enter your Worker URL **with `/mcp` path** (e.g., `https://mcpbox-proxy.yourname.workers.dev/mcp`)
+4. Complete OAuth authentication (the Worker redirects to Cloudflare Access for OIDC login)
+5. Your MCPbox tools should now appear in the client's tool list
 
 **Note:** The URL must include `/mcp` -- entering just the domain without the path will return a 404.
 
@@ -295,7 +296,7 @@ curl -s https://mcpbox-proxy.yourname.workers.dev/mcp \
 
 ### "McpAuthorizationError: Your account was authorized but the integration rejected the credentials"
 
-This is usually caused by **Cloudflare AI Crawl Control** blocking claude.ai's requests. If you have AI Crawl Control enabled on your zone, disable it: Cloudflare Dashboard -> your zone -> **Security** -> **Bots** -> **AI Crawlers** -> Disable. Most accounts won't have this enabled by default.
+This is usually caused by **Cloudflare AI Crawl Control** blocking MCP client requests. If you have AI Crawl Control enabled on your zone, disable it: Cloudflare Dashboard -> your zone -> **Security** -> **Bots** -> **AI Crawlers** -> Disable. Most accounts won't have this enabled by default.
 
 ### "invalid_id_token" or OIDC verification failure
 
@@ -354,10 +355,10 @@ JWKS URL:     https://{team_domain}/cdn-cgi/access/certs
 
 | Mode | Service Token | Tunnel | Use Case |
 |------|---------------|--------|----------|
-| **Local** | Not in database | Not needed | Claude Desktop only |
-| **Remote** | Generated by wizard, stored in DB | Required (private) | Claude Web + Desktop |
+| **Local** | Not in database | Not needed | Local MCP clients only |
+| **Remote** | Generated by wizard, stored in DB | Required (private) | All MCP clients (local + remote) |
 
-When a service token exists in the database (created by the wizard), MCPbox requires the `X-MCPbox-Service-Token` header on all MCP requests. The Worker adds this header automatically. For Claude Desktop in remote mode, you'd need to configure it to include this header.
+When a service token exists in the database (created by the wizard), MCPbox requires the `X-MCPbox-Service-Token` header on all MCP requests. The Worker adds this header automatically. For local desktop clients in remote mode, you'd need to configure them to include this header.
 
 ## Authentication Flow
 
@@ -366,7 +367,7 @@ Understanding how authentication works helps with troubleshooting:
 ```
 +--------------+    +--------------------+    +----------------+    +-----------+
 | MCP Client   |--->| Worker             |--->| Cloudflare     |--->| MCPbox    |
-| (Claude Web) |    | (OAuth 2.1 + OIDC) |    | Access (OIDC)  |    | (gateway) |
+| (remote)     |    | (OAuth 2.1 + OIDC) |    | Access (OIDC)  |    | (gateway) |
 +--------------+    +--------------------+    +----------------+    +-----------+
       |                      |                       |                    |
       | 1. Connect to Worker URL                     |                    |
@@ -464,10 +465,13 @@ Only MCP requests (rewritten from `/` and `/mcp`) are proxied. All other paths r
 const allowedOrigins = [
   'https://mcp.claude.ai',
   'https://claude.ai',
+  'https://chatgpt.com',
+  'https://chat.openai.com',
+  'https://platform.openai.com',
   'https://one.dash.cloudflare.com',
 ];
 ```
-CORS headers restrict browser-based access to Claude and Cloudflare domains only.
+CORS headers restrict browser-based access to known MCP client domains only. Additional origins can be configured via the admin panel.
 
 ### Headers Added to Backend Requests
 ```typescript
@@ -566,7 +570,7 @@ of the setup wizard, which generates a new token:
    curl -s https://your-worker.workers.dev/mcp
    # Should return: 401 Unauthorized
 
-   # Test via Claude Web to verify end-to-end
+   # Test via your MCP client to verify end-to-end
    ```
 
 ## Security Checklist for Production
