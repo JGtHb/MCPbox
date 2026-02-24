@@ -32,8 +32,8 @@ MCPbox maintains **1,139+ test functions** across backend, sandbox, frontend, an
 | `api/activity.py` | - | 10 tests | - | 50% | WebSocket stream testing limited |
 | `api/execution_logs.py` | - | 7 tests | - | 70% | Pagination, single log, 404 |
 | `api/server_secrets.py` | - | 8 tests | - | 75% | CRUD, duplicate key, value leak prevention |
-| `api/health.py` | - | **None** | - | **0%** | **No tests (low risk)** |
-| `api/settings.py` | - | indirect only | - | 20% | Route prefix issue untested |
+| `api/health.py` | - | 3 tests | - | 70% | `test_health.py` covers basic, detail, and schema |
+| `api/settings.py` | - | indirect only | - | 20% | - |
 | `api/external_mcp_sources.py` | - | 8 tests | - | 65% | CRUD, 404, nonexistent server |
 | `services/mcp_management.py` | - | 16 tests | - | 30% | **1,927 lines with only 16 tests** |
 | `services/sandbox_client.py` | - | 17 tests | - | 40% | **998 lines, error recovery untested** |
@@ -184,7 +184,7 @@ Ordered by risk (highest first):
 ### 4. MCP Management Service (Underexercised)
 - **Affected modules**: `backend/app/services/mcp_management.py` (1,927 lines, only 16 tests)
 - **Risk if broken**: LLM tool creation/management workflows break silently
-- **Recommended test type**: Unit + integration tests for each of the 24 management tools
+- **Recommended test type**: Unit + integration tests for each of the 28 management tools
 - **Priority**: High
 
 ### 5. Sandbox Client Error Recovery

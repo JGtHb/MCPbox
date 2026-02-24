@@ -27,7 +27,7 @@ from app.executor import (
 from app.registry import tool_registry
 from app.ssrf import SSRFError
 from app.ssrf import SSRFProtectedAsyncHttpClient
-from app.ssrf import SSRFProtectedHttpx as _BaseSsrfProtectedHttpx
+
 
 logger = logging.getLogger(__name__)
 
@@ -665,7 +665,6 @@ class ExecuteCodeRequest(BaseModel):
 
     code: str
     arguments: dict[str, Any] = {}
-    credentials: dict[str, str] = {}
     timeout_seconds: int = 30
     # Admin-configured module allowlist injected by the backend (SEC-015).
     # The LLM cannot set this directly — the backend fetches it from the DB
@@ -691,33 +690,6 @@ class ExecuteCodeResponse(BaseModel):
 
 # Safe builtins are provided by create_safe_builtins() from executor.py
 # (single source of truth — do NOT duplicate the builtin list here)
-
-
-# SSRFProtectedHttpx (_BaseSsrfProtectedHttpx) is imported at the top of the file
-
-
-class SSRFProtectedHttpx(_BaseSsrfProtectedHttpx):
-    """SSRF-protected wrapper for httpx module with client creation blocking.
-
-    Extends the base SSRFProtectedHttpx to also block direct Client/AsyncClient creation.
-    """
-
-    # Block direct client creation - users must use the protected methods
-    @staticmethod
-    def Client(*args, **kwargs):
-        raise ValueError(
-            "Direct Client creation is not allowed. Use httpx.get(), httpx.post(), etc."
-        )
-
-    @staticmethod
-    def AsyncClient(*args, **kwargs):
-        raise ValueError(
-            "Direct AsyncClient creation is not allowed. Use httpx.get(), httpx.post(), etc."
-        )
-
-
-# Singleton instance for the execute endpoint
-_ssrf_protected_httpx = SSRFProtectedHttpx()
 
 
 @router.post("/execute", response_model=ExecuteCodeResponse)

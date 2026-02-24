@@ -82,7 +82,7 @@ Two modes: **Local** (no auth, local MCP client → localhost:8000/mcp) and **Re
 | [docs/API-CONTRACTS.md](docs/API-CONTRACTS.md) | Internal + external API contracts and schemas |
 | [docs/AUTH-FLOW.md](docs/AUTH-FLOW.md) | Worker + Gateway auth flow details |
 | [docs/PRODUCTION-DEPLOYMENT.md](docs/PRODUCTION-DEPLOYMENT.md) | Production env vars, HTTPS, monitoring |
-| [docs/MCP-MANAGEMENT-TOOLS.md](docs/MCP-MANAGEMENT-TOOLS.md) | 24 `mcpbox_*` MCP tool reference |
+| [docs/MCP-MANAGEMENT-TOOLS.md](docs/MCP-MANAGEMENT-TOOLS.md) | 28 `mcpbox_*` MCP tool reference |
 | [docs/INCIDENT-RESPONSE.md](docs/INCIDENT-RESPONSE.md) | Operational runbooks for failures |
 | [docs/FRONTEND-STANDARDS.md](docs/FRONTEND-STANDARDS.md) | Frontend style guide: colors, buttons, focus, ARIA, spacing, typography |
 

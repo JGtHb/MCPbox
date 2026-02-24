@@ -384,7 +384,7 @@ worker/
 
 ### 6. MCP Management Tools
 
-MCPbox exposes 24 management tools with the `mcpbox_` prefix:
+MCPbox exposes 28 management tools with the `mcpbox_` prefix:
 
 | Category | Tools |
 |----------|-------|

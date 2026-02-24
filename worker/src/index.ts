@@ -77,7 +77,7 @@ const BUILTIN_CORS_ORIGINS = [
   'https://one.dash.cloudflare.com',
 ];
 
-const BUILTIN_REDIRECT_PATTERNS = [
+export const BUILTIN_REDIRECT_PATTERNS = [
   /^https:\/\/mcp\.claude\.ai\//,
   /^https:\/\/claude\.ai\//,
   /^https:\/\/chatgpt\.com\//,

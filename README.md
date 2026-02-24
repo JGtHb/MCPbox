@@ -74,7 +74,7 @@ Add MCPbox to your MCP client config (Claude Code, Cursor, etc.):
 }
 ```
 
-The LLM will discover all 24 `mcpbox_*` management tools automatically and can start building.
+The LLM will discover all 28 `mcpbox_*` management tools automatically and can start building.
 
 ## Architecture
 
@@ -114,7 +114,7 @@ Two modes: **Local** (no auth, MCP client connects to `localhost:8000/mcp`) and 
 
 ### Self-Extending via MCP
 
-The LLM doesn't just use tools — it builds them. MCPbox exposes [24 management tools](docs/MCP-MANAGEMENT-TOOLS.md) (`mcpbox_*`) for creating servers, tools, secrets, modules, and managing the approval workflow.
+The LLM doesn't just use tools — it builds them. MCPbox exposes [28 management tools](docs/MCP-MANAGEMENT-TOOLS.md) (`mcpbox_*`) for creating servers, tools, secrets, modules, and managing the approval workflow.
 
 ### Security-First Design
 
@@ -140,7 +140,7 @@ The LLM doesn't just use tools — it builds them. MCPbox exposes [24 management
 | [Installation](https://jgthb.github.io/MCPbox/getting-started/installation.html) | Get MCPBox up and running |
 | [Quick Start](https://jgthb.github.io/MCPbox/getting-started/quick-start.html) | First-time setup and UI tour |
 | [Creating Your First Tool](https://jgthb.github.io/MCPbox/guides/first-tool.html) | End-to-end tool creation walkthrough |
-| [MCP Management Tools](https://jgthb.github.io/MCPbox/reference/mcp-tools.html) | Full reference for all 24 `mcpbox_*` tools |
+| [MCP Management Tools](https://jgthb.github.io/MCPbox/reference/mcp-tools.html) | Full reference for all 28 `mcpbox_*` tools |
 | [Remote Access Setup](https://jgthb.github.io/MCPbox/guides/remote-access.html) | Cloudflare tunnel configuration |
 | [Developer Docs](https://jgthb.github.io/MCPbox/developer/) | Architecture, security, API contracts, and more |
 

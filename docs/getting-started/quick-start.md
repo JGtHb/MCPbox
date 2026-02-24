@@ -33,7 +33,7 @@ After logging in, you'll see the dashboard with:
 
 ## What Happens Next
 
-Once you [connect an MCP client]({% link getting-started/connecting-clients.md %}), the LLM will discover 24 `mcpbox_*` management tools automatically. These let it:
+Once you [connect an MCP client]({% link getting-started/connecting-clients.md %}), the LLM will discover 28 `mcpbox_*` management tools automatically. These let it:
 
 1. Create servers to organize tools
 2. Write Python code that becomes a permanent tool
