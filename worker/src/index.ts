@@ -27,7 +27,7 @@
  * - Unauthenticated requests are rejected by OAuthProvider (401)
  */
 
-import OAuthProvider, { type OAuthHelpers } from '@cloudflare/workers-oauth-provider';
+import OAuthProvider, { type OAuthHelpers, type OAuthProviderOptions } from '@cloudflare/workers-oauth-provider';
 import { handleAccessRequest } from './access-handler';
 
 // Workers VPC Service binding type
@@ -345,10 +345,12 @@ const defaultHandler = {
 // Export OAuth-wrapped Worker
 // =============================================================================
 
+// OAuthProviderOptions doesn't parameterize ExportedHandler with a generic Env type,
+// so typed handlers need assertions here.
 const oauthProvider = new OAuthProvider({
   apiRoute: INTERNAL_API_ROUTE,
-  apiHandler: apiHandler,
-  defaultHandler: defaultHandler,
+  apiHandler: apiHandler as unknown as OAuthProviderOptions['apiHandler'],
+  defaultHandler: defaultHandler as unknown as OAuthProviderOptions['defaultHandler'],
   authorizeEndpoint: '/authorize',
   tokenEndpoint: '/token',
   clientRegistrationEndpoint: '/register',

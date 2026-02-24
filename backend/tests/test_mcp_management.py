@@ -1,5 +1,6 @@
 """Tests for MCP Management Tools service."""
 
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -528,3 +529,750 @@ async def main(text: str) -> dict:
 
         assert "error" in result
         assert "Invalid tool_id" in result["error"]
+
+
+@pytest.mark.asyncio
+class TestExternalMCPSourceTools:
+    """Test the 4 external MCP source management tools."""
+
+    # =====================================================================
+    # Helper to create a server via the service (reused across tests)
+    # =====================================================================
+
+    async def _create_server(self, service: MCPManagementService) -> str:
+        result = await service.execute_tool(
+            "mcpbox_create_server",
+            {"name": "ext_test_server", "description": "Server for external source tests"},
+        )
+        assert result.get("success") is True
+        return result["id"]
+
+    # =====================================================================
+    # mcpbox_add_external_source
+    # =====================================================================
+
+    async def test_add_external_source_success(self, db_session):
+        """Test adding an external MCP source with default auth."""
+        service = MCPManagementService(db_session)
+        server_id = await self._create_server(service)
+
+        result = await service.execute_tool(
+            "mcpbox_add_external_source",
+            {
+                "server_id": server_id,
+                "name": "GitHub MCP",
+                "url": "https://mcp.github.com/sse",
+            },
+        )
+
+        assert result["success"] is True
+        assert "source_id" in result
+        assert result["name"] == "GitHub MCP"
+        assert result["url"] == "https://mcp.github.com/sse"
+        assert result["auth_type"] == "none"
+        assert result["transport_type"] == "streamable_http"
+
+    async def test_add_external_source_with_bearer_auth(self, db_session):
+        """Test adding an external source with bearer auth type."""
+        service = MCPManagementService(db_session)
+        server_id = await self._create_server(service)
+
+        result = await service.execute_tool(
+            "mcpbox_add_external_source",
+            {
+                "server_id": server_id,
+                "name": "Slack MCP",
+                "url": "https://mcp.slack.com/mcp",
+                "auth_type": "bearer",
+                "auth_secret_name": "SLACK_TOKEN",
+                "transport_type": "sse",
+            },
+        )
+
+        assert result["success"] is True
+        assert result["auth_type"] == "bearer"
+        assert result["transport_type"] == "sse"
+
+    async def test_add_external_source_with_header_auth(self, db_session):
+        """Test adding an external source with custom header auth type."""
+        service = MCPManagementService(db_session)
+        server_id = await self._create_server(service)
+
+        result = await service.execute_tool(
+            "mcpbox_add_external_source",
+            {
+                "server_id": server_id,
+                "name": "Custom API",
+                "url": "https://api.example.com/mcp",
+                "auth_type": "header",
+                "auth_secret_name": "API_KEY",
+                "auth_header_name": "X-API-Key",
+            },
+        )
+
+        assert result["success"] is True
+        assert result["auth_type"] == "header"
+
+    async def test_add_external_source_missing_name(self, db_session):
+        """Test adding an external source without a name."""
+        service = MCPManagementService(db_session)
+        server_id = await self._create_server(service)
+
+        result = await service.execute_tool(
+            "mcpbox_add_external_source",
+            {
+                "server_id": server_id,
+                "url": "https://mcp.example.com/mcp",
+            },
+        )
+
+        assert "error" in result
+        assert "name is required" in result["error"]
+
+    async def test_add_external_source_missing_url(self, db_session):
+        """Test adding an external source without a URL."""
+        service = MCPManagementService(db_session)
+        server_id = await self._create_server(service)
+
+        result = await service.execute_tool(
+            "mcpbox_add_external_source",
+            {
+                "server_id": server_id,
+                "name": "No URL Source",
+            },
+        )
+
+        assert "error" in result
+        assert "url is required" in result["error"]
+
+    async def test_add_external_source_server_not_found(self, db_session):
+        """Test adding an external source to a non-existent server."""
+        service = MCPManagementService(db_session)
+
+        result = await service.execute_tool(
+            "mcpbox_add_external_source",
+            {
+                "server_id": str(uuid4()),
+                "name": "Orphan Source",
+                "url": "https://mcp.example.com/mcp",
+            },
+        )
+
+        assert "error" in result
+        assert "not found" in result["error"]
+
+    async def test_add_external_source_invalid_server_id(self, db_session):
+        """Test adding an external source with an invalid server_id."""
+        service = MCPManagementService(db_session)
+
+        result = await service.execute_tool(
+            "mcpbox_add_external_source",
+            {
+                "server_id": "not-a-uuid",
+                "name": "Bad ID Source",
+                "url": "https://mcp.example.com/mcp",
+            },
+        )
+
+        assert "error" in result
+        assert "Invalid server_id" in result["error"]
+
+    # =====================================================================
+    # mcpbox_list_external_sources
+    # =====================================================================
+
+    async def test_list_external_sources_empty(self, db_session):
+        """Test listing sources when none exist."""
+        service = MCPManagementService(db_session)
+        server_id = await self._create_server(service)
+
+        result = await service.execute_tool(
+            "mcpbox_list_external_sources",
+            {"server_id": server_id},
+        )
+
+        assert result["sources"] == []
+        assert result["total"] == 0
+        assert result["server_id"] == server_id
+
+    async def test_list_external_sources_with_sources(self, db_session):
+        """Test listing sources after adding some."""
+        service = MCPManagementService(db_session)
+        server_id = await self._create_server(service)
+
+        # Add two sources
+        await service.execute_tool(
+            "mcpbox_add_external_source",
+            {
+                "server_id": server_id,
+                "name": "Source A",
+                "url": "https://a.example.com/mcp",
+            },
+        )
+        await service.execute_tool(
+            "mcpbox_add_external_source",
+            {
+                "server_id": server_id,
+                "name": "Source B",
+                "url": "https://b.example.com/mcp",
+                "auth_type": "bearer",
+                "auth_secret_name": "B_TOKEN",
+            },
+        )
+
+        result = await service.execute_tool(
+            "mcpbox_list_external_sources",
+            {"server_id": server_id},
+        )
+
+        assert result["total"] == 2
+        assert len(result["sources"]) == 2
+        names = {s["name"] for s in result["sources"]}
+        assert names == {"Source A", "Source B"}
+        # Each source should have expected fields
+        for source in result["sources"]:
+            assert "id" in source
+            assert "url" in source
+            assert "auth_type" in source
+            assert "status" in source
+
+    async def test_list_external_sources_server_not_found(self, db_session):
+        """Test listing sources for a non-existent server."""
+        service = MCPManagementService(db_session)
+
+        result = await service.execute_tool(
+            "mcpbox_list_external_sources",
+            {"server_id": str(uuid4())},
+        )
+
+        assert "error" in result
+        assert "not found" in result["error"]
+
+    async def test_list_external_sources_invalid_server_id(self, db_session):
+        """Test listing sources with invalid server_id."""
+        service = MCPManagementService(db_session)
+
+        result = await service.execute_tool(
+            "mcpbox_list_external_sources",
+            {"server_id": "not-a-uuid"},
+        )
+
+        assert "error" in result
+        assert "Invalid server_id" in result["error"]
+
+    # =====================================================================
+    # mcpbox_discover_external_tools
+    # =====================================================================
+
+    async def test_discover_external_tools_success(self, db_session, mock_sandbox_client):
+        """Test successful tool discovery from an external source."""
+        service = MCPManagementService(db_session)
+        server_id = await self._create_server(service)
+
+        # Add a source
+        add_result = await service.execute_tool(
+            "mcpbox_add_external_source",
+            {
+                "server_id": server_id,
+                "name": "Discovery Test",
+                "url": "https://mcp.example.com/mcp",
+            },
+        )
+        source_id = add_result["source_id"]
+
+        # Mock sandbox discover_external_tools response
+        mock_sandbox_client.discover_external_tools = AsyncMock(
+            return_value={
+                "success": True,
+                "tools": [
+                    {
+                        "name": "get_repos",
+                        "description": "List repositories",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {"org": {"type": "string"}},
+                        },
+                    },
+                    {
+                        "name": "create_issue",
+                        "description": "Create a GitHub issue",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "repo": {"type": "string"},
+                                "title": {"type": "string"},
+                            },
+                        },
+                    },
+                ],
+            }
+        )
+
+        result = await service.execute_tool(
+            "mcpbox_discover_external_tools",
+            {"source_id": source_id},
+            sandbox_client=mock_sandbox_client,
+        )
+
+        assert result["success"] is True
+        assert result["total"] == 2
+        assert len(result["tools"]) == 2
+        tool_names = {t["name"] for t in result["tools"]}
+        assert tool_names == {"get_repos", "create_issue"}
+        # Verify each tool has expected fields
+        for tool in result["tools"]:
+            assert "name" in tool
+            assert "description" in tool
+            assert "input_schema" in tool
+
+    async def test_discover_external_tools_source_not_found(self, db_session, mock_sandbox_client):
+        """Test discovery with a non-existent source ID."""
+        service = MCPManagementService(db_session)
+
+        result = await service.execute_tool(
+            "mcpbox_discover_external_tools",
+            {"source_id": str(uuid4())},
+            sandbox_client=mock_sandbox_client,
+        )
+
+        assert "error" in result
+        assert "not found" in result["error"]
+
+    async def test_discover_external_tools_invalid_source_id(self, db_session, mock_sandbox_client):
+        """Test discovery with an invalid source ID."""
+        service = MCPManagementService(db_session)
+
+        result = await service.execute_tool(
+            "mcpbox_discover_external_tools",
+            {"source_id": "not-a-uuid"},
+            sandbox_client=mock_sandbox_client,
+        )
+
+        assert "error" in result
+        assert "Invalid source_id" in result["error"]
+
+    async def test_discover_external_tools_sandbox_failure(self, db_session, mock_sandbox_client):
+        """Test discovery when the sandbox returns a failure."""
+        service = MCPManagementService(db_session)
+        server_id = await self._create_server(service)
+
+        add_result = await service.execute_tool(
+            "mcpbox_add_external_source",
+            {
+                "server_id": server_id,
+                "name": "Failing Source",
+                "url": "https://mcp.broken.com/mcp",
+            },
+        )
+        source_id = add_result["source_id"]
+
+        # Mock sandbox failure
+        mock_sandbox_client.discover_external_tools = AsyncMock(
+            return_value={
+                "success": False,
+                "error": "Connection refused",
+            }
+        )
+
+        result = await service.execute_tool(
+            "mcpbox_discover_external_tools",
+            {"source_id": source_id},
+            sandbox_client=mock_sandbox_client,
+        )
+
+        assert "error" in result
+        assert "Discovery failed" in result["error"]
+
+    async def test_discover_external_tools_requires_sandbox(self, db_session):
+        """Test that discovery without sandbox_client returns an error."""
+        service = MCPManagementService(db_session)
+        server_id = await self._create_server(service)
+
+        add_result = await service.execute_tool(
+            "mcpbox_add_external_source",
+            {
+                "server_id": server_id,
+                "name": "No Sandbox",
+                "url": "https://mcp.example.com/mcp",
+            },
+        )
+        source_id = add_result["source_id"]
+
+        # Call without sandbox_client
+        result = await service.execute_tool(
+            "mcpbox_discover_external_tools",
+            {"source_id": source_id},
+        )
+
+        assert "error" in result
+        assert "Sandbox client required" in result["error"]
+
+    # =====================================================================
+    # mcpbox_import_external_tools
+    # =====================================================================
+
+    async def test_import_external_tools_success(self, db_session, mock_sandbox_client):
+        """Test importing tools from a discovered external source."""
+        service = MCPManagementService(db_session)
+        server_id = await self._create_server(service)
+
+        # Add source and discover tools
+        add_result = await service.execute_tool(
+            "mcpbox_add_external_source",
+            {
+                "server_id": server_id,
+                "name": "Import Test",
+                "url": "https://mcp.example.com/mcp",
+            },
+        )
+        source_id = add_result["source_id"]
+
+        mock_sandbox_client.discover_external_tools = AsyncMock(
+            return_value={
+                "success": True,
+                "tools": [
+                    {
+                        "name": "list_items",
+                        "description": "List items",
+                        "inputSchema": {"type": "object", "properties": {}},
+                    },
+                    {
+                        "name": "get_item",
+                        "description": "Get single item",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {"id": {"type": "string"}},
+                        },
+                    },
+                ],
+            }
+        )
+
+        # Discover first
+        await service.execute_tool(
+            "mcpbox_discover_external_tools",
+            {"source_id": source_id},
+            sandbox_client=mock_sandbox_client,
+        )
+
+        # Import one tool
+        result = await service.execute_tool(
+            "mcpbox_import_external_tools",
+            {
+                "source_id": source_id,
+                "tool_names": ["list_items"],
+            },
+        )
+
+        assert result["success"] is True
+        assert result["count"] == 1
+        assert len(result["imported_tools"]) == 1
+        imported = result["imported_tools"][0]
+        assert "import_test_list_items" == imported["name"]
+        assert imported["tool_type"] == "mcp_passthrough"
+        assert imported["approval_status"] == "draft"
+
+    async def test_import_external_tools_multiple(self, db_session, mock_sandbox_client):
+        """Test importing multiple tools at once."""
+        service = MCPManagementService(db_session)
+        server_id = await self._create_server(service)
+
+        add_result = await service.execute_tool(
+            "mcpbox_add_external_source",
+            {
+                "server_id": server_id,
+                "name": "Multi Import",
+                "url": "https://mcp.example.com/mcp",
+            },
+        )
+        source_id = add_result["source_id"]
+
+        mock_sandbox_client.discover_external_tools = AsyncMock(
+            return_value={
+                "success": True,
+                "tools": [
+                    {"name": "tool_a", "description": "Tool A", "inputSchema": {}},
+                    {"name": "tool_b", "description": "Tool B", "inputSchema": {}},
+                    {"name": "tool_c", "description": "Tool C", "inputSchema": {}},
+                ],
+            }
+        )
+
+        await service.execute_tool(
+            "mcpbox_discover_external_tools",
+            {"source_id": source_id},
+            sandbox_client=mock_sandbox_client,
+        )
+
+        result = await service.execute_tool(
+            "mcpbox_import_external_tools",
+            {
+                "source_id": source_id,
+                "tool_names": ["tool_a", "tool_b", "tool_c"],
+            },
+        )
+
+        assert result["success"] is True
+        assert result["count"] == 3
+        imported_names = {t["name"] for t in result["imported_tools"]}
+        assert imported_names == {
+            "multi_import_tool_a",
+            "multi_import_tool_b",
+            "multi_import_tool_c",
+        }
+
+    async def test_import_external_tools_skip_not_found(self, db_session, mock_sandbox_client):
+        """Test that importing a non-existent tool name is skipped."""
+        service = MCPManagementService(db_session)
+        server_id = await self._create_server(service)
+
+        add_result = await service.execute_tool(
+            "mcpbox_add_external_source",
+            {
+                "server_id": server_id,
+                "name": "Skip Test",
+                "url": "https://mcp.example.com/mcp",
+            },
+        )
+        source_id = add_result["source_id"]
+
+        mock_sandbox_client.discover_external_tools = AsyncMock(
+            return_value={
+                "success": True,
+                "tools": [
+                    {"name": "real_tool", "description": "Exists", "inputSchema": {}},
+                ],
+            }
+        )
+
+        await service.execute_tool(
+            "mcpbox_discover_external_tools",
+            {"source_id": source_id},
+            sandbox_client=mock_sandbox_client,
+        )
+
+        result = await service.execute_tool(
+            "mcpbox_import_external_tools",
+            {
+                "source_id": source_id,
+                "tool_names": ["real_tool", "nonexistent_tool"],
+            },
+        )
+
+        assert result["success"] is True
+        assert result["count"] == 1
+        assert result["skipped_count"] == 1
+        assert result["skipped_tools"][0]["name"] == "nonexistent_tool"
+        assert result["skipped_tools"][0]["status"] == "skipped_not_found"
+
+    async def test_import_external_tools_skip_duplicate(self, db_session, mock_sandbox_client):
+        """Test that importing a tool that already exists is skipped."""
+        service = MCPManagementService(db_session)
+        server_id = await self._create_server(service)
+
+        add_result = await service.execute_tool(
+            "mcpbox_add_external_source",
+            {
+                "server_id": server_id,
+                "name": "Dup Test",
+                "url": "https://mcp.example.com/mcp",
+            },
+        )
+        source_id = add_result["source_id"]
+
+        mock_sandbox_client.discover_external_tools = AsyncMock(
+            return_value={
+                "success": True,
+                "tools": [
+                    {"name": "my_tool", "description": "A tool", "inputSchema": {}},
+                ],
+            }
+        )
+
+        await service.execute_tool(
+            "mcpbox_discover_external_tools",
+            {"source_id": source_id},
+            sandbox_client=mock_sandbox_client,
+        )
+
+        # Import once
+        first = await service.execute_tool(
+            "mcpbox_import_external_tools",
+            {"source_id": source_id, "tool_names": ["my_tool"]},
+        )
+        assert first["success"] is True
+        assert first["count"] == 1
+
+        # Import same tool again — should be skipped as conflict
+        second = await service.execute_tool(
+            "mcpbox_import_external_tools",
+            {"source_id": source_id, "tool_names": ["my_tool"]},
+        )
+        assert second["success"] is True
+        assert second["count"] == 0
+        assert second["skipped_count"] == 1
+        assert second["skipped_tools"][0]["status"] == "skipped_conflict"
+
+    async def test_import_external_tools_no_cache(self, db_session):
+        """Test importing tools when no discovery has been done (no cache)."""
+        service = MCPManagementService(db_session)
+        server_id = await self._create_server(service)
+
+        add_result = await service.execute_tool(
+            "mcpbox_add_external_source",
+            {
+                "server_id": server_id,
+                "name": "No Cache",
+                "url": "https://mcp.example.com/mcp",
+            },
+        )
+        source_id = add_result["source_id"]
+
+        # Try to import without discovering first
+        result = await service.execute_tool(
+            "mcpbox_import_external_tools",
+            {
+                "source_id": source_id,
+                "tool_names": ["some_tool"],
+            },
+        )
+
+        assert "error" in result
+        assert "No cached tools" in result["error"]
+        assert "mcpbox_discover_external_tools" in result["error"]
+
+    async def test_import_external_tools_empty_tool_names(self, db_session):
+        """Test importing with an empty tool_names list."""
+        service = MCPManagementService(db_session)
+        server_id = await self._create_server(service)
+
+        add_result = await service.execute_tool(
+            "mcpbox_add_external_source",
+            {
+                "server_id": server_id,
+                "name": "Empty Import",
+                "url": "https://mcp.example.com/mcp",
+            },
+        )
+        source_id = add_result["source_id"]
+
+        result = await service.execute_tool(
+            "mcpbox_import_external_tools",
+            {
+                "source_id": source_id,
+                "tool_names": [],
+            },
+        )
+
+        assert "error" in result
+        assert "tool_names is required" in result["error"]
+
+    async def test_import_external_tools_source_not_found(self, db_session):
+        """Test importing from a non-existent source."""
+        service = MCPManagementService(db_session)
+
+        result = await service.execute_tool(
+            "mcpbox_import_external_tools",
+            {
+                "source_id": str(uuid4()),
+                "tool_names": ["some_tool"],
+            },
+        )
+
+        assert "error" in result
+        assert "not found" in result["error"]
+
+    async def test_import_external_tools_invalid_source_id(self, db_session):
+        """Test importing with an invalid source_id."""
+        service = MCPManagementService(db_session)
+
+        result = await service.execute_tool(
+            "mcpbox_import_external_tools",
+            {
+                "source_id": "not-a-uuid",
+                "tool_names": ["some_tool"],
+            },
+        )
+
+        assert "error" in result
+        assert "Invalid source_id" in result["error"]
+
+    async def test_discover_then_import_end_to_end(self, db_session, mock_sandbox_client):
+        """End-to-end: add source, discover tools, import, verify in server tools."""
+        service = MCPManagementService(db_session)
+        server_id = await self._create_server(service)
+
+        # Step 1: Add external source
+        add_result = await service.execute_tool(
+            "mcpbox_add_external_source",
+            {
+                "server_id": server_id,
+                "name": "E2E Source",
+                "url": "https://mcp.example.com/mcp",
+                "auth_type": "bearer",
+                "auth_secret_name": "MY_TOKEN",
+            },
+        )
+        source_id = add_result["source_id"]
+
+        # Step 2: Discover tools
+        mock_sandbox_client.discover_external_tools = AsyncMock(
+            return_value={
+                "success": True,
+                "tools": [
+                    {
+                        "name": "search",
+                        "description": "Search items",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {"query": {"type": "string"}},
+                        },
+                    },
+                    {
+                        "name": "create",
+                        "description": "Create an item",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {"name": {"type": "string"}},
+                        },
+                    },
+                ],
+            }
+        )
+
+        discover_result = await service.execute_tool(
+            "mcpbox_discover_external_tools",
+            {"source_id": source_id},
+            sandbox_client=mock_sandbox_client,
+        )
+        assert discover_result["success"] is True
+        assert discover_result["total"] == 2
+
+        # Step 3: Import one tool
+        import_result = await service.execute_tool(
+            "mcpbox_import_external_tools",
+            {
+                "source_id": source_id,
+                "tool_names": ["search"],
+            },
+        )
+        assert import_result["success"] is True
+        assert import_result["count"] == 1
+
+        # Step 4: Verify imported tool appears in server's tool list
+        tools_result = await service.execute_tool(
+            "mcpbox_list_tools",
+            {"server_id": server_id},
+        )
+        assert tools_result["total"] == 1
+        assert tools_result["tools"][0]["name"] == "e2e_source_search"
+
+        # Step 5: List sources should show updated tool count
+        sources_result = await service.execute_tool(
+            "mcpbox_list_external_sources",
+            {"server_id": server_id},
+        )
+        assert sources_result["total"] == 1
+        source = sources_result["sources"][0]
+        assert source["tool_count"] == 2  # 2 discovered
+        assert source["status"] == "active"

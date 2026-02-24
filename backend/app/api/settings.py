@@ -5,7 +5,7 @@ Accessible without authentication (Option B architecture - admin panel is local-
 
 import logging
 import re
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, status
@@ -490,7 +490,7 @@ async def sync_modules(
 # --- Security Profile Presets (Onboarding) ---
 
 
-class SecurityProfileName(str, Enum):
+class SecurityProfileName(StrEnum):
     strict = "strict"
     balanced = "balanced"
     permissive = "permissive"
