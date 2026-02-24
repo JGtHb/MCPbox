@@ -26,7 +26,7 @@
 
 | Document | Description |
 |----------|-------------|
-| [MCP-MANAGEMENT-TOOLS.md](MCP-MANAGEMENT-TOOLS.md) | Reference for all 24 `mcpbox_*` tools |
+| [MCP-MANAGEMENT-TOOLS.md](MCP-MANAGEMENT-TOOLS.md) | Reference for all 28 `mcpbox_*` tools |
 | [FEATURES.md](FEATURES.md) | Feature inventory with status and test coverage |
 | [TESTING.md](TESTING.md) | Test coverage map and infrastructure |
 | [FRONTEND-STANDARDS.md](FRONTEND-STANDARDS.md) | UI style guide (Rosé Pine theme) |

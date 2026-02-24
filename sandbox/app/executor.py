@@ -163,11 +163,6 @@ def set_resource_limits() -> ResourceLimitStatus:
     return status
 
 
-def get_resource_limit_status() -> ResourceLimitStatus:
-    """Get the current resource limit status."""
-    return _resource_limit_status
-
-
 def validate_resource_limits() -> tuple[bool, str | None]:
     """Validate that resource limits are properly configured.
 

@@ -36,7 +36,7 @@ http://localhost:8000/mcp
 
 ## Verify the Connection
 
-After connecting, ask your LLM to list its available tools. You should see 24 tools with the `mcpbox_` prefix:
+After connecting, ask your LLM to list its available tools. You should see 28 tools with the `mcpbox_` prefix:
 
 ```
 mcpbox_list_servers, mcpbox_create_server, mcpbox_create_tool,

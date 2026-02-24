@@ -218,14 +218,16 @@ async def mcp_sse(
 
     # Validate session — clients must have initialized first
     session_id = request.headers.get("mcp-session-id")
-    if session_id:
-        if not await _validate_session(session_id):
-            raise HTTPException(
-                status_code=404,
-                detail="Session not found or expired",
-            )
-    # If no session_id provided, allow connection anyway (backwards compat)
-    # Some clients may not implement session management yet
+    if not session_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Mcp-Session-Id header is required",
+        )
+    if not await _validate_session(session_id):
+        raise HTTPException(
+            status_code=404,
+            detail="Session not found or expired",
+        )
 
     if _active_sse_connections >= MAX_SSE_CONNECTIONS:
         raise HTTPException(

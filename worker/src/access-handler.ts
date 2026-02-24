@@ -14,7 +14,7 @@
 
 import type { OAuthHelpers, AuthRequest } from '@cloudflare/workers-oauth-provider';
 import type { Env, Props } from './index';
-import { getAdminConfig } from './index';
+import { getAdminConfig, BUILTIN_REDIRECT_PATTERNS } from './index';
 
 type EnvWithOAuth = Env & { OAUTH_PROVIDER: OAuthHelpers };
 
@@ -532,9 +532,7 @@ async function validateOAuthState(
 
   try {
     const parsed = JSON.parse(stored);
-    // Require the current format with oauthReqInfo and nonce.
-    // Legacy format (AuthRequest without nonce) is no longer supported —
-    // all legacy state entries have expired (5-minute TTL).
+    // Require oauthReqInfo and nonce for CSRF protection.
     if (parsed.oauthReqInfo && parsed.nonce) {
       return parsed as OAuthStateData;
     }
@@ -550,17 +548,7 @@ async function validateOAuthState(
 // =============================================================================
 
 async function isKnownClient(redirectUri: string, env: Env): Promise<boolean> {
-  const knownPatterns = [
-    /^https:\/\/mcp\.claude\.ai\//,
-    /^https:\/\/claude\.ai\//,
-    /^https:\/\/chatgpt\.com\//,
-    /^https:\/\/chat\.openai\.com\//,
-    /^https:\/\/platform\.openai\.com\//,
-    /^https:\/\/one\.dash\.cloudflare\.com\//,
-    /^http:\/\/localhost(:\d+)?\//,
-    /^http:\/\/127\.0\.0\.1(:\d+)?\//,
-  ];
-  if (knownPatterns.some(p => p.test(redirectUri))) {
+  if (BUILTIN_REDIRECT_PATTERNS.some(p => p.test(redirectUri))) {
     return true;
   }
 
