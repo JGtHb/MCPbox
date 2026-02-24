@@ -20,7 +20,7 @@
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Technical design, module map, database schema, Docker networks |
 | [AUTH-FLOW.md](AUTH-FLOW.md) | Worker + Gateway authentication and authorization flow |
 | [DECISIONS.md](DECISIONS.md) | Architecture decision records (ADRs) |
-| [SECURITY.md](SECURITY.md) | Security risk registry and mitigations |
+| [SECURITY.md](SECURITY.md) | Security model and operator best practices |
 
 ### Reference
 
@@ -31,19 +31,11 @@
 | [TESTING.md](TESTING.md) | Test coverage map and infrastructure |
 | [FRONTEND-STANDARDS.md](FRONTEND-STANDARDS.md) | UI style guide (Rosé Pine theme) |
 
-### Strategy
-
-| Document | Description |
-|----------|-------------|
-| [COMPETITIVE-ANALYSIS.md](COMPETITIVE-ANALYSIS.md) | How MCPbox fits in the MCP ecosystem |
-| [FUTURE-EPICS.md](FUTURE-EPICS.md) | Feature roadmap |
-
 ## Documentation Guidelines
 
 When adding new documentation:
 
 1. **CLAUDE.md** — Update if project status or architecture changes
 2. **ARCHITECTURE.md** — Update for technical design changes
-3. **FUTURE-EPICS.md** — Add new feature plans here
 
 Avoid creating new planning documents. Consolidate into existing files.

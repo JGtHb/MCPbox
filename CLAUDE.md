@@ -76,7 +76,7 @@ Two modes: **Local** (no auth, local MCP client → localhost:8000/mcp) and **Re
 |----------|----------------|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Module map, data flow, dependencies, identified issues |
 | [docs/FEATURES.md](docs/FEATURES.md) | Feature inventory with status, test coverage, owner modules |
-| [docs/SECURITY.md](docs/SECURITY.md) | Security risk registry (17 findings by severity) |
+| [docs/SECURITY.md](docs/SECURITY.md) | Security model, review summary, operator best practices |
 | [docs/TESTING.md](docs/TESTING.md) | Test coverage map, critical gaps, infrastructure |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Architecture decision records (15 ADRs) |
 | [docs/API-CONTRACTS.md](docs/API-CONTRACTS.md) | Internal + external API contracts and schemas |
@@ -102,8 +102,8 @@ Two modes: **Local** (no auth, local MCP client → localhost:8000/mcp) and **Re
 
 1. **MCP gateway must run `--workers 1`** — Sessions are stateful (in-memory dict). Multiple workers cause ~50% session mismatches.
 2. **Backend tests require Docker** — testcontainers spins up PostgreSQL. No SQLite fallback (ARRAY types).
-3. **Tool approval TOCTOU** — ~~Updating code on an approved tool doesn't reset approval status.~~ **Fixed**: approval resets to `pending_review` on code change. See [SECURITY.md SEC-001](docs/SECURITY.md#sec-001).
-4. **Rollback preserves approval** — ~~Rolling back to different code keeps "approved" status.~~ **Fixed**: rollback always resets approval. See [SECURITY.md SEC-002](docs/SECURITY.md#sec-002).
+3. **Tool approval TOCTOU** — ~~Updating code on an approved tool doesn't reset approval status.~~ **Fixed**: approval resets to `pending_review` on code change.
+4. **Rollback preserves approval** — ~~Rolling back to different code keeps "approved" status.~~ **Fixed**: rollback always resets approval.
 5. **Sandbox stdout race** — ~~`sys.stdout` globally replaced during execution. Concurrent tools can leak output.~~ **Already mitigated**: `print` is overridden per-execution via a custom function injected into the execution namespace. No global `sys.stdout` replacement occurs.
 6. **Two entry points** — `backend/app/main.py` (admin) and `backend/app/mcp_only.py` (gateway) have separate middleware stacks but share lifespan logic via `backend/app/core/shared_lifespan.py`. Middleware changes still need to be applied to both; lifespan changes go in the shared module.
 7. **Encryption key required** — `MCPBOX_ENCRYPTION_KEY` must be exactly 64 hex chars. `SANDBOX_API_KEY` must be 32+ chars.

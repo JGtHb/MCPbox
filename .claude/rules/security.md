@@ -34,7 +34,7 @@ paths:
 
 ## Approval Workflow
 - Tools start as `draft`. Only `approved` tools are registered with the sandbox.
-- IMPORTANT: If changing tool code after approval, reset `approval_status` to `draft` (see SECURITY.md SEC-001)
+- IMPORTANT: If changing tool code after approval, reset `approval_status` to `draft`
 - LLMs cannot self-approve. Approval requires admin JWT auth with identity from JWT `sub` claim.
 - Multi-layer tool filtering: registration gate, listing gate, recovery gate
 

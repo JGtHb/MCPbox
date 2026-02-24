@@ -14,7 +14,7 @@ These documents are for contributors and developers working on the MCPBox codeba
 | [Architecture](https://github.com/JGtHb/MCPbox/blob/main/docs/ARCHITECTURE.md) | Module map, data flow, database schema, Docker networks |
 | [Auth Flow](https://github.com/JGtHb/MCPbox/blob/main/docs/AUTH-FLOW.md) | Worker + Gateway authentication and authorization flow |
 | [Decisions](https://github.com/JGtHb/MCPbox/blob/main/docs/DECISIONS.md) | Architecture decision records (ADRs) |
-| [Security](https://github.com/JGtHb/MCPbox/blob/main/docs/SECURITY.md) | Security risk registry and mitigations |
+| [Security](https://github.com/JGtHb/MCPbox/blob/main/docs/SECURITY.md) | Security model and operator best practices |
 
 ## Reference
 
@@ -35,10 +35,3 @@ These documents are for contributors and developers working on the MCPBox codeba
 | [Setup Wizard](https://github.com/JGtHb/MCPbox/blob/main/docs/CLOUDFLARE-SETUP-WIZARD.md) | Cloudflare setup wizard implementation details |
 | [Incident Response](https://github.com/JGtHb/MCPbox/blob/main/docs/INCIDENT-RESPONSE.md) | Operational runbooks for failure scenarios |
 
-## Strategy
-
-| Document | Description |
-|----------|-------------|
-| [Competitive Analysis](https://github.com/JGtHb/MCPbox/blob/main/docs/COMPETITIVE-ANALYSIS.md) | How MCPBox fits in the MCP ecosystem |
-| [Future Epics](https://github.com/JGtHb/MCPbox/blob/main/docs/FUTURE-EPICS.md) | Feature roadmap |
-| [Expansion Plans](https://github.com/JGtHb/MCPbox/tree/main/docs/expansion) | Detailed epic specifications (resources, prompts, sampling, etc.) |
