@@ -77,7 +77,7 @@ MCPbox uses a **hybrid architecture** - local-first with optional remote access 
 |  |                         +---------+---------------+                 |  |
 |  |                                   |                                 |  |
 |  |   +------------+     +--------------------------+                   |  |
-|  |   | PostgreSQL |<----|     Shared Sandbox       |                   |  |
+|  |   | PostgreSQL |     |     Shared Sandbox       |                   |  |
 |  |   |   :5432    |     |        :8001             |                   |  |
 |  |   +------------+     +--------------------------+                   |  |
 |  |                                                                      |  |
@@ -120,7 +120,7 @@ services:
   mcp-gateway     # Separate FastAPI service for /mcp (internal :8002, tunnel-exposed)
   sandbox         # Shared sandbox for tool execution (internal :8001)
   postgres        # Configuration and state storage (internal :5432)
-  cloudflared     # Cloudflare tunnel daemon (optional, profile: remote)
+  cloudflared     # Cloudflare tunnel daemon (optional, requires tunnel token)
 ```
 
 ### Docker Networks
@@ -165,7 +165,7 @@ Tool code runs in a shared sandbox container with application-level protections:
 
 **Import Restrictions:**
 - Whitelist-based module restriction (configurable via admin UI)
-- Default allowed: `json`, `math`, `datetime`, `re`, `hashlib`, `base64`, `urllib.parse`, etc.
+- Default allowed: `json`, `math`, `datetime`, `regex`, `hashlib`, `base64`, `urllib.parse`, etc. (note: `re` is excluded — `regex` is a timeout-protected wrapper that prevents ReDoS)
 - Blocked: `os`, `subprocess`, `sys`, `importlib`, `ctypes`, etc.
 
 **Resource Limits:**
@@ -320,6 +320,8 @@ backend/
 |       +-- config.py            # Settings
 |       +-- security.py          # Auth utilities (JWT, Argon2id)
 |       +-- database.py          # DB connection
+|       +-- shared_lifespan.py   # Shared lifespan for backend + gateway
+|       +-- logging.py           # Logging configuration
 +-- alembic/                     # Database migrations
 +-- requirements.txt
 +-- Dockerfile
@@ -498,65 +500,81 @@ MCPbox uses PostgreSQL with SQLAlchemy async ORM. Key tables:
 
 **Server Management:**
 ```
-GET    /api/servers                 # List all servers (paginated)
-POST   /api/servers                 # Create server
-GET    /api/servers/{id}            # Get server details
-PUT    /api/servers/{id}            # Update server
-DELETE /api/servers/{id}            # Delete server
-POST   /api/servers/{id}/start      # Start server
-POST   /api/servers/{id}/stop       # Stop server
+GET    /api/servers                              # List all servers (paginated)
+POST   /api/servers                              # Create server
+GET    /api/servers/{id}                         # Get server details
+PATCH  /api/servers/{id}                         # Update server
+DELETE /api/servers/{id}                         # Delete server
+```
+
+**Sandbox Control:**
+```
+POST   /api/sandbox/servers/{id}/start           # Start server (register with sandbox)
+POST   /api/sandbox/servers/{id}/stop            # Stop server (unregister)
+POST   /api/sandbox/servers/{id}/restart         # Restart server
+GET    /api/sandbox/servers/{id}/status           # Get sandbox status
+GET    /api/sandbox/servers/{id}/logs             # Get sandbox logs
 ```
 
 **Tool Management:**
 ```
-GET    /api/servers/{id}/tools      # List tools for server
-POST   /api/servers/{id}/tools      # Create tool
-GET    /api/tools/{id}              # Get tool details
-PUT    /api/tools/{id}              # Update tool
-DELETE /api/tools/{id}              # Delete tool
+GET    /api/servers/{id}/tools                   # List tools for server
+POST   /api/servers/{id}/tools                   # Create tool
+GET    /api/tools/{id}                           # Get tool details
+PATCH  /api/tools/{id}                           # Update tool
+DELETE /api/tools/{id}                           # Delete tool
+GET    /api/tools/{id}/versions                  # List tool versions
+POST   /api/tools/{id}/versions/{ver}/rollback   # Rollback to version
 ```
 
 **Server Secrets:**
 ```
-POST   /api/servers/{id}/secrets          # Create secret placeholder
-GET    /api/servers/{id}/secrets          # List secrets (keys + has_value, no values)
-PUT    /api/secrets/{id}/value            # Set secret value (admin only)
-DELETE /api/secrets/{id}                  # Remove secret
+GET    /api/servers/{id}/secrets                  # List secrets (keys + has_value, no values)
+POST   /api/servers/{id}/secrets                  # Create secret placeholder
+PUT    /api/servers/{id}/secrets/{key_name}       # Set secret value (admin only)
+DELETE /api/servers/{id}/secrets/{key_name}       # Remove secret
 ```
 
-**Tool Execution Logs:**
+**Execution Logs:**
 ```
-GET    /api/tools/{id}/logs               # Get execution logs for a tool (paginated)
+GET    /api/execution-logs                       # List all execution logs (paginated)
+GET    /api/execution-logs/stats                 # Execution log statistics
+GET    /api/tools/{id}/logs                      # Get logs for a tool
+GET    /api/servers/{id}/execution-logs           # Get logs for a server
 ```
 
 **Approval Workflow:**
 ```
-GET    /api/approvals                     # List pending approvals
-POST   /api/approvals/{id}/approve        # Approve request
-POST   /api/approvals/{id}/reject         # Reject request
+GET    /api/approvals/stats                      # Approval statistics
+GET    /api/approvals/tools                      # List pending tool approvals
+POST   /api/approvals/tools/{id}/action          # Approve or reject tool
+GET    /api/approvals/modules                    # List pending module requests
+POST   /api/approvals/modules/{id}/action        # Approve or reject module
+GET    /api/approvals/network                    # List pending network requests
+POST   /api/approvals/network/{id}/action        # Approve or reject network access
 ```
 
 **Tunnel & Cloudflare:**
 ```
-GET    /api/tunnel/status                 # Get tunnel status
-POST   /api/tunnel/configurations         # Save tunnel configuration
-GET    /api/cloudflare/status             # Get Cloudflare wizard status
-POST   /api/cloudflare/verify-token       # Verify Cloudflare API token
-POST   /api/cloudflare/tunnel             # Create tunnel
-POST   /api/cloudflare/vpc-service        # Create VPC service
-POST   /api/cloudflare/worker             # Deploy Worker
-POST   /api/cloudflare/access             # Configure Access for SaaS (OIDC)
+GET    /api/tunnel/status                        # Get tunnel status
+POST   /api/tunnel/configurations                # Save tunnel configuration
+GET    /api/cloudflare/status                    # Get Cloudflare wizard status
+POST   /api/cloudflare/api-token                 # Verify Cloudflare API token
+POST   /api/cloudflare/tunnel                    # Create tunnel
+POST   /api/cloudflare/vpc-service               # Create VPC service
+POST   /api/cloudflare/worker                    # Deploy Worker
+PUT    /api/cloudflare/access-policy             # Configure Access for SaaS (OIDC)
 ```
 
 **Other:**
 ```
-GET    /api/activity                      # Activity log (paginated)
-WS     /api/ws/activity                   # WebSocket live activity stream
-GET    /api/dashboard/stats               # Dashboard statistics
-POST   /api/export                        # Export servers/tools
-POST   /api/import                        # Import servers/tools
-GET    /api/settings                      # Get app settings
-PUT    /api/settings                      # Update settings
+GET    /api/activity/logs                        # Activity log (paginated)
+WS     /api/activity/stream                      # WebSocket live activity stream
+GET    /api/dashboard                            # Dashboard statistics
+GET    /api/export/servers                       # Export all servers/tools
+POST   /api/export/import                        # Import servers/tools
+GET    /api/settings                             # Get app settings
+PATCH  /api/settings/security-policy             # Update security policy settings
 ```
 
 ### MCP Gateway (`/mcp` - local + tunnel)

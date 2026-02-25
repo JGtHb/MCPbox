@@ -43,7 +43,7 @@ Features are sorted by status, with broken/partial items at the top for visibili
 - **Owner modules**: `sandbox/app/executor.py`, `sandbox/app/ssrf.py`, `sandbox/app/routes.py`
 - **Dependencies**: None (standalone execution environment)
 - **Test coverage**: `sandbox/tests/test_code_safety.py` (40+ tests), `sandbox/tests/test_sandbox_escape.py` (30+ tests), `sandbox/tests/test_security_hardening.py` (30+ tests), `sandbox/tests/test_safety_clients.py` (25+ tests) — excellent coverage
-- **Security notes**: See [SECURITY.md](SECURITY.md#sec-003) for full module object injection concern, [SECURITY.md](SECURITY.md#sec-004) for missing FORBIDDEN_MODULES hardcoded list
+- **Security notes**: See [SECURITY.md](SECURITY.md#2-sandbox-isolation) for sandbox isolation details, [SECURITY.md](SECURITY.md#1-code-validation) for code validation and forbidden patterns
 
 ### Server Management
 - **Status**: Complete
@@ -180,9 +180,9 @@ Features are sorted by status, with broken/partial items at the top for visibili
 
 ### Metrics (Prometheus)
 - **Status**: Complete
-- **Description**: Prometheus-compatible metrics collection for monitoring. Configurable via `enable_metrics` setting.
-- **Owner modules**: `backend/app/services/metrics.py`
-- **Dependencies**: None
+- **Description**: Prometheus-compatible metrics collection via `prometheus_fastapi_instrumentator` middleware. Configurable via `enable_metrics` setting. Exposes `/metrics` endpoint on both backend and MCP gateway.
+- **Owner modules**: `backend/app/main.py`, `backend/app/mcp_only.py` (instrumentator setup)
+- **Dependencies**: `prometheus_fastapi_instrumentator`
 - **Test coverage**: `backend/tests/test_metrics.py` (40+ tests) — excellent coverage
 
 ### Webhook Alerting

@@ -57,6 +57,8 @@ echo "MCPBOX_ENCRYPTION_KEY=$(openssl rand -hex 32)" >> .env
 echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)" >> .env
 echo "SANDBOX_API_KEY=$(openssl rand -hex 32)" >> .env
 
+# Run database migrations, then start
+docker compose run --rm backend alembic upgrade head
 docker compose up -d
 ```
 
