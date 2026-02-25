@@ -9,7 +9,7 @@ nav_order: 1
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) and Docker Compose
-- ~2.5 CPU cores and ~2.5 GB RAM available
+- ~5.5 CPU cores and ~3 GB RAM available (container ceilings; actual usage is typically lower)
 
 No other dependencies are required — everything runs in containers.
 
@@ -40,7 +40,7 @@ echo "SANDBOX_API_KEY=$(openssl rand -hex 32)" >> .env
 | `SANDBOX_API_KEY` | Authenticates backend-to-sandbox communication. Min 32 characters. |
 
 {: .important }
-Each secret must be a unique value. MCPBox validates this on startup.
+Each secret must be a unique value. MCPBox checks on startup and logs a warning if duplicates are detected.
 
 See [Environment Variables]({% link reference/environment-variables.md %}) for the full list of optional settings.
 

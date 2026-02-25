@@ -116,7 +116,7 @@ Tools run in a sandboxed environment with restricted imports.
 | Math | `math`, `cmath`, `decimal`, `fractions`, `statistics` |
 | Text | `regex`, `string`, `textwrap`, `difflib` |
 | URL parsing | `urllib.parse` |
-| Data structures | `collections`, `itertools`, `functools`, `operator` |
+| Data structures | `collections`, `collections.abc`, `itertools`, `functools` |
 | Types | `typing`, `dataclasses`, `enum`, `uuid`, `copy` |
 | Hashing | `hashlib`, `hmac` |
 
@@ -132,5 +132,5 @@ Need a module that's not on the list? The LLM can request it with `mcpbox_reques
 | CPU time | 60 seconds |
 | Execution timeout | 30 seconds (configurable up to 300s) |
 | Code size | 100 KB |
-| Stdout capture | 10 KB |
-| File descriptors | 64 |
+| Stdout capture | 1 MB (execution), 10 KB (test-code) |
+| File descriptors | 256 |
