@@ -6,7 +6,15 @@ set -e
 # where two containers try to migrate simultaneously on first startup.
 if echo "$@" | grep -q "8000"; then
     echo "Running database migrations..."
-    alembic upgrade head
+    if ! alembic upgrade head 2>&1; then
+        echo ""
+        echo "ERROR: Database migration failed."
+        echo "  Check that PostgreSQL is running and DATABASE_URL is correct."
+        echo "  To retry manually: docker compose run --rm backend alembic upgrade head"
+        echo ""
+        exit 1
+    fi
+    echo "Database migrations completed successfully."
 fi
 
 echo "Starting application..."

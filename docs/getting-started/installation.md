@@ -47,11 +47,13 @@ See [Environment Variables]({% link reference/environment-variables.md %}) for t
 ## Start
 
 ```bash
-# Run database migrations
-docker compose run --rm backend alembic upgrade head
-
-# Start all services
 docker compose up -d
+```
+
+Database migrations run automatically on first startup. You can check the backend logs to confirm:
+
+```bash
+docker compose logs backend | grep "migrations"
 ```
 
 ## Verify

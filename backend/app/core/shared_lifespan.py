@@ -59,6 +59,37 @@ async def common_startup(logger: logging.Logger) -> list[asyncio.Task]:
         format_type="structured" if not settings.debug else "dev",
     )
 
+    # Verify database schema exists (migrations have been applied)
+    try:
+        async with async_session_maker() as db:
+            from sqlalchemy import text
+
+            result = await db.execute(
+                text(
+                    "SELECT EXISTS ("
+                    "  SELECT FROM information_schema.tables "
+                    "  WHERE table_name = 'servers'"
+                    ")"
+                )
+            )
+            table_exists = result.scalar()
+            if not table_exists:
+                _logger.error(
+                    "Database schema not found — the 'servers' table does not exist. "
+                    "Migrations may not have run. The entrypoint runs migrations "
+                    "automatically, but you can also run them manually:\n"
+                    "  docker compose run --rm backend alembic upgrade head"
+                )
+                raise SystemExit(1)
+    except SystemExit:
+        raise
+    except Exception as exc:
+        _logger.error(
+            f"Failed to verify database schema: {exc}\n"
+            "Check that PostgreSQL is running and DATABASE_URL is correct."
+        )
+        raise SystemExit(1) from exc
+
     # Initialize activity logger with database session factory
     activity_logger = ActivityLoggerService.get_instance()
     activity_logger.set_db_session_factory(async_session_maker)

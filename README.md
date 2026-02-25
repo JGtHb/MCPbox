@@ -52,13 +52,15 @@ cd MCPbox
 
 cp .env.example .env
 
-# Generate a secure encryption key and add to .env as MCPBOX_ENCRYPTION_KEY
-python -c "import secrets; print(secrets.token_hex(32))"
+# Generate required secrets and append to .env
+echo "MCPBOX_ENCRYPTION_KEY=$(openssl rand -hex 32)" >> .env
+echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)" >> .env
+echo "SANDBOX_API_KEY=$(openssl rand -hex 32)" >> .env
 
 docker compose up -d
 ```
 
-Open http://localhost:3000 to access the web UI.
+Open http://localhost:3000 to create your admin account and access the web UI.
 
 ### Connect Your MCP Client
 
