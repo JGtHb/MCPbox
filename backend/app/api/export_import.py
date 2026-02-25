@@ -263,17 +263,27 @@ async def import_servers(
         ],
     }
 
+    # SECURITY (F-07): Reject imports with invalid or missing signatures.
+    # This prevents social engineering attacks where a crafted export with
+    # plausible tool names contains subtle malicious logic.
     if data.signature:
         import_data["signature"] = data.signature
         if not _verify_export_signature(import_data):
-            warnings.append(
-                "Export signature is invalid — the file may have been modified "
-                "or was exported from a different MCPbox instance. "
-                "All imported tools will require approval before use."
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Export signature is invalid. The file may have been modified "
+                    "or was exported from a different MCPbox instance. "
+                    "Import rejected for security."
+                ),
             )
     else:
-        warnings.append(
-            "Export file is not signed. All imported tools will require approval before use."
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Export file is not signed. Unsigned imports are rejected for security. "
+                "Use a signed export from a trusted MCPbox instance."
+            ),
         )
     servers_created = 0
     tools_created = 0

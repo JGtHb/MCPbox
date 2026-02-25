@@ -8,6 +8,8 @@ LAN could access the admin API without proper authorization.
 """
 
 import logging
+import threading
+import time
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -21,6 +23,49 @@ from app.services.auth import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# --- In-memory JTI blacklist cache (SEC-009 / F-02) ---
+# The database-backed blacklist is the source of truth, but middleware cannot
+# perform async DB queries. This cache is populated by blacklist_jti() (called
+# from the logout endpoint) and checked here for O(1) lookups.
+# Entries auto-expire based on the token's original expiry time.
+_blacklisted_jtis: dict[str, float] = {}  # jti -> expiry_timestamp
+_blacklist_lock = threading.Lock()
+
+
+def blacklist_jti(jti: str, exp: float) -> None:
+    """Add a JTI to the in-memory blacklist cache.
+
+    Called from the logout endpoint after writing to the database.
+    exp is the Unix timestamp when the token expires (auto-cleanup).
+    """
+    with _blacklist_lock:
+        _blacklisted_jtis[jti] = exp
+
+
+def is_jti_blacklisted(jti: str) -> bool:
+    """Check if a JTI is in the in-memory blacklist cache."""
+    with _blacklist_lock:
+        exp = _blacklisted_jtis.get(jti)
+        if exp is None:
+            return False
+        # Auto-cleanup expired entries
+        if time.time() > exp:
+            del _blacklisted_jtis[jti]
+            return False
+        return True
+
+
+def cleanup_expired_jti_cache() -> int:
+    """Remove expired entries from the in-memory cache. Returns count removed."""
+    now = time.time()
+    with _blacklist_lock:
+        expired = [jti for jti, exp in _blacklisted_jtis.items() if now > exp]
+        for jti in expired:
+            del _blacklisted_jtis[jti]
+        return len(expired)
+
 
 # Paths that don't require admin auth (even when enabled)
 # Only read-only health endpoints are excluded - circuit breaker reset requires auth
@@ -50,6 +95,7 @@ class AdminAuthMiddleware(BaseHTTPMiddleware):
     All /api/* requests must include a valid JWT token:
     - Token must be in: Authorization: Bearer <token>
     - Returns 401 Unauthorized if token is missing or invalid
+    - Checks in-memory JTI blacklist for revoked tokens (F-02)
     """
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -88,7 +134,7 @@ class AdminAuthMiddleware(BaseHTTPMiddleware):
 
         # Validate JWT token
         try:
-            validate_access_token(token)
+            payload = validate_access_token(token)
         except TokenExpiredError:
             logger.debug(f"Expired token for: {request.method} {path}")
             return JSONResponse(
@@ -101,6 +147,19 @@ class AdminAuthMiddleware(BaseHTTPMiddleware):
             return JSONResponse(
                 status_code=401,
                 content={"detail": str(e)},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        # SECURITY (F-02): Check in-memory JTI blacklist for revoked tokens.
+        # This catches tokens that were blacklisted via logout but haven't
+        # expired yet. The in-memory cache is populated by blacklist_jti()
+        # called from the logout endpoint.
+        jti = payload.get("jti")
+        if jti and is_jti_blacklisted(jti):
+            logger.warning(f"Revoked token used for: {request.method} {path}")
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Token has been revoked"},
                 headers={"WWW-Authenticate": "Bearer"},
             )
 

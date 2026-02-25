@@ -17,9 +17,10 @@ Authentication (Hybrid Model):
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 from app.api.mcp_gateway import router as mcp_router
 from app.core import settings
@@ -44,6 +45,25 @@ from app.models import (  # noqa: F401
 from app.services.service_token_cache import ServiceTokenCache
 
 logger = get_logger("mcp_gateway")
+
+# SECURITY (F-06): Maximum request body size for MCP gateway (1MB).
+# Prevents OOM attacks from oversized JSON payloads.
+MAX_MCP_BODY_SIZE = 1 * 1024 * 1024  # 1MB
+
+
+class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
+    """Reject requests with bodies larger than MAX_MCP_BODY_SIZE."""
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > MAX_MCP_BODY_SIZE:
+            return JSONResponse(
+                status_code=413,
+                content={
+                    "detail": f"Request body too large. Maximum size is {MAX_MCP_BODY_SIZE} bytes."
+                },
+            )
+        return await call_next(request)
 
 
 @asynccontextmanager
@@ -81,11 +101,15 @@ def create_mcp_app() -> FastAPI:
     )
 
     # Middleware is LIFO in Starlette: last added = outermost = runs first.
-    # Order: RateLimit (innermost) → SecurityHeaders → CORS (outermost)
+    # Order: RequestSizeLimit (innermost) → RateLimit → SecurityHeaders → CORS (outermost)
     # CORS must be outermost so preflight (OPTIONS) responses and error
     # responses from inner middleware all carry correct CORS headers (SEC-024).
 
-    # Rate limiting (innermost — runs last)
+    # Request size limit (innermost — runs last)
+    # SECURITY (F-06): Prevent OOM from oversized MCP payloads
+    app.add_middleware(RequestSizeLimitMiddleware)
+
+    # Rate limiting
     app.add_middleware(
         RateLimitMiddleware,
         requests_per_minute=settings.rate_limit_requests_per_minute,

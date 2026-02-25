@@ -58,6 +58,12 @@ class RateLimiter:
         self._buckets: dict[str, RateLimitBucket] = defaultdict(RateLimitBucket)
         self._lock = asyncio.Lock()
         self._last_cleanup = time.monotonic()
+        # SECURITY (F-08): Log that rate limiting state is in-memory and
+        # will be lost on restart. Operators should be aware of this limitation.
+        logger.warning(
+            "Rate limiting state initialized (in-memory, non-persistent). "
+            "State will reset on process restart."
+        )
 
         # Per-path rate limit configurations
         self._path_configs: dict[str, PathRateLimitConfig] = {
