@@ -1157,94 +1157,118 @@ class TimeoutProtectedRegex:
 
     Prevents ReDoS (Regular Expression Denial of Service) attacks by ensuring
     all regex operations complete within REGEX_TIMEOUT seconds.
+
+    SECURITY (F-04): Uses __slots__ and name-mangled attributes to prevent
+    sandbox code from accessing the underlying module via regex._regex.
+    Consistent with SSRFProtectedAsyncHttpClient's access control pattern.
     """
 
+    __slots__ = ("__wrapped_regex", "__timeout")
+
     def __init__(self, regex_module):
-        self._regex = regex_module
-        self._timeout = REGEX_TIMEOUT
+        # Use object.__setattr__ to bypass our __setattr__ guard
+        object.__setattr__(self, "_TimeoutProtectedRegex__wrapped_regex", regex_module)
+        object.__setattr__(self, "_TimeoutProtectedRegex__timeout", REGEX_TIMEOUT)
+
+    def __getattr__(self, name: str):
+        raise AttributeError(
+            f"Access to '{name}' is not allowed on the regex module. "
+            f"Use regex.search(), regex.match(), regex.compile(), etc."
+        )
+
+    def __setattr__(self, name: str, value):
+        raise AttributeError("Cannot set attributes on the regex module")
 
     def _add_timeout(self, kwargs: dict) -> dict:
         """Add timeout to kwargs if not already present."""
         if "timeout" not in kwargs:
-            kwargs["timeout"] = self._timeout
+            kwargs["timeout"] = self.__timeout
         return kwargs
 
     def compile(self, pattern, flags=0, **kwargs):
         """Compile a regex pattern with timeout protection."""
-        return self._regex.compile(pattern, flags, **self._add_timeout(kwargs))
+        return self.__wrapped_regex.compile(pattern, flags, **self._add_timeout(kwargs))
 
     def search(self, pattern, string, flags=0, **kwargs):
         """Search for pattern in string with timeout protection."""
-        return self._regex.search(pattern, string, flags, **self._add_timeout(kwargs))
+        return self.__wrapped_regex.search(
+            pattern, string, flags, **self._add_timeout(kwargs)
+        )
 
     def match(self, pattern, string, flags=0, **kwargs):
         """Match pattern at start of string with timeout protection."""
-        return self._regex.match(pattern, string, flags, **self._add_timeout(kwargs))
+        return self.__wrapped_regex.match(
+            pattern, string, flags, **self._add_timeout(kwargs)
+        )
 
     def fullmatch(self, pattern, string, flags=0, **kwargs):
         """Match pattern against entire string with timeout protection."""
-        return self._regex.fullmatch(
+        return self.__wrapped_regex.fullmatch(
             pattern, string, flags, **self._add_timeout(kwargs)
         )
 
     def split(self, pattern, string, maxsplit=0, flags=0, **kwargs):
         """Split string by pattern with timeout protection."""
-        return self._regex.split(
+        return self.__wrapped_regex.split(
             pattern, string, maxsplit, flags, **self._add_timeout(kwargs)
         )
 
     def findall(self, pattern, string, flags=0, **kwargs):
         """Find all matches of pattern in string with timeout protection."""
-        return self._regex.findall(pattern, string, flags, **self._add_timeout(kwargs))
+        return self.__wrapped_regex.findall(
+            pattern, string, flags, **self._add_timeout(kwargs)
+        )
 
     def finditer(self, pattern, string, flags=0, **kwargs):
         """Find all matches as iterator with timeout protection."""
-        return self._regex.finditer(pattern, string, flags, **self._add_timeout(kwargs))
+        return self.__wrapped_regex.finditer(
+            pattern, string, flags, **self._add_timeout(kwargs)
+        )
 
     def sub(self, pattern, repl, string, count=0, flags=0, **kwargs):
         """Replace pattern matches with timeout protection."""
-        return self._regex.sub(
+        return self.__wrapped_regex.sub(
             pattern, repl, string, count, flags, **self._add_timeout(kwargs)
         )
 
     def subn(self, pattern, repl, string, count=0, flags=0, **kwargs):
         """Replace pattern matches and return count with timeout protection."""
-        return self._regex.subn(
+        return self.__wrapped_regex.subn(
             pattern, repl, string, count, flags, **self._add_timeout(kwargs)
         )
 
     def escape(self, pattern):
         """Escape special characters in pattern (no timeout needed)."""
-        return self._regex.escape(pattern)
+        return self.__wrapped_regex.escape(pattern)
 
     def purge(self):
         """Clear the regex cache (no timeout needed)."""
-        return self._regex.purge()
+        return self.__wrapped_regex.purge()
 
     # Expose commonly used flags
     @property
     def IGNORECASE(self):
-        return self._regex.IGNORECASE
+        return self.__wrapped_regex.IGNORECASE
 
     @property
     def I(self):  # noqa: E743 - Intentionally mirrors regex.I API
-        return self._regex.I
+        return self.__wrapped_regex.I
 
     @property
     def MULTILINE(self):
-        return self._regex.MULTILINE
+        return self.__wrapped_regex.MULTILINE
 
     @property
     def M(self):
-        return self._regex.M
+        return self.__wrapped_regex.M
 
     @property
     def DOTALL(self):
-        return self._regex.DOTALL
+        return self.__wrapped_regex.DOTALL
 
     @property
     def S(self):
-        return self._regex.S
+        return self.__wrapped_regex.S
 
     @property
     def VERBOSE(self):
@@ -1857,8 +1881,32 @@ class PythonExecutor:
             )
 
             # Compile and execute the user's code to define main()
+            # SECURITY (F-01): Run exec() in a thread with timeout to prevent
+            # module-level infinite loops from blocking the event loop.
+            # Without this, code outside main() (e.g., `while True: pass`)
+            # blocks the entire sandbox indefinitely.
             compiled = compile(python_code, "<tool>", "exec")
-            exec(compiled, namespace)
+            loop = asyncio.get_event_loop()
+            try:
+                await asyncio.wait_for(
+                    loop.run_in_executor(None, exec, compiled, namespace),
+                    timeout=timeout,
+                )
+            except asyncio.TimeoutError:
+                error_detail = ErrorDetail(
+                    message=f"Code initialization timed out after {timeout} seconds. "
+                    "Check for expensive computation outside main().",
+                    error_type="TimeoutError",
+                    source_file="<tool>",
+                )
+                return ExecutionResult(
+                    success=False,
+                    error=f"Code initialization timed out after {timeout} seconds",
+                    error_detail=error_detail,
+                    stdout=stdout_capture.getvalue(),
+                    duration_ms=int(timeout * 1000),
+                    debug_info=debug_info,
+                )
 
             # Verify main() exists and is async
             if "main" not in namespace:

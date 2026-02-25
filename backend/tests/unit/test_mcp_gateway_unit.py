@@ -10,7 +10,7 @@ These tests verify the MCP gateway properly handles:
 Note: Integration tests are in tests/test_mcp_gateway.py
 """
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -32,8 +32,9 @@ class TestMCPGatewayErrorHandling:
         mock_client.mcp_request.return_value = {
             "error": {"code": -32000, "message": "Sandbox unavailable"},
         }
+        mock_db = AsyncMock()
 
-        result = await _handle_tools_list(mock_client)
+        result = await _handle_tools_list(mock_client, db=mock_db)
 
         # Should still return management tools even if sandbox fails
         assert "tools" in result
@@ -47,8 +48,16 @@ class TestMCPGatewayErrorHandling:
         mock_client.mcp_request.return_value = {
             "result": {"tools": []},
         }
+        mock_db = AsyncMock()
+        # Mock the db.execute() -> result.scalars().all() chain
+        # result.scalars() is sync, so use MagicMock (not AsyncMock)
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = []
+        mock_result = MagicMock()
+        mock_result.scalars.return_value = mock_scalars
+        mock_db.execute.return_value = mock_result
 
-        result = await _handle_tools_list(mock_client)
+        result = await _handle_tools_list(mock_client, db=mock_db)
 
         # Should still have management tools
         assert "tools" in result
@@ -61,8 +70,9 @@ class TestMCPGatewayErrorHandling:
         mock_client.mcp_request.return_value = {
             "result": None,  # Malformed - no tools key
         }
+        mock_db = AsyncMock()
 
-        result = await _handle_tools_list(mock_client)
+        result = await _handle_tools_list(mock_client, db=mock_db)
 
         # Should handle gracefully and still return management tools
         assert "tools" in result
@@ -207,9 +217,10 @@ class TestSandboxExceptionPropagation:
         """
         mock_client = AsyncMock()
         mock_client.mcp_request = AsyncMock(side_effect=TimeoutError("Request timed out"))
+        mock_db = AsyncMock()
 
         with pytest.raises(TimeoutError):
-            await _handle_tools_list(mock_client)
+            await _handle_tools_list(mock_client, db=mock_db)
 
     @pytest.mark.asyncio
     async def test_sandbox_connection_error_propagates(self):
@@ -221,9 +232,10 @@ class TestSandboxExceptionPropagation:
         mock_client.mcp_request = AsyncMock(
             side_effect=ConnectionRefusedError("Connection refused")
         )
+        mock_db = AsyncMock()
 
         with pytest.raises(ConnectionRefusedError):
-            await _handle_tools_list(mock_client)
+            await _handle_tools_list(mock_client, db=mock_db)
 
 
 class TestJSONRPCErrorCodes:

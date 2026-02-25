@@ -80,6 +80,20 @@ All pinned Python packages (backend and sandbox) are at current versions with no
 - `asyncpg==0.31.0`, `alembic==1.18.4`, `slowapi==0.1.9`, `regex==2026.1.15`, `argon2-cffi==25.1.0` — no known CVEs
 - Starlette (transitive via FastAPI) — CVE-2024-47874 (DoS, CVSS 8.7) fixed in 0.40.0; FastAPI 0.128.8 requires `>=0.40.0`
 
+## Security Hardening (2026-02 Audit)
+
+The following issues were identified and fixed in the February 2026 API security audit:
+
+- **F-01**: Module-level `exec()` now runs with the same timeout as `main()`, preventing DoS via infinite loops outside `main()`
+- **F-02**: Admin auth middleware checks an in-memory JTI blacklist, so revoked tokens are rejected immediately (not just after access token expiry)
+- **F-03**: `MCPBOX_ENCRYPTION_KEY` removed from sandbox container environment to reduce blast radius on sandbox escape
+- **F-04**: `TimeoutProtectedRegex` uses `__slots__` and name-mangled attributes (consistent with `SSRFProtectedAsyncHttpClient`) to prevent sandbox code from accessing the underlying module
+- **F-05**: `0.0.0.0/8` ("this network") added to SSRF blocked IP ranges; hostname `"0"` added to blocked hostnames
+- **F-06**: MCP gateway enforces a 1 MB request body size limit to prevent OOM from oversized payloads
+- **F-07**: Import endpoint rejects unsigned or tampered export files (previously only warned)
+- **F-08**: Rate limiter logs a warning at startup that state is in-memory and non-persistent
+- **F-09**: `_handle_tools_list` requires a database session (no longer optional) to ensure approval filtering always runs
+
 ## Operator Responsibilities
 
 - Set strong values for `MCPBOX_ENCRYPTION_KEY` (64 hex chars) and `SANDBOX_API_KEY` (32+ chars)

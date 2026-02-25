@@ -162,7 +162,8 @@ services:
       dockerfile: Dockerfile
     environment:
       - SANDBOX_API_KEY=${SANDBOX_API_KEY:?SANDBOX_API_KEY is required}
-      - MCPBOX_ENCRYPTION_KEY=${MCPBOX_ENCRYPTION_KEY:?MCPBOX_ENCRYPTION_KEY is required}
+      # SECURITY (F-03): MCPBOX_ENCRYPTION_KEY intentionally excluded from sandbox.
+      # The sandbox doesn't need it, and exposing it increases blast radius on escape.
       - BACKEND_URL=http://backend:8000
       - SANDBOX_PACKAGES_DIR=/app/site-packages
     security_opt:

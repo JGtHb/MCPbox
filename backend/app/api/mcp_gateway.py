@@ -619,12 +619,15 @@ async def mcp_gateway(
 
 async def _handle_tools_list(
     sandbox_client: SandboxClient,
-    db: AsyncSession | None = None,
+    db: AsyncSession,
 ) -> dict[str, Any]:
     """Handle tools/list by combining sandbox and management tools.
 
     Only includes tools that have been approved. Draft, pending, and rejected
     tools are filtered out from the sandbox response.
+
+    SECURITY (F-09): db is required (not Optional) to ensure approval filtering
+    always runs. Without a db session, unapproved tools would be exposed.
     """
     # Get tools from sandbox
     sandbox_response = await sandbox_client.mcp_request(
@@ -642,13 +645,10 @@ async def _handle_tools_list(
         all_sandbox_tools = sandbox_response["result"].get("tools", [])
 
         # Filter to only include approved tools
-        if db:
-            approved_tool_names = await _get_approved_tool_names(db)
-            sandbox_tools = [
-                tool for tool in all_sandbox_tools if tool.get("name") in approved_tool_names
-            ]
-        else:
-            sandbox_tools = all_sandbox_tools
+        approved_tool_names = await _get_approved_tool_names(db)
+        sandbox_tools = [
+            tool for tool in all_sandbox_tools if tool.get("name") in approved_tool_names
+        ]
 
     # Add management tools (always available)
     management_tools = get_management_tools_list()

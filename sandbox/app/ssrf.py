@@ -19,6 +19,7 @@ import httpx
 
 # Blocked IP ranges (private, loopback, link-local, metadata endpoints)
 BLOCKED_IP_RANGES = [
+    ipaddress.ip_network("0.0.0.0/8"),  # "This network" RFC 1122 (F-05)
     ipaddress.ip_network("10.0.0.0/8"),  # Private Class A
     ipaddress.ip_network("172.16.0.0/12"),  # Private Class B
     ipaddress.ip_network("192.168.0.0/16"),  # Private Class C
@@ -37,6 +38,7 @@ BLOCKED_HOSTNAMES = {
     "localhost.localdomain",
     "127.0.0.1",
     "0.0.0.0",
+    "0",  # Resolves to 0.0.0.0 on Linux (F-05)
     "::1",
     "ip6-localhost",
     "ip6-loopback",

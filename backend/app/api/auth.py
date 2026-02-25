@@ -279,6 +279,11 @@ async def logout(
             exp = payload.get("exp", 0)
             if jti:
                 await blacklist_token(db, jti, exp)
+                # SECURITY (F-02): Also add to in-memory cache so the
+                # AdminAuthMiddleware rejects this token immediately.
+                from app.middleware.admin_auth import blacklist_jti
+
+                blacklist_jti(jti, exp)
         except Exception:
             pass  # Token was already validated by get_current_user dependency
 
@@ -290,6 +295,9 @@ async def logout(
             refresh_exp = refresh_payload.get("exp", 0)
             if refresh_jti:
                 await blacklist_token(db, refresh_jti, refresh_exp)
+                from app.middleware.admin_auth import blacklist_jti
+
+                blacklist_jti(refresh_jti, refresh_exp)
         except Exception:
             pass  # Best-effort: still log out even if refresh token is invalid
 
