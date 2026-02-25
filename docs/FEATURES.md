@@ -180,9 +180,9 @@ Features are sorted by status, with broken/partial items at the top for visibili
 
 ### Metrics (Prometheus)
 - **Status**: Complete
-- **Description**: Prometheus-compatible metrics collection for monitoring. Configurable via `enable_metrics` setting.
-- **Owner modules**: `backend/app/services/metrics.py`
-- **Dependencies**: None
+- **Description**: Prometheus-compatible metrics collection via `prometheus_fastapi_instrumentator` middleware. Configurable via `enable_metrics` setting. Exposes `/metrics` endpoint on both backend and MCP gateway.
+- **Owner modules**: `backend/app/main.py`, `backend/app/mcp_only.py` (instrumentator setup)
+- **Dependencies**: `prometheus_fastapi_instrumentator`
 - **Test coverage**: `backend/tests/test_metrics.py` (40+ tests) — excellent coverage
 
 ### Webhook Alerting
