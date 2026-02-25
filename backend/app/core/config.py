@@ -209,11 +209,12 @@ class Settings(BaseSettings):
                 f"Rate limit is set to {self.rate_limit_requests_per_minute}/min which is high."
             )
 
-        # SECURITY: Warn when JWT secret is derived from encryption key (SEC-011)
+        # SECURITY: Note when JWT secret is derived from encryption key (SEC-011)
         if not self.jwt_secret_key:
             warnings.append(
-                "JWT_SECRET_KEY not set — derived from MCPBOX_ENCRYPTION_KEY. "
-                "Set a separate JWT_SECRET_KEY for production deployments."
+                "JWT_SECRET_KEY not set — automatically derived from MCPBOX_ENCRYPTION_KEY. "
+                "This is fine for local use. For production/remote deployments, "
+                "set a separate JWT_SECRET_KEY in .env."
             )
 
         # Check for duplicate secrets (security anti-pattern)

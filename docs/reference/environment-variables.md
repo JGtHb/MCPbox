@@ -30,6 +30,9 @@ Each secret must be a unique value. MCPBox validates on startup that secrets are
 | `MCP_CORS_ORIGINS` | `https://mcp.claude.ai,https://claude.ai,https://chatgpt.com,https://chat.openai.com,https://platform.openai.com` | MCP gateway CORS origins |
 | `LOG_LEVEL` | `INFO` | Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
 
+{: .warning }
+**Port changes affect MCP client config.** If you change `MCPBOX_BACKEND_PORT`, you must also update your MCP client configuration to match. For example, if you set `MCPBOX_BACKEND_PORT=9000`, your MCP client URL becomes `http://localhost:9000/mcp` instead of `http://localhost:8000/mcp`.
+
 ## Database
 
 | Variable | Default | Description |

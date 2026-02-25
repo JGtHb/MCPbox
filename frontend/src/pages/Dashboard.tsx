@@ -220,6 +220,51 @@ export function Dashboard() {
           </div>
         </div>
 
+        {/* Getting Started — shown only when no servers exist */}
+        {!isLoading && dashboard && (dashboard.stats.total_servers ?? 0) === 0 && (
+          <div className="bg-surface rounded-lg shadow p-6 border border-iris/20">
+            <h3 className="text-base font-medium text-on-base mb-1">Getting Started</h3>
+            <p className="text-sm text-subtle mb-4">
+              MCPbox is running. Connect an MCP client to start building tools.
+            </p>
+            <div className="space-y-4">
+              <div>
+                <h4 className="text-sm font-medium text-on-base mb-1">1. Connect your MCP client</h4>
+                <p className="text-xs text-muted mb-2">
+                  Add this to your MCP client config (Claude Code, Cursor, etc.):
+                </p>
+                <pre className="bg-overlay text-xs text-on-base p-3 rounded-md overflow-x-auto">
+{`{
+  "mcpServers": {
+    "mcpbox": {
+      "url": "http://localhost:8000/mcp"
+    }
+  }
+}`}
+                </pre>
+              </div>
+              <div>
+                <h4 className="text-sm font-medium text-on-base mb-1">2. Ask your LLM to build a tool</h4>
+                <p className="text-xs text-muted">
+                  The LLM will discover 28 <code className="bg-overlay px-1 rounded">mcpbox_*</code> management
+                  tools automatically. Try asking it to build something — it will create a server, write Python
+                  code, test it, and submit it for your approval.
+                </p>
+              </div>
+              <div>
+                <h4 className="text-sm font-medium text-on-base mb-1">3. Approve in the admin UI</h4>
+                <p className="text-xs text-muted">
+                  Review pending tools on the{' '}
+                  <Link to="/approvals" className="text-pine hover:text-pine/80 underline">
+                    Approvals
+                  </Link>{' '}
+                  page, then start the server. The tool is now live.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Server Summary */}
           <div className="bg-surface rounded-lg shadow p-4">

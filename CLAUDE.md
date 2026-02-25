@@ -108,7 +108,7 @@ Two modes: **Local** (no auth, local MCP client → localhost:8000/mcp) and **Re
 6. **Two entry points** — `backend/app/main.py` (admin) and `backend/app/mcp_only.py` (gateway) have separate middleware stacks but share lifespan logic via `backend/app/core/shared_lifespan.py`. Middleware changes still need to be applied to both; lifespan changes go in the shared module.
 7. **Encryption key required** — `MCPBOX_ENCRYPTION_KEY` must be exactly 64 hex chars. `SANDBOX_API_KEY` must be 32+ chars.
 8. **Route prefix double-nesting** — ~~`/api/settings/settings` endpoint has doubled prefix.~~ **Fixed**: endpoint is now `/api/settings`.
-9. **alembic upgrade head required** — Auto table creation disabled. Run migrations before first start.
+9. **Migrations run automatically** — `backend/entrypoint.sh` runs `alembic upgrade head` on container startup (port 8000 only). For manual migration: `docker compose run --rm backend alembic upgrade head`.
 10. **Service token comparison** — Must use `secrets.compare_digest()` (constant-time). Never use `==`.
 
 ## What NOT to Do

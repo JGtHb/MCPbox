@@ -34,6 +34,9 @@ Any client that supports [MCP Streamable HTTP transport](https://modelcontextpro
 http://localhost:8000/mcp
 ```
 
+{: .note }
+If you changed `MCPBOX_BACKEND_PORT` in your `.env` file, replace `8000` with your custom port in the URLs above.
+
 ## Verify the Connection
 
 After connecting, ask your LLM to list its available tools. You should see 28 tools with the `mcpbox_` prefix:
