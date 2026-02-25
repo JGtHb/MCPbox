@@ -75,6 +75,31 @@ class TestInternalAuth:
             response = await async_client.get(endpoint)
             assert response.status_code == 403, f"{endpoint} should require auth"
 
+    async def test_accepts_cloudflared_api_key(self, async_client: AsyncClient, monkeypatch):
+        """Internal endpoints accept CLOUDFLARED_API_KEY as alternative auth."""
+        from app.core.config import settings
+
+        cloudflared_key = "cloudflared-test-key-" + "x" * 20
+        monkeypatch.setattr(settings, "cloudflared_api_key", cloudflared_key)
+
+        response = await async_client.get(
+            "/internal/active-tunnel-token",
+            headers={"Authorization": f"Bearer {cloudflared_key}"},
+        )
+        assert response.status_code == 200
+
+    async def test_rejects_cloudflared_key_when_wrong(self, async_client: AsyncClient, monkeypatch):
+        """Wrong CLOUDFLARED_API_KEY is rejected."""
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "cloudflared_api_key", "real-key-" + "x" * 30)
+
+        response = await async_client.get(
+            "/internal/active-tunnel-token",
+            headers={"Authorization": "Bearer wrong-cloudflared-key-xxxxx"},
+        )
+        assert response.status_code == 403
+
 
 class TestGetActiveTunnelToken:
     """Tests for GET /internal/active-tunnel-token endpoint."""

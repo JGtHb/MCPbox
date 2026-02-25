@@ -1,0 +1,3 @@
+# PyPI-only allowlist for sandbox egress
+pypi.org
+files.pythonhosted.org
