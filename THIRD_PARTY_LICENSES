@@ -38,15 +38,13 @@ Generated: 2026-02-24
 17. [react / react-dom](#react) — MIT
 18. [react-router-dom](#react-router-dom) — MIT
 19. [@tanstack/react-query](#tanstack-react-query) — MIT
-20. [@testing-library/dom](#testing-library-dom) — MIT
-
 ### Worker (npm)
-21. [@cloudflare/workers-oauth-provider](#cloudflare-workers-oauth-provider) — MIT
+20. [@cloudflare/workers-oauth-provider](#cloudflare-workers-oauth-provider) — MIT
 
 ### Docker / Infrastructure
-22. [cloudflared](#cloudflared) — Apache-2.0
-23. [nginx](#nginx) — BSD-2-Clause
-24. [PostgreSQL](#postgresql) — PostgreSQL License
+21. [cloudflared](#cloudflared) — Apache-2.0
+22. [nginx](#nginx) — BSD-2-Clause
+23. [PostgreSQL](#postgresql) — PostgreSQL License
 
 ---
 
@@ -215,13 +213,6 @@ cryptography, httpx — are listed above and not repeated here.)
 - **License:** MIT
 - **Copyright:** Copyright (c) 2021-present Tanner Linsley
 - **Source:** https://github.com/TanStack/query
-
-### @testing-library/dom
-
-- **Version:** ^10.4.1
-- **License:** MIT
-- **Copyright:** Copyright (c) 2017 Kent C. Dodds
-- **Source:** https://github.com/testing-library/dom-testing-library
 
 ================================================================================
 
