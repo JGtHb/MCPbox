@@ -3,19 +3,29 @@
 Provides URL validation and protected HTTP clients to prevent
 Server-Side Request Forgery (SSRF) attacks.
 
-Implements IP pinning to prevent DNS rebinding attacks:
-- DNS is resolved once during validation
-- The resolved IP is used for the actual request
-- This prevents attackers from using DNS that changes between validation and request
+Two operating modes:
+- **Direct mode** (no proxy): Full IP pinning — DNS is resolved once during
+  validation and the resolved IP is used for the actual request, preventing
+  DNS rebinding attacks.
+- **Proxy mode** (HTTPS_PROXY set): Hostname-only validation — DNS resolution
+  and private IP blocking are handled by the squid proxy at the network level.
+  IP pinning is skipped because rewriting URLs to IPs breaks TLS via CONNECT
+  tunnels.
 """
 
 import ipaddress
+import os
 import socket
 from dataclasses import dataclass
 from typing import Optional
 from urllib.parse import urlparse, urlunparse
 
 import httpx
+
+# Auto-detect proxy mode from environment.
+# When set, the sandbox routes all traffic through squid; IP pinning is
+# delegated to the proxy (squid blocks private IPs via dst ACLs).
+_PROXY_MODE = bool(os.environ.get("HTTPS_PROXY"))
 
 # Blocked IP ranges (private, loopback, link-local, metadata endpoints)
 BLOCKED_IP_RANGES = [
@@ -248,6 +258,44 @@ def _prepare_pinned_request(url: str, kwargs: dict) -> tuple[str, dict]:
     return pinned_url, kwargs
 
 
+def _validate_hostname_only(url: str, kwargs: dict) -> tuple[str, dict]:
+    """Validate URL hostname without IP pinning (proxy mode).
+
+    In proxy mode, squid handles DNS resolution and private IP blocking.
+    We still check for blocked hostnames and literal private IP addresses
+    in the URL, but skip DNS resolution and IP pinning since that would
+    break TLS via CONNECT tunnels (the proxy sees an IP instead of a
+    hostname, and TLS SNI fails).
+    """
+    if not url:
+        raise SSRFError("URL cannot be empty")
+
+    try:
+        parsed = urlparse(str(url))
+    except Exception as e:
+        raise SSRFError(f"Invalid URL format: {e}")
+
+    if parsed.scheme not in ("http", "https"):
+        raise SSRFError(f"Invalid scheme: {parsed.scheme}. Only http/https allowed.")
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise SSRFError("URL must have a hostname")
+
+    hostname_lower = hostname.lower()
+    if hostname_lower in BLOCKED_HOSTNAMES:
+        raise SSRFError(f"Blocked hostname: {hostname}")
+
+    # If the hostname is a literal IP, still validate it client-side
+    try:
+        if _is_private_ip(hostname):
+            raise SSRFError(f"URL targets blocked IP range: {hostname}")
+    except ValueError:
+        pass  # Not a literal IP; DNS resolution delegated to proxy
+
+    return str(url), kwargs
+
+
 class SSRFProtectedHttpx:
     """SSRF-protected wrapper for httpx module (synchronous).
 
@@ -309,7 +357,10 @@ class SSRFProtectedHttpx:
 class SSRFProtectedAsyncHttpClient:
     """Wrapper around httpx.AsyncClient that validates URLs before requests.
 
-    Uses IP pinning to prevent DNS rebinding attacks.
+    In direct mode (no proxy): uses IP pinning to prevent DNS rebinding.
+    In proxy mode (HTTPS_PROXY set): validates hostnames only; IP pinning
+    and private IP blocking are handled by the squid proxy.
+
     Uses __slots__ to prevent sandbox code from accessing the underlying
     client via attribute access (e.g., http._client).
 
@@ -318,12 +369,13 @@ class SSRFProtectedAsyncHttpClient:
     standard SSRF blocklist checks).
     """
 
-    __slots__ = ("__wrapped_client", "__allowed_hosts")
+    __slots__ = ("__wrapped_client", "__allowed_hosts", "__proxy_mode")
 
     def __init__(
         self,
         client: httpx.AsyncClient,
         allowed_hosts: set[str] | None = None,
+        proxy_mode: bool | None = None,
     ):
         # Use object.__setattr__ to bypass our __setattr__ guard
         object.__setattr__(
@@ -333,6 +385,12 @@ class SSRFProtectedAsyncHttpClient:
         # Empty set means explicitly no hosts allowed.
         object.__setattr__(
             self, "_SSRFProtectedAsyncHttpClient__allowed_hosts", allowed_hosts
+        )
+        # Auto-detect from environment if not explicitly set
+        object.__setattr__(
+            self,
+            "_SSRFProtectedAsyncHttpClient__proxy_mode",
+            proxy_mode if proxy_mode is not None else _PROXY_MODE,
         )
 
     def __getattr__(self, name: str):
@@ -345,8 +403,10 @@ class SSRFProtectedAsyncHttpClient:
         raise AttributeError("Cannot set attributes on the HTTP client")
 
     def _prepare_request(self, url: str, kwargs: dict) -> tuple[str, dict]:
-        """Validate URL and prepare request with IP pinning.
+        """Validate URL and prepare request.
 
+        In direct mode: full IP pinning with DNS resolution.
+        In proxy mode: hostname-only validation (proxy handles DNS/IP checks).
         Also enforces the per-server network allowlist if configured.
         """
         # Force-disable redirects to prevent redirect-based SSRF bypass.
@@ -365,6 +425,8 @@ class SSRFProtectedAsyncHttpClient:
                     f"Use mcpbox_request_network_access to request access."
                 )
 
+        if self.__proxy_mode:
+            return _validate_hostname_only(url, kwargs)
         return _prepare_pinned_request(url, kwargs)
 
     async def get(self, url, **kwargs):

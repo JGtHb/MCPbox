@@ -179,8 +179,12 @@ services:
       # The sandbox doesn't need it, and exposing it increases blast radius on escape.
       - BACKEND_URL=http://backend:8000
       - SANDBOX_PACKAGES_DIR=/app/site-packages
-      # pip-only proxy (does not affect httpx used by tool network requests)
-      - PIP_PROXY=http://squid-proxy:3128
+      # SECURITY: All outbound traffic forced through squid proxy.
+      # Sandbox has no direct internet access (not on mcpbox-sandbox-external).
+      - HTTPS_PROXY=http://squid-proxy:3128
+      - HTTP_PROXY=http://squid-proxy:3128
+      # Exclude internal service communication from proxy
+      - NO_PROXY=backend,localhost,127.0.0.1
     cap_drop:
       - ALL
     security_opt:
@@ -195,8 +199,7 @@ services:
         condition: service_healthy
     networks:
       - mcpbox-sandbox
-      - mcpbox-sandbox-proxy   # Pip → squid proxy → PyPI only
-      - mcpbox-sandbox-external  # Tool HTTP requests (SSRF-protected, admin-approved)
+      - mcpbox-sandbox-proxy   # ALL outbound traffic → squid proxy (no direct internet)
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=5)"]
       interval: 30s
@@ -217,8 +220,9 @@ services:
           pids: 128
 
   # ============================================================
-  # Squid Proxy - PyPI egress filter for sandbox
-  # Restricts sandbox outbound to pypi.org and files.pythonhosted.org
+  # Squid Proxy - Egress filter for sandbox
+  # All sandbox outbound traffic forced through this proxy.
+  # Blocks private IPs; per-server domain filtering at app layer.
   # ============================================================
   squid-proxy:
     build:
@@ -234,8 +238,8 @@ services:
       - /var/log/squid:size=8M
       - /var/run/squid:size=1M
     networks:
-      - mcpbox-sandbox-proxy
-      - mcpbox-sandbox-external  # Outbound to PyPI
+      - mcpbox-sandbox-proxy     # Receives sandbox traffic
+      - mcpbox-sandbox-external  # Outbound to internet
     healthcheck:
       test: ["CMD", "squidclient", "-h", "localhost", "-p", "3128", "mgr:info"]
       interval: 30s
@@ -353,11 +357,11 @@ networks:
 
   mcpbox-sandbox-proxy:
     driver: bridge
-    internal: true  # Sandbox ↔ squid proxy (pip install only)
+    internal: true  # Sandbox ↔ squid proxy (sandbox has no direct internet)
 
   mcpbox-sandbox-external:
     driver: bridge
-    internal: false  # Outbound: squid → PyPI, sandbox → SSRF-protected tool requests
+    internal: false  # Squid-only outbound (sandbox is NOT on this network)
 
   mcpbox-db:
     driver: bridge

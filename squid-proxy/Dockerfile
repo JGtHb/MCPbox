@@ -1,6 +1,7 @@
-# MCPbox Squid Proxy — PyPI egress filter for sandbox
-# Lightweight Alpine-based squid proxy that restricts sandbox
-# outbound traffic to PyPI domains only.
+# MCPbox Squid Proxy — egress filter for sandbox
+# All sandbox outbound traffic is forced through this proxy via Docker
+# network isolation. Blocks private IPs; per-server domain filtering
+# is enforced at the application layer (SSRF client).
 
 FROM alpine:3.23
 
@@ -9,7 +10,6 @@ RUN apk add --no-cache squid && \
 
 # Copy configuration
 COPY squid.conf /etc/squid/squid.conf
-COPY allowed-domains.txt /etc/squid/allowed-domains.txt
 
 # Squid needs to write to certain directories
 RUN mkdir -p /var/spool/squid /var/log/squid /var/run/squid && \
