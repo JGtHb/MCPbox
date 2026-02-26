@@ -58,7 +58,7 @@ MCPbox maintains **1,139+ test functions** across backend, sandbox, frontend, an
 | Module | Unit Tests | Integration Tests | E2E Tests | Estimated Coverage | Critical Gaps |
 |--------|-----------|-------------------|-----------|-------------------|---------------|
 | `executor.py` | 40+ safety, 30+ escape, 30+ hardening | 15+ execute | - | 80% | Concurrent execution untested |
-| `ssrf.py` | 25+ tests | - | - | 85% | - |
+| `ssrf.py` | 60+ tests (direct + proxy mode) | - | - | 95% | Integration: sandbox → squid → internet |
 | `registry.py` | 15+ tests | - | - | 75% | - |
 | `mcp_client.py` | 20+ tests | - | - | 70% | SSRF validation gap untested |
 | `mcp_session_pool.py` | 15+ tests | - | - | 70% | - |
