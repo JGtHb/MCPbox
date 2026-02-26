@@ -141,6 +141,72 @@ class TestSecretUniquenessValidation:
             assert not any("same value" in w for w in warnings)
 
 
+class TestAllZerosKeyWarning:
+    """Tests for all-zeros encryption key warning."""
+
+    def test_all_zeros_key_warns_outside_ci(self):
+        """Test that all-zeros encryption key triggers a warning outside CI."""
+        with patch.dict(
+            os.environ,
+            {
+                "MCPBOX_ENCRYPTION_KEY": "0" * 64,
+                "SANDBOX_API_KEY": "a" * 32,
+            },
+            clear=False,
+        ):
+            # Remove CI env var if present
+            env = os.environ.copy()
+            env.pop("CI", None)
+            with patch.dict(os.environ, env, clear=True):
+                from importlib import reload
+
+                import app.core.config as config_module
+
+                reload(config_module)
+                warnings = config_module.settings.check_security_configuration()
+                assert any("all zeros" in w for w in warnings)
+
+    def test_all_zeros_key_no_warning_in_ci(self):
+        """Test that all-zeros encryption key is accepted in CI."""
+        with patch.dict(
+            os.environ,
+            {
+                "MCPBOX_ENCRYPTION_KEY": "0" * 64,
+                "SANDBOX_API_KEY": "a" * 32,
+                "CI": "true",
+            },
+            clear=False,
+        ):
+            from importlib import reload
+
+            import app.core.config as config_module
+
+            reload(config_module)
+            warnings = config_module.settings.check_security_configuration()
+            assert not any("all zeros" in w for w in warnings)
+
+    def test_real_key_no_zeros_warning(self):
+        """Test that a real encryption key doesn't trigger all-zeros warning."""
+        with patch.dict(
+            os.environ,
+            {
+                "MCPBOX_ENCRYPTION_KEY": "a1b2c3d4e5f6" + "0" * 52,
+                "SANDBOX_API_KEY": "a" * 32,
+            },
+            clear=False,
+        ):
+            env = os.environ.copy()
+            env.pop("CI", None)
+            with patch.dict(os.environ, env, clear=True):
+                from importlib import reload
+
+                import app.core.config as config_module
+
+                reload(config_module)
+                warnings = config_module.settings.check_security_configuration()
+                assert not any("all zeros" in w for w in warnings)
+
+
 class TestLogRetentionSetting:
     """Tests for log_retention_days as a database-only setting.
 

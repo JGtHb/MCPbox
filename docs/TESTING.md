@@ -50,7 +50,7 @@ MCPbox maintains **1,139+ test functions** across backend, sandbox, frontend, an
 | `services/server.py` | 1 file | - | - | 40% | Basic service, lower risk |
 | `middleware/admin_auth.py` | - | tests exist | - | 70% | - |
 | `middleware/rate_limit.py` | - | tests exist | - | 60% | Edge cases missing |
-| `core/config.py` | tests exist | - | - | 60% | - |
+| `core/config.py` | 9 tests | - | - | 70% | Encryption key validation, all-zeros rejection, secret uniqueness |
 | `core/security.py` | tested via auth | - | - | 70% | - |
 
 ### Sandbox (`sandbox/tests/`)

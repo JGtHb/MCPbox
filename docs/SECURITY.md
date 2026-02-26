@@ -36,6 +36,7 @@ MCPbox executes LLM-generated Python code in a sandboxed environment. Security i
 - Server secrets encrypted at rest with AES-256-GCM
 - Secrets injected as read-only mappings at execution time, never persisted in tool code
 - Encryption key derived from operator-provided environment variable
+- All-zeros encryption key rejected at startup outside CI environments
 
 ### 6. Container & Network Architecture
 - Five isolated Docker networks segment traffic between services

@@ -202,10 +202,19 @@ class Settings(BaseSettings):
 
     def check_security_configuration(self) -> list[str]:
         """Check for security configuration issues."""
+        import os
+
         warnings = []
 
         if self.debug:
             warnings.append("DEBUG mode is enabled. This may expose sensitive information.")
+
+        # Reject all-zeros encryption key outside of test/CI contexts
+        if self.mcpbox_encryption_key == "0" * 64 and not os.environ.get("CI"):
+            warnings.append(
+                "MCPBOX_ENCRYPTION_KEY is set to all zeros — this is only valid "
+                "for CI/testing. Generate a real key: openssl rand -hex 32"
+            )
 
         if self.rate_limit_requests_per_minute > 500:
             warnings.append(

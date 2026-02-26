@@ -64,3 +64,64 @@ updates:
       - "dependencies"
       - "ci"
     open-pull-requests-limit: 5
+
+  # Docker base images
+  - package-ecosystem: "docker"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    reviewers:
+      - "JGtHb"
+    labels:
+      - "dependencies"
+      - "docker"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "docker"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    reviewers:
+      - "JGtHb"
+    labels:
+      - "dependencies"
+      - "docker"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "docker"
+    directory: "/sandbox"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    reviewers:
+      - "JGtHb"
+    labels:
+      - "dependencies"
+      - "docker"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "docker"
+    directory: "/cloudflared"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    reviewers:
+      - "JGtHb"
+    labels:
+      - "dependencies"
+      - "docker"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "docker"
+    directory: "/squid-proxy"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    reviewers:
+      - "JGtHb"
+    labels:
+      - "dependencies"
+      - "docker"
+    open-pull-requests-limit: 5
