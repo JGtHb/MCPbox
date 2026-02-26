@@ -17,7 +17,7 @@ COPY . .
 RUN npm run build
 
 # Production stage
-FROM nginx:1.25.4-alpine
+FROM nginx:1.29.5-alpine
 
 # Security: Create non-root user and pre-create nginx temp dirs
 RUN adduser -D -u 1000 mcpbox && \
