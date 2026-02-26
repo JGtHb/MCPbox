@@ -86,6 +86,9 @@ class Settings(BaseSettings):
     # Sandbox - requires API key for authentication
     sandbox_api_key: str = ""
 
+    # Cloudflared - dedicated API key (falls back to SANDBOX_API_KEY if not set)
+    cloudflared_api_key: str = ""
+
     # HTTP client settings
     http_timeout: float = 30.0
     http_max_connections: int = 10

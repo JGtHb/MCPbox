@@ -15,8 +15,8 @@ while true; do
     sleep 2
 done
 
-# Internal API auth header (shared secret with backend)
-AUTH_HEADER="Authorization: Bearer ${SANDBOX_API_KEY}"
+# Internal API auth header (dedicated key, falls back to SANDBOX_API_KEY)
+AUTH_HEADER="Authorization: Bearer ${CLOUDFLARED_API_KEY}"
 
 # Fetch the current tunnel token from the backend
 fetch_token() {
@@ -43,7 +43,7 @@ while true; do
     echo "cloudflared: token retrieved, starting tunnel..."
 
     # Start cloudflared in the background
-    cloudflared tunnel --no-autoupdate run --token "$CURRENT_TOKEN" &
+    cloudflared tunnel --no-autoupdate --metrics localhost:2000 run --token "$CURRENT_TOKEN" &
     CF_PID=$!
 
     # Watchdog: periodically check if the token has changed

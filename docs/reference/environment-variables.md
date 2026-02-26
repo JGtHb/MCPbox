@@ -31,6 +31,8 @@ Each secret must be a unique value. MCPBox checks on startup that secrets are di
 | `LOG_LEVEL` | `INFO` | Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
 | `DEBUG` | `False` | Enable debug mode |
 | `ENABLE_METRICS` | `True` | Enable Prometheus metrics endpoint at `/metrics` |
+| `MCPBOX_ENABLE_HSTS` | `false` | Enable HSTS header in nginx. Set to `true` only when behind a TLS-terminating reverse proxy. |
+| `CLOUDFLARED_API_KEY` | (falls back to `SANDBOX_API_KEY`) | Dedicated API key for the cloudflared container. Limits blast radius if cloudflared is compromised. |
 
 ## HTTP Client
 

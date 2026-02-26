@@ -27,10 +27,14 @@ services:
       dockerfile: Dockerfile
     ports:
       - "127.0.0.1:${MCPBOX_FRONTEND_PORT:-3000}:3000"
+    environment:
+      - MCPBOX_ENABLE_HSTS=${MCPBOX_ENABLE_HSTS:-false}
     depends_on:
       - backend
     networks:
       - mcpbox-internal
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
     read_only: true
@@ -74,8 +78,15 @@ services:
       - SANDBOX_URL=http://sandbox:8001
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - CORS_ORIGINS=${CORS_ORIGINS:-}
+      - CLOUDFLARED_API_KEY=${CLOUDFLARED_API_KEY:-}
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M
+      - /home/mcpbox/.cache:size=32M
     depends_on:
       postgres:
         condition: service_healthy
@@ -86,7 +97,7 @@ services:
       - mcpbox-sandbox
       - mcpbox-db
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       start_period: 15s
@@ -120,6 +131,8 @@ services:
       - SANDBOX_URL=http://sandbox:8001
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - MCP_CORS_ORIGINS=${MCP_CORS_ORIGINS:-https://mcp.claude.ai,https://claude.ai,https://chatgpt.com,https://chat.openai.com,https://platform.openai.com}
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
     read_only: true
@@ -135,7 +148,7 @@ services:
       - mcpbox-sandbox
       - mcpbox-db
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       start_period: 15s
@@ -166,6 +179,10 @@ services:
       # The sandbox doesn't need it, and exposing it increases blast radius on escape.
       - BACKEND_URL=http://backend:8000
       - SANDBOX_PACKAGES_DIR=/app/site-packages
+      # pip-only proxy (does not affect httpx used by tool network requests)
+      - PIP_PROXY=http://squid-proxy:3128
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
     read_only: true
@@ -173,9 +190,13 @@ services:
       - /tmp:size=64M
     volumes:
       - mcpbox-sandbox-packages:/app/site-packages
+    depends_on:
+      squid-proxy:
+        condition: service_healthy
     networks:
       - mcpbox-sandbox
-      - mcpbox-sandbox-external  # For pip access to PyPI
+      - mcpbox-sandbox-proxy   # Pip → squid proxy → PyPI only
+      - mcpbox-sandbox-external  # Tool HTTP requests (SSRF-protected, admin-approved)
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=5)"]
       interval: 30s
@@ -196,6 +217,45 @@ services:
           pids: 128
 
   # ============================================================
+  # Squid Proxy - PyPI egress filter for sandbox
+  # Restricts sandbox outbound to pypi.org and files.pythonhosted.org
+  # ============================================================
+  squid-proxy:
+    build:
+      context: ./squid-proxy
+      dockerfile: Dockerfile
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /var/spool/squid:size=16M
+      - /var/log/squid:size=8M
+      - /var/run/squid:size=1M
+    networks:
+      - mcpbox-sandbox-proxy
+      - mcpbox-sandbox-external  # Outbound to PyPI
+    healthcheck:
+      test: ["CMD", "squidclient", "-h", "localhost", "-p", "3128", "mgr:info"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 64M
+          pids: 32
+
+  # ============================================================
   # PostgreSQL - Configuration and State Storage
   # ============================================================
   postgres:
@@ -204,6 +264,14 @@ services:
       - POSTGRES_USER=mcpbox
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       - POSTGRES_DB=mcpbox
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
     security_opt:
       - no-new-privileges:true
     volumes:
@@ -239,7 +307,10 @@ services:
       dockerfile: Dockerfile
     environment:
       - BACKEND_URL=http://backend:8000
-      - SANDBOX_API_KEY=${SANDBOX_API_KEY:?SANDBOX_API_KEY is required}
+      # Dedicated key for cloudflared (falls back to SANDBOX_API_KEY if not set)
+      - CLOUDFLARED_API_KEY=${CLOUDFLARED_API_KEY:-${SANDBOX_API_KEY}}
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
     read_only: true
@@ -252,6 +323,12 @@ services:
         condition: service_healthy
     networks:
       - mcpbox-internal
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:2000/ready"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
     restart: unless-stopped
     logging:
       driver: "json-file"
@@ -274,9 +351,13 @@ networks:
     driver: bridge
     internal: true
 
+  mcpbox-sandbox-proxy:
+    driver: bridge
+    internal: true  # Sandbox ↔ squid proxy (pip install only)
+
   mcpbox-sandbox-external:
     driver: bridge
-    internal: false
+    internal: false  # Outbound: squid → PyPI, sandbox → SSRF-protected tool requests
 
   mcpbox-db:
     driver: bridge

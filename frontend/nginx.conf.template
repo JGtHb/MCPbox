@@ -1,3 +1,5 @@
+limit_req_zone $binary_remote_addr zone=auth:10m rate=5r/s;
+
 server {
     listen 3000;
     server_name localhost;
@@ -10,8 +12,8 @@ server {
     add_header X-XSS-Protection "1; mode=block" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
-    # HSTS - enforces HTTPS for 1 year (enabled for production behind Cloudflare)
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    # HSTS - only enabled when MCPBOX_ENABLE_HSTS=true (production behind TLS proxy)
+    ${MCPBOX_HSTS_HEADER}
     # CSP - production policy for React SPA with Monaco Editor
     add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; worker-src 'self' blob:; frame-ancestors 'self';" always;
 
@@ -32,6 +34,7 @@ server {
     }
 
     location /auth/ {
+        limit_req zone=auth burst=10 nodelay;
         proxy_pass http://backend:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -60,7 +63,10 @@ server {
         add_header Cache-Control "public, immutable" always;
         add_header X-Content-Type-Options "nosniff" always;
         add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-XSS-Protection "1; mode=block" always;
         add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; worker-src 'self' blob:; frame-ancestors 'self';" always;
     }
 
     # Health check endpoint

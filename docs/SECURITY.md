@@ -37,11 +37,19 @@ MCPbox executes LLM-generated Python code in a sandboxed environment. Security i
 - Secrets injected as read-only mappings at execution time, never persisted in tool code
 - Encryption key derived from operator-provided environment variable
 
-### 6. Network Architecture
-- Four isolated Docker networks segment traffic between services
-- Sandbox has no direct database or internet access (except admin-approved outbound)
+### 6. Container & Network Architecture
+- Five isolated Docker networks segment traffic between services
+- Sandbox has no direct database access; pip egress restricted to PyPI via squid proxy
 - MCP Gateway runs as a separate process with its own middleware stack
 - Cloudflare Tunnel provides remote access without exposing ports
+- Dedicated `CLOUDFLARED_API_KEY` separates tunnel auth from sandbox auth
+- All containers run with `cap_drop: ALL` (zero Linux capabilities; postgres has minimal exceptions)
+- Read-only root filesystems on 5/6 containers (all except postgres)
+- `no-new-privileges:true` on all containers
+- Memory, CPU, and PID limits on all containers
+- Health checks on all 7 containers (including squid-proxy)
+- Nginx rate limiting on authentication endpoints (5r/s per IP)
+- HSTS conditionally enabled via `MCPBOX_ENABLE_HSTS` (off by default for localhost)
 
 ## Dependency Vulnerability Audit (2026-02-25)
 
@@ -102,6 +110,10 @@ The following issues were identified and fixed in the February 2026 API security
 - Review network access requests — outbound HTTP can be used for data exfiltration
 - Keep Docker images and dependencies updated
 - See [PRODUCTION-DEPLOYMENT.md](PRODUCTION-DEPLOYMENT.md) for hardening guidance
+
+## Security Reviews
+
+Security review documents are kept out of the public repository. Findings are tracked privately and fixes are applied directly.
 
 ## Reporting Vulnerabilities
 

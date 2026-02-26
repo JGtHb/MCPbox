@@ -2,8 +2,11 @@
 
 These endpoints are ONLY accessible on the Docker internal network
 (backend is bound to 127.0.0.1 on the host). They are excluded from
-admin auth middleware but require the shared SANDBOX_API_KEY as a
-Bearer token for defense-in-depth.
+admin auth middleware but require a Bearer token for defense-in-depth.
+
+Two keys are accepted:
+- SANDBOX_API_KEY: shared secret for backend ↔ sandbox communication
+- CLOUDFLARED_API_KEY: dedicated key for cloudflared (falls back to SANDBOX_API_KEY)
 """
 
 import logging
@@ -24,15 +27,30 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/internal", tags=["internal"])
 
 
+def _extract_bearer_token(authorization: str | None) -> str:
+    """Extract the Bearer token from an Authorization header."""
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Missing Authorization header",
+        )
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid Authorization header format",
+        )
+    return authorization[7:]
+
+
 async def verify_internal_auth(
     authorization: str | None = Header(default=None),
 ) -> None:
     """Verify internal service-to-service authentication.
 
-    Requires Authorization: Bearer <SANDBOX_API_KEY> header.
-    This is the same shared secret used between backend and sandbox,
-    now also required for internal endpoints as defense-in-depth.
+    Accepts either SANDBOX_API_KEY or CLOUDFLARED_API_KEY as a Bearer token.
     """
+    token = _extract_bearer_token(authorization)
+
     expected_key = settings.sandbox_api_key
     if not expected_key:
         raise HTTPException(
@@ -40,24 +58,19 @@ async def verify_internal_auth(
             detail="Internal auth not configured",
         )
 
-    if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Missing Authorization header",
-        )
+    # Accept SANDBOX_API_KEY
+    if secrets.compare_digest(token.encode(), expected_key.encode()):
+        return
 
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid Authorization header format",
-        )
+    # Accept CLOUDFLARED_API_KEY if configured
+    cloudflared_key = settings.cloudflared_api_key
+    if cloudflared_key and secrets.compare_digest(token.encode(), cloudflared_key.encode()):
+        return
 
-    token = authorization[7:]
-    if not secrets.compare_digest(token.encode(), expected_key.encode()):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid internal auth token",
-        )
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Invalid internal auth token",
+    )
 
 
 @router.get("/active-tunnel-token")

@@ -27,7 +27,7 @@ RUN useradd -m -u 1000 -s /bin/bash mcpbox && \
 
 WORKDIR /app
 
-# Install runtime dependencies (curl for health checks, Node 20 for wrangler v4)
+# Install Node 20 for wrangler v4 (curl/gnupg only needed during build for GPG key)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
@@ -36,11 +36,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
     && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > /etc/apt/sources.list.d/nodesource.list \
     && apt-get update && apt-get install -y --no-install-recommends nodejs \
+    && apt-get purge -y --auto-remove curl gnupg \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
 # Install wrangler globally for Cloudflare Workers deployment (v4 requires Node 20+)
-RUN npm install -g wrangler@4
+# Pinned to exact version to prevent supply-chain attacks; --ignore-scripts
+# disables postinstall scripts that could execute malicious code.
+RUN npm install -g --ignore-scripts wrangler@4.68.1
 
 # Copy installed packages from builder
 COPY --from=builder /root/.local /home/mcpbox/.local
@@ -69,9 +72,9 @@ ENV PATH=/home/mcpbox/.local/bin:$PATH
 # 8002 = MCP Gateway (MCP only, tunnel-exposed)
 EXPOSE 8000 8002
 
-# Health check
+# Health check (uses stdlib — no external tools needed)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)" || exit 1
 
 # Run migrations then start the app
 ENTRYPOINT ["/app/entrypoint.sh"]
