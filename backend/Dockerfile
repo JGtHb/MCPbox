@@ -4,7 +4,7 @@
 # NOTE: Build context is the project root (not ./backend) so that
 # worker source files can be included for Cloudflare Workers deployment.
 
-FROM python:3.12.8-slim AS builder
+FROM python:3.14.3-slim AS builder
 
 WORKDIR /app
 
@@ -18,7 +18,7 @@ COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir --user -r requirements.txt
 
 # Production stage
-FROM python:3.12.8-slim
+FROM python:3.14.3-slim
 
 # Security: Create non-root user
 RUN useradd -m -u 1000 -s /bin/bash mcpbox && \
