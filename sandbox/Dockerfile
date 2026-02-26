@@ -18,13 +18,13 @@ RUN useradd -m -u 1000 -s /bin/bash sandbox && \
     chown -R sandbox:sandbox /app
 
 # Copy installed packages from builder (includes our deps + their transitive deps)
-COPY --from=builder /usr/local/lib/python3.12/site-packages/ /usr/local/lib/python3.12/site-packages/
+COPY --from=builder /usr/local/lib/python3.14/site-packages/ /usr/local/lib/python3.14/site-packages/
 COPY --from=builder /usr/local/bin/ /usr/local/bin/
 
 # Remove setuptools and wheel from runtime (pip kept for package_installer.py)
 RUN pip uninstall -y setuptools wheel 2>/dev/null || true && \
-    rm -rf /usr/local/lib/python3.12/ensurepip \
-           /usr/local/lib/python3.12/lib2to3
+    rm -rf /usr/local/lib/python3.14/ensurepip \
+           /usr/local/lib/python3.14/lib2to3
 
 # Set PYTHONPATH to include custom site-packages for dynamically installed packages
 ENV PYTHONPATH="/app/site-packages:${PYTHONPATH}"

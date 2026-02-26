@@ -27,6 +27,8 @@ def _normalize_import_data(data: dict) -> dict:
             "name": server.get("name"),
             "description": server.get("description"),
             "tools": [],
+            "allowed_hosts": server.get("allowed_hosts", []),
+            "default_timeout_ms": server.get("default_timeout_ms", 30000),
         }
 
         for tool in server.get("tools", []):
@@ -448,10 +450,10 @@ class TestExportSignature:
         result = import_response.json()
         assert result["success"] is True
 
-    async def test_import_with_invalid_signature_warns(
+    async def test_import_with_invalid_signature_rejected(
         self, async_client: AsyncClient, admin_headers
     ):
-        """Test that import with tampered signature succeeds with warning."""
+        """Test that import with tampered signature is rejected (F-07)."""
         response = await async_client.post(
             "/api/export/import",
             json={
@@ -467,14 +469,13 @@ class TestExportSignature:
             },
             headers=admin_headers,
         )
-        assert response.status_code == 200
-        result = response.json()
-        assert result["success"] is True
-        assert result["servers_created"] == 1
-        assert any("signature" in w.lower() for w in result["warnings"])
+        assert response.status_code == 400
+        assert "signature" in response.json()["detail"].lower()
 
-    async def test_import_without_signature_warns(self, async_client: AsyncClient, admin_headers):
-        """Test that import without signature succeeds with warning."""
+    async def test_import_without_signature_rejected(
+        self, async_client: AsyncClient, admin_headers
+    ):
+        """Test that unsigned imports are rejected (F-07)."""
         response = await async_client.post(
             "/api/export/import",
             json={
@@ -490,12 +491,8 @@ class TestExportSignature:
             },
             headers=admin_headers,
         )
-        # Should succeed with warning - unsigned imports allowed but flagged
-        assert response.status_code == 200
-        result = response.json()
-        assert result["success"] is True
-        assert result["servers_created"] == 1
-        assert any("not signed" in w.lower() for w in result["warnings"])
+        assert response.status_code == 400
+        assert "not signed" in response.json()["detail"].lower()
 
 
 class TestMCPPassthroughTools:

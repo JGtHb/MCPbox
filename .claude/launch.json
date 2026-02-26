@@ -1,0 +1,40 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000,
+      "cwd": "frontend"
+    },
+    {
+      "name": "backend",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"],
+      "port": 8000,
+      "cwd": "backend"
+    },
+    {
+      "name": "mcp-gateway",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "uvicorn", "app.mcp_only:app", "--host", "0.0.0.0", "--port", "8002", "--workers", "1"],
+      "port": 8002,
+      "cwd": "backend"
+    },
+    {
+      "name": "sandbox",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"],
+      "port": 8001,
+      "cwd": "sandbox"
+    },
+    {
+      "name": "worker",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 8787,
+      "cwd": "worker"
+    }
+  ]
+}

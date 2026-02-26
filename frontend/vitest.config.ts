@@ -6,6 +6,12 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
+    // Node 25+ has native Web Storage API that conflicts with jsdom's localStorage.
+    // msw's CookieStore accesses localStorage at import time before jsdom can set up its mock.
+    // Disabling native webstorage lets jsdom provide its own implementation.
+    env: {
+      NODE_OPTIONS: '--no-webstorage',
+    },
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     coverage: {

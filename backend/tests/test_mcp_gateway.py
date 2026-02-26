@@ -182,13 +182,20 @@ class TestMCPGatewayRemoteMode:
         mock_sandbox_client.mcp_request = AsyncMock(return_value={"result": {"tools": []}})
         test_token = "a" * 32
 
+        from app.services.email_policy_cache import EmailPolicyCache
         from app.services.service_token_cache import ServiceTokenCache
 
         mock_cache = MagicMock()
         mock_cache.is_auth_enabled = AsyncMock(return_value=True)
         mock_cache.get_token = AsyncMock(return_value=test_token)
 
-        with patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache):
+        mock_email_policy = MagicMock()
+        mock_email_policy.check_email = AsyncMock(return_value=(True, "test"))
+
+        with (
+            patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache),
+            patch.object(EmailPolicyCache, "get_instance", return_value=mock_email_policy),
+        ):
             response = await async_client.post(
                 "/mcp",
                 json={

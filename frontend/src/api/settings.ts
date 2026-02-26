@@ -38,6 +38,35 @@ export interface ModuleInstallResponse {
   error_message?: string | null
 }
 
+export interface ModuleConfigUpdate {
+  add_modules?: string[]
+  remove_modules?: string[]
+  reset_to_defaults?: boolean
+}
+
+export interface ModuleConfigResponse {
+  allowed_modules: string[]
+  default_modules: string[]
+  is_custom: boolean
+}
+
+export interface PyPIInfoResponse {
+  module_name: string
+  package_name: string
+  is_stdlib: boolean
+  pypi_info: {
+    name: string
+    version: string
+    summary?: string | null
+    author?: string | null
+    license?: string | null
+    home_page?: string | null
+    requires_python?: string | null
+    package_url?: string
+  } | null
+  error: string | null
+}
+
 export interface ModuleSyncResponse {
   success: boolean
   installed_count: number

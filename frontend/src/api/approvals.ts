@@ -355,6 +355,43 @@ export function useNetworkRequestAction() {
   })
 }
 
+// Bulk action API functions
+export async function bulkToolAction(
+  toolIds: string[],
+  action: 'approve' | 'reject',
+  reason?: string
+): Promise<void> {
+  await api.post('/api/approvals/tools/bulk-action', {
+    tool_ids: toolIds,
+    action,
+    reason,
+  })
+}
+
+export async function bulkModuleRequestAction(
+  requestIds: string[],
+  action: 'approve' | 'reject',
+  reason?: string
+): Promise<void> {
+  await api.post('/api/approvals/modules/bulk-action', {
+    request_ids: requestIds,
+    action,
+    reason,
+  })
+}
+
+export async function bulkNetworkRequestAction(
+  requestIds: string[],
+  action: 'approve' | 'reject',
+  reason?: string
+): Promise<void> {
+  await api.post('/api/approvals/network/bulk-action', {
+    request_ids: requestIds,
+    action,
+    reason,
+  })
+}
+
 // Bulk action hooks
 export function useBulkToolAction() {
   const queryClient = useQueryClient()
