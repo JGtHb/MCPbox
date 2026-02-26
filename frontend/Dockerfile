@@ -2,7 +2,7 @@
 # Multi-stage build: build with Node, serve with nginx
 
 # Build stage
-FROM node:20.11-alpine AS builder
+FROM node:25.7-alpine AS builder
 
 WORKDIR /app
 
