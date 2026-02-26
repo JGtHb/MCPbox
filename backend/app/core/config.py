@@ -83,8 +83,8 @@ class Settings(BaseSettings):
     # Defaults include Claude, ChatGPT, and OpenAI origins
     mcp_cors_origins: str = "https://mcp.claude.ai,https://claude.ai,https://chatgpt.com,https://chat.openai.com,https://platform.openai.com"
 
-    # Sandbox - requires API key for authentication
-    sandbox_api_key: str = ""
+    # Sandbox - requires API key for authentication (no default — must be set via env)
+    sandbox_api_key: str
 
     # Cloudflared - dedicated API key (falls back to SANDBOX_API_KEY if not set)
     cloudflared_api_key: str = ""

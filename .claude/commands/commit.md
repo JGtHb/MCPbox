@@ -28,7 +28,7 @@ Run pre-commit checks and create a commit with proper formatting.
 4. **Stage all changes and create commit:**
    - Ask user for commit message if not provided as argument: $ARGUMENTS
    - Use conventional commit format (feat:, fix:, docs:, style:, refactor:, test:, chore:)
-   - Add Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+   - Add Co-Authored-By: Claude <noreply@anthropic.com>
 
 ## Usage
 
