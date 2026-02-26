@@ -4,13 +4,13 @@
 # NOTE: pip is kept because package_installer.py uses `python -m pip install`
 
 # Builder stage — install Python dependencies
-FROM python:3.12.8-slim AS builder
+FROM python:3.14.3-slim AS builder
 
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 # Runtime stage — minimal image without setuptools/wheel
-FROM python:3.12.8-slim
+FROM python:3.14.3-slim
 
 # Security: Create non-root user
 RUN useradd -m -u 1000 -s /bin/bash sandbox && \
