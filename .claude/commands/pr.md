@@ -37,8 +37,6 @@ Create a pull request with proper pre-checks and CI monitoring.
 
    ## Test plan
    <checklist>
-
-   🤖 Generated with [Claude Code](https://claude.com/claude-code)
    EOF
    )"
    ```
