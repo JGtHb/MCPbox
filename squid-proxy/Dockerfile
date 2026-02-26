@@ -2,7 +2,7 @@
 # Lightweight Alpine-based squid proxy that restricts sandbox
 # outbound traffic to PyPI domains only.
 
-FROM alpine:3.20
+FROM alpine:3.23
 
 RUN apk add --no-cache squid && \
     rm -rf /var/cache/apk/*
