@@ -1,7 +1,7 @@
 # Custom cloudflared container that fetches tunnel token from backend at startup.
 # Replaces the stock cloudflare/cloudflared image which has no shell or curl.
 
-FROM alpine:3.20
+FROM alpine:3.23
 
 # Install curl for health checks and token fetching
 RUN apk add --no-cache curl ca-certificates
