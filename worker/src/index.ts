@@ -217,7 +217,6 @@ const apiHandler = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext & { props: Props }): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
-    console.log(`apiHandler: ${request.method} ${path} (OAuth validated, has_email: ${!!ctx.props?.email})`);
     const requestOrigin = request.headers.get('Origin');
     const corsOrigin = await getCorsOrigin(env, requestOrigin);
     const corsHeaders = getCorsHeaders(corsOrigin);
@@ -333,7 +332,6 @@ const defaultHandler = {
       return handleAccessRequest(request, env as Env & { OAUTH_PROVIDER: OAuthHelpers }, ctx);
     }
 
-    console.log(`defaultHandler: unhandled path ${url.pathname}`);
     return new Response('Not found', {
       status: 404,
       headers: corsHeaders,
@@ -360,7 +358,6 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const originalPathname = url.pathname;
-    console.log(`Worker request: ${request.method} ${url.pathname} [${request.headers.get('User-Agent') || 'no-ua'}]`);
 
     const corsOrigin = await getCorsOrigin(env, request.headers.get('Origin'));
     const corsHeaders = getCorsHeaders(corsOrigin);
@@ -390,7 +387,6 @@ export default {
 
     // Health check (public, no OAuth needed)
     if (url.pathname === '/health' || url.pathname.startsWith('/health/')) {
-      console.log('Health check request');
       return new Response(JSON.stringify({ status: 'ok' }), {
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       });
@@ -408,7 +404,6 @@ export default {
         bearer_methods_supported: ['header'],
         scopes_supported: [],
       };
-      console.log(`PRM request: ${url.pathname} -> ${JSON.stringify(prmResponse)}`);
       return new Response(JSON.stringify(prmResponse), {
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       });
@@ -517,14 +512,12 @@ export default {
       const rewrittenUrl = new URL(request.url);
       rewrittenUrl.pathname = INTERNAL_API_ROUTE;
       request = new Request(rewrittenUrl.toString(), request);
-      console.log(`Rewrote ${originalPathname} -> ${INTERNAL_API_ROUTE} for OAuth validation`);
     }
 
     // =================================================================
     // OAuthProvider handles everything else
     // =================================================================
     const response = await oauthProvider.fetch(request, env, ctx);
-    console.log(`Worker response: ${response.status} for ${originalPathname}`);
 
     // Harden well-known metadata: enforce S256-only PKCE (strip 'plain')
     if (originalPathname === '/.well-known/oauth-authorization-server' && response.ok) {
@@ -550,7 +543,6 @@ export default {
       } else {
         newHeaders.set('WWW-Authenticate', `Bearer resource_metadata="${prmUrl}"`);
       }
-      console.log(`401 for ${originalPathname} -- WWW-Authenticate: ${newHeaders.get('WWW-Authenticate')}`);
       return new Response(response.body, {
         status: response.status,
         statusText: response.statusText,

@@ -224,8 +224,6 @@ async function handleCallback(
   const userName = typeof claims.name === 'string' ? claims.name : undefined;
   const userSub = typeof claims.sub === 'string' ? claims.sub : 'mcpbox-user';
 
-  console.log(`OIDC callback: verified user (has_email: ${!!userEmail}, sub_length: ${userSub.length})`);
-
   // Complete the OAuth authorization — issue a Worker token to the MCP client
   const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
     request: oauthReqInfo,

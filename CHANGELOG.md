@@ -2,7 +2,7 @@
 
 All notable changes to MCPbox will be documented in this file.
 
-## [Unreleased] - Server Secrets, Execution Logging & OIDC Architecture
+## [0.1.0] - 2026-02-26
 
 ### Added
 - **Server Secrets** - Per-server encrypted key-value secrets (`server_secrets` table, migration 0029). LLMs create placeholders via `mcpbox_create_server_secret`, admins set values in the UI. Secrets injected into tool execution as `secrets["KEY_NAME"]` dict. Values never flow through LLMs.
