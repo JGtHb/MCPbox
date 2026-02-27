@@ -116,25 +116,13 @@ docker-compose logs sandbox | grep -i "killed\|oom"
 
 ### Immediate Actions
 
-1. **Rotate the key immediately:**
+1. **Generate a new encryption key:**
 
 ```bash
-# Generate a new key
 NEW_KEY=$(openssl rand -hex 32)
-
-# Run the rotation utility
-python scripts/rotate_encryption_key.py \
-  --old-key "$CURRENT_KEY" \
-  --new-key "$NEW_KEY" \
-  --dry-run  # Verify first
-
-# Execute the rotation
-python scripts/rotate_encryption_key.py \
-  --old-key "$CURRENT_KEY" \
-  --new-key "$NEW_KEY"
 ```
 
-2. **Update the environment:**
+2. **Update the environment and restart:**
 
 ```bash
 # Update .env file
@@ -144,7 +132,11 @@ sed -i "s/MCPBOX_ENCRYPTION_KEY=.*/MCPBOX_ENCRYPTION_KEY=$NEW_KEY/" .env
 docker-compose restart backend mcp-gateway
 ```
 
-3. **Rotate all stored server secrets** — even after re-encryption, treat any stored API keys/tokens as potentially compromised. Re-issue them at their respective providers and update the secret values in the MCPbox admin UI.
+3. **Re-encrypt stored secrets** — after updating the key, all previously encrypted values (server secrets, Cloudflare config) will be unreadable. You must re-enter them:
+   - Re-set all server secret values in the admin UI (`/servers/<id>/secrets`)
+   - Re-run the Cloudflare setup wizard if remote access is configured
+
+4. **Rotate all stored server secrets at their providers** — treat any API keys/tokens that were encrypted with the old key as potentially compromised. Re-issue them at their respective providers and update the values in the MCPbox admin UI.
 
 ---
 

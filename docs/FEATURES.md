@@ -15,7 +15,7 @@ Features are sorted by status, with broken/partial items at the top for visibili
 
 ### ~~Helper Code (Shared Server Code)~~ — **REMOVED**
 - **Status**: Removed during pre-release cleanup
-- **Reason**: Never exposed via API or UI after server creation. Database field, executor loading, and all references removed. Migration 0035 drops the column.
+- **Reason**: Never exposed via API or UI after server creation. Database field, executor loading, and all references removed.
 
 ---
 

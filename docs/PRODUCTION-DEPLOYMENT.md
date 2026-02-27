@@ -64,10 +64,6 @@ tokens to the Worker after completing the wizard.
 
 Always use Alembic migrations in production instead of auto-creation.
 
-**Recent migrations:**
-- `0029_add_server_secrets` — Creates `server_secrets` table for encrypted per-server key-value secrets
-- `0030_add_tool_execution_logs` — Creates `tool_execution_logs` table for tool invocation history
-
 ```bash
 # Run all pending migrations
 docker-compose run --rm backend alembic upgrade head
@@ -378,7 +374,7 @@ See [INCIDENT-RESPONSE.md](./INCIDENT-RESPONSE.md) for operational runbooks cove
 
 - Database failure recovery
 - Sandbox failure and circuit breaker reset
-- Encryption key rotation
+- Encryption key compromise
 - Tunnel disconnection
 - Rate limiting issues
 - Sandbox escape attempts

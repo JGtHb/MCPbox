@@ -1,7 +1,7 @@
 # Architecture Decision Records
 
 ## ADR-001: MCP-First Architecture (No Visual Builders)
-- **Date**: Inferred (Epic 2/3 removal visible in CHANGELOG)
+- **Date**: Pre-release (Epic 2/3 removal)
 - **Status**: Active
 - **Context**: The project needed a way for LLMs to create tools. Options included visual workflow builders (like n8n/Node-RED), API configuration (HTTP method + URL + headers), or code-first (Python with `async def main()`). An earlier "API Config" mode existed but was removed.
 - **Decision**: All tools use Python code only. Tool creation happens via `mcpbox_*` MCP management tools invoked by external LLMs. No embedded LLM, no visual builders, no API spec import.
@@ -46,11 +46,11 @@
 - **Affected modules**: `backend/app/api/approvals.py`, `backend/app/services/approval.py`, `backend/app/services/tool.py`, `frontend/src/pages/Approvals.tsx`
 
 ## ADR-006: AES-256-GCM for Secret Encryption
-- **Date**: Inferred (migration 0029: server secrets)
+- **Date**: Pre-release
 - **Status**: Active
 - **Context**: Server secrets (API keys, tokens) need encryption at rest. Options: database-level encryption, application-level encryption, or external secret manager.
-- **Decision**: Application-level AES-256-GCM encryption via Python `cryptography` library. Per-value random 12-byte IV. 64-character hex encryption key from environment variable. Dual-key support for rotation.
-- **Rationale**: State-of-the-art authenticated encryption. No external dependencies (no Vault/KMS). Per-value IV prevents ciphertext analysis. Key rotation support for operational needs.
+- **Decision**: Application-level AES-256-GCM encryption via Python `cryptography` library. Per-value random 12-byte IV. 64-character hex encryption key from environment variable.
+- **Rationale**: State-of-the-art authenticated encryption. No external dependencies (no Vault/KMS). Per-value IV prevents ciphertext analysis.
 - **Consequences**: Encryption key is single point of failure. Key must be backed up securely. Missing AAD means ciphertext swapping between columns is theoretically possible (see [SECURITY.md](SECURITY.md#sec-005)). All encryption/decryption happens in application layer.
 - **Affected modules**: `backend/app/services/crypto.py`, `backend/app/models/server_secret.py`
 
@@ -69,11 +69,11 @@
 - **Context**: The system needs persistent storage for servers, tools, secrets, activity logs, and configuration.
 - **Decision**: PostgreSQL 16 with SQLAlchemy async ORM via `asyncpg` driver. Alembic for migrations. Connection pooling (20 base, 20 overflow).
 - **Rationale**: PostgreSQL supports ARRAY types (used for `allowed_modules`, `allowed_hosts`), full-text search, and JSON. Alembic provides reliable schema migrations. Async ORM matches the async FastAPI architecture.
-- **Consequences**: Requires Docker for tests (testcontainers). ARRAY types make SQLite testing impossible. 33+ migrations to manage. Connection pool sizing matters for homelab resource constraints.
+- **Consequences**: Requires Docker for tests (testcontainers). ARRAY types make SQLite testing impossible. migrations to manage (squashed to a single initial migration for first release). Connection pool sizing matters for homelab resource constraints.
 - **Affected modules**: `backend/app/core/database.py`, `backend/app/models/`, `alembic/`
 
 ## ADR-009: Argon2id for Password Hashing
-- **Date**: Inferred (migration 0019: admin users)
+- **Date**: Pre-release
 - **Status**: Active
 - **Context**: Admin panel needs password authentication. Choice of hashing algorithm affects security and performance.
 - **Decision**: Argon2id via `argon2-cffi` library. Password versioning stored in JWT to force re-login on password change. Dummy hash verification on unknown users to prevent timing attacks.
@@ -109,7 +109,7 @@
 - **Affected modules**: `backend/app/api/mcp_gateway.py`, `docker-compose.yml`
 
 ## ADR-013: Tool Version History with Database Storage
-- **Date**: Inferred (migration 0002: tool versions)
+- **Date**: Pre-release
 - **Status**: Active
 - **Context**: Tool code changes need tracking for audit trail and recovery. Options: git-based versioning, database-stored versions, or external VCS.
 - **Decision**: Store versions in `tool_versions` table with full code snapshots. Rollback via `mcpbox_rollback_tool` restores code from version record.
