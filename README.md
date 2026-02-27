@@ -6,6 +6,8 @@ MCPbox lets AI create, test, and manage its own MCP tools — write Python code,
 
 [![CI](https://github.com/JGtHb/MCPbox/actions/workflows/ci.yml/badge.svg)](https://github.com/JGtHb/MCPbox/actions/workflows/ci.yml)
 
+![MCPbox Dashboard](docs/images/dashboard.png)
+
 > [!WARNING]
 > **Active Development** — This project is under active development. Expect breaking changes, incomplete features, and rough edges. Pin to a specific commit if you need stability.
 
@@ -14,7 +16,22 @@ MCPbox lets AI create, test, and manage its own MCP tools — write Python code,
 
 ---
 
-![MCPbox Dashboard](docs/images/dashboard.png)
+## What is MCPbox?
+
+MCPbox is a self-hosted platform that puts you in complete control of your AI's capabilities.
+
+**Your tools, your way.** The LLM writes Python code, you review and approve it, and it becomes a permanent tool — totally personal, built for your exact workflow. No marketplace, no generic plugins, no vendor lock-in. You own every line of code.
+
+**Fully observable.** Every tool execution is logged with inputs, outputs, duration, and errors. Built-in dashboards show request volume, error rates, and execution history. You always know exactly what your AI is doing.
+
+**You set the boundaries.** Tools start in draft. You review the code, approve what you trust, and control which modules and network hosts each tool can access. The LLM proposes — you decide. But within those boundaries, the sky's the limit.
+
+- **LLM as Toolmaker** — write Python code via `mcpbox_create_tool`, it becomes a permanent MCP tool
+- **MCP Gateway** — proxy existing MCP servers through MCPbox with `mcpbox_add_external_source`
+- **Human-in-the-Loop** — tools are created in draft; admins review and approve before publishing
+- **Sandboxed Execution** — restricted builtins, import whitelisting, network controls, SSRF prevention
+- **Self-Hosted** — single `docker compose up`, runs on any homelab or VPS
+- **Remote Access** — optional Cloudflare tunnel with OAuth 2.1 for access from anywhere
 
 ---
 
@@ -25,7 +42,7 @@ MCPbox lets AI create, test, and manage its own MCP tools — write Python code,
 > **LLM:** I don't have a tool for that yet — let me build one.
 
 ```
-1. mcpbox_create_server   → "news" server created
+1. mcpbox_create_server   → "uptime" server created
 2. mcpbox_create_tool     → claude_status tool (Python: fetch Anthropic status page)
 3. mcpbox_test_code       → test passes, returns JSON
 4. mcpbox_request_publish → submitted for admin approval
@@ -43,16 +60,6 @@ MCPbox lets AI create, test, and manage its own MCP tools — write Python code,
 The tool now exists permanently. Next time anyone asks about Claude's status, the LLM just calls `claude_status` directly — no rebuilding needed.
 
 ---
-
-## What is MCPbox?
-
-MCPbox is a self-hosted platform where LLMs extend their own capabilities by writing tools. Unlike MCP gateways (which proxy existing servers) or MCP hosts (which deploy pre-built servers), MCPbox lets the LLM itself author new tools as Python code that persist across sessions.
-
-- **LLM as Toolmaker** — write Python code via `mcpbox_create_tool`, it becomes a permanent MCP tool
-- **Human-in-the-Loop** — tools are created in draft status; admins review and approve before publishing
-- **Sandboxed Execution** — hardened sandbox with restricted builtins, import whitelisting, and SSRF prevention
-- **Self-Hosted for Homelabs** — single `docker compose up`, no Kubernetes required
-- **Remote Access** — optional Cloudflare Worker + tunnel integration for any remote MCP client
 
 ## Quick Start
 
@@ -90,39 +97,39 @@ Add MCPbox to your MCP client config (Claude Code, Cursor, etc.):
 
 The LLM will discover all 28 `mcpbox_*` management tools automatically and can start building.
 
+For remote access from claude.ai, ChatGPT, or any MCP client outside your network, see [Remote Access Setup](https://jgthb.github.io/MCPbox/guides/remote-access.html) to configure a Cloudflare tunnel with OAuth 2.1 authentication.
+
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                     MCPbox (Docker Compose)                       │
-│                                                                   │
-│  LOCAL ONLY (127.0.0.1)           PRIVATE TUNNEL                  │
-│  ┌──────────┐  ┌──────────┐     ┌──────────────┐                │
-│  │ Frontend │  │ Backend  │     │ MCP Gateway  │◄── cloudflared  │
-│  │ (React)  │◄─┤ (FastAPI)│     │ (FastAPI)    │                 │
-│  │ :3000    │  │ :8000    │     │ :8002        │                 │
-│  └──────────┘  └────┬─────┘     └──────┬───────┘                │
-│                     │                  │                          │
-│                     └──────┬───────────┘                         │
-│                            ▼                                      │
-│              ┌──────────────────────────┐  ┌────────────┐        │
-│              │   Shared Sandbox :8001   │  │ PostgreSQL │        │
-│              └──────────────────────────┘  │  :5432     │        │
-│                                            └────────────┘        │
-└──────────────────────────────────────────────────────────────────┘
-                             │ Workers VPC (private)
-                             ▼
-                  ┌──────────────────────────┐
-                  │ Cloudflare Worker         │
-                  │ (OAuth 2.1 + OIDC)       │
-                  └──────────┬───────────────┘
-                             ▼
-                    ┌───────────────┐
-                    │  MCP Clients  │
-                    └───────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                    MCPbox (Docker Compose)                   │
+│                                                             │
+│  ┌──────────┐  ┌──────────┐           ┌──────────────┐     │
+│  │ Frontend │  │ Backend  │           │ MCP Gateway  │     │
+│  │ (React)  │──│ (FastAPI)│           │ (FastAPI)    │     │
+│  │ :3000    │  │ :8000    │           │ :8002        │     │
+│  └──────────┘  └────┬─────┘           └──────┬───────┘     │
+│                     │                        │              │
+│                     └────────┬───────────────┘              │
+│                              ▼                              │
+│                ┌──────────────────────┐  ┌────────────┐     │
+│                │   Sandbox  :8001     │  │ PostgreSQL │     │
+│                │  (Python executor)   │  │  :5432     │     │
+│                └──────────────────────┘  └────────────┘     │
+└─────────────────────────────────────────────────────────────┘
+       ▲                              ▲
+       │ Local MCP clients            │ cloudflared tunnel (outbound)
+       │ localhost:8000/mcp           │
+                               ┌──────┴───────────────┐
+                               │  Cloudflare Edge      │
+                               │  Worker (OAuth 2.1)   │
+                               └──────┬───────────────┘
+                                      │
+                               Remote MCP Clients
 ```
 
-Two modes: **Local** (no auth, MCP client connects to `localhost:8000/mcp`) and **Remote** (OAuth 2.1 + OIDC via Cloudflare Worker → VPC tunnel → gateway).
+Two modes: **Local** (MCP client connects to `localhost:8000/mcp`, no auth) and **Remote** (OAuth 2.1 via Cloudflare Worker + tunnel to the MCP gateway).
 
 ## Key Features
 
@@ -157,23 +164,6 @@ The LLM doesn't just use tools — it builds them. MCPbox exposes [28 management
 | [MCP Management Tools](https://jgthb.github.io/MCPbox/reference/mcp-tools.html) | Full reference for all 28 `mcpbox_*` tools |
 | [Remote Access Setup](https://jgthb.github.io/MCPbox/guides/remote-access.html) | Cloudflare tunnel configuration |
 | [Developer Docs](https://jgthb.github.io/MCPbox/developer/) | Architecture, security, API contracts, and more |
-
-## Running Tests
-
-```bash
-# All checks (format, lint, tests) — what CI runs
-./scripts/pre-pr-check.sh
-
-# Individual test suites
-cd backend && pytest tests -v       # requires Docker (testcontainers)
-cd sandbox && pytest tests -v
-cd frontend && npm test
-cd worker && npm test
-```
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
 ## License
 

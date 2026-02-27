@@ -2,12 +2,32 @@
 
 Thanks for your interest in contributing! MCPbox is a self-extending MCP platform where LLMs create their own tools.
 
+## Branching Model
+
+| Branch | Purpose | Deploys to |
+|--------|---------|------------|
+| `develop` | Default branch. All PRs merge here. | CI only |
+| `main` | Stable releases only. | Tagged releases |
+
+- **Feature work**: branch from `develop`, open a PR back to `develop`
+- **Releases**: merge `develop` → `main`, tag with `vX.Y.Z`
+- **Hotfixes**: branch from `main`, PR to both `main` and `develop`
+
 ## Getting Started
 
 ```bash
 git clone https://github.com/JGtHb/MCPbox.git
 cd MCPbox
+git checkout develop
+
 cp .env.example .env
+
+# Generate required secrets
+echo "MCPBOX_ENCRYPTION_KEY=$(openssl rand -hex 32)" >> .env
+echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)" >> .env
+echo "SANDBOX_API_KEY=$(openssl rand -hex 32)" >> .env
+
+docker compose run --rm backend alembic upgrade head
 docker compose up -d
 ```
 
@@ -49,9 +69,9 @@ Always use Alembic migrations. Auto table creation is disabled.
 ## Making Changes
 
 1. **Check existing issues** before creating new ones
-2. **Fork and branch** from `main`
+2. **Fork and branch** from `develop`
 3. **Write tests** for new features and bug fixes
-4. **Run `./scripts/pre-pr-check.sh`** before submitting — it runs formatting, linting, and all test suites
+4. **Run `./scripts/pre-pr-check.sh`** before submitting
 5. **Follow existing code style** — Ruff handles Python formatting and linting
 
 ### Code Structure
@@ -82,6 +102,15 @@ Always use Alembic migrations. Auto table creation is disabled.
 - Write a clear description of what changed and why
 - Include test coverage for new functionality
 - All CI checks must pass
+- PRs target `develop` unless it's a hotfix
+
+## Releases
+
+Releases are cut from `develop` → `main`:
+
+1. Merge `develop` into `main`
+2. Tag: `git tag v0.X.0 && git push origin v0.X.0`
+3. GitHub Actions creates a release with auto-generated notes
 
 ## Security
 
