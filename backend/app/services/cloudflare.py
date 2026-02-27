@@ -657,11 +657,16 @@ class CloudflareService:
 
                 # Only pass required environment variables to wrangler subprocess
                 # (avoid leaking DATABASE_URL, MCPBOX_ENCRYPTION_KEY, etc.)
+                # npm_config_cache: redirect npm cache into the tmpdir so
+                # `npm install` works on read-only root filesystems where
+                # the default ~/.npm is not writable.
+                npm_cache_dir = os.path.join(tmpdir, ".npm-cache")
                 env = {
                     "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
                     "HOME": os.environ.get("HOME", "/root"),
                     "CLOUDFLARE_API_TOKEN": api_token,
                     "CLOUDFLARE_ACCOUNT_ID": config.account_id,
+                    "npm_config_cache": npm_cache_dir,
                 }
 
                 # Create OAUTH_KV namespace if not yet created (via wrangler CLI,
@@ -763,7 +768,7 @@ id = "{kv_namespace_id}"
 
                 # Install npm dependencies (required for @cloudflare/workers-oauth-provider)
                 npm_result = subprocess.run(
-                    ["npm", "install", "--production"],
+                    ["npm", "install", "--omit=dev"],
                     cwd=tmpdir,
                     env=env,
                     capture_output=True,
