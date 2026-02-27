@@ -129,7 +129,8 @@ services:
 |---------|----------|----------|---------|
 | `mcpbox-internal` | frontend, backend, mcp-gateway, cloudflared | No | Service communication (nginx proxy, tunnel) |
 | `mcpbox-sandbox` | backend, mcp-gateway, sandbox | Yes | Sandbox access (no external egress) |
-| `mcpbox-sandbox-external` | sandbox | No | Sandbox outbound access (PyPI, whitelisted hosts) |
+| `mcpbox-sandbox-proxy` | sandbox, squid-proxy | Yes | Sandbox → squid proxy (all outbound traffic) |
+| `mcpbox-sandbox-external` | squid-proxy | No | Squid outbound to internet (sandbox NOT on this network) |
 | `mcpbox-db` | backend, mcp-gateway, postgres | Yes | Database access (no external egress) |
 
 ---

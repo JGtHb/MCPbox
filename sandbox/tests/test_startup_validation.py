@@ -19,9 +19,7 @@ class TestStartupValidation:
 
     def test_missing_sandbox_api_key_aborts(self):
         """Sandbox must abort if SANDBOX_API_KEY is not set."""
-        with patch.dict(
-            os.environ, {"SANDBOX_API_KEY": ""}
-        ):
+        with patch.dict(os.environ, {"SANDBOX_API_KEY": ""}):
             from app.main import _check_security_configuration
 
             with pytest.raises(SystemExit, match="configuration errors"):
@@ -29,9 +27,7 @@ class TestStartupValidation:
 
     def test_short_sandbox_api_key_aborts(self):
         """Sandbox must abort if SANDBOX_API_KEY is too short."""
-        with patch.dict(
-            os.environ, {"SANDBOX_API_KEY": "short"}
-        ):
+        with patch.dict(os.environ, {"SANDBOX_API_KEY": "short"}):
             from app.main import _check_security_configuration
 
             with pytest.raises(SystemExit, match="configuration errors"):

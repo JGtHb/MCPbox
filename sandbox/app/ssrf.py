@@ -3,19 +3,60 @@
 Provides URL validation and protected HTTP clients to prevent
 Server-Side Request Forgery (SSRF) attacks.
 
-Implements IP pinning to prevent DNS rebinding attacks:
-- DNS is resolved once during validation
-- The resolved IP is used for the actual request
-- This prevents attackers from using DNS that changes between validation and request
+Two operating modes:
+- **Direct mode** (no proxy): Full IP pinning — DNS is resolved once during
+  validation and the resolved IP is used for the actual request, preventing
+  DNS rebinding attacks.
+- **Proxy mode** (HTTPS_PROXY set): Hostname-only validation — DNS resolution
+  and private IP blocking are handled by the squid proxy at the network level.
+  IP pinning is skipped because rewriting URLs to IPs breaks TLS via CONNECT
+  tunnels.
 """
 
 import ipaddress
+import os
 import socket
 from dataclasses import dataclass
 from typing import Optional
 from urllib.parse import urlparse, urlunparse
 
 import httpx
+
+# Auto-detect proxy mode from environment.
+# When set, the sandbox routes all traffic through squid; IP pinning is
+# delegated to the proxy (squid blocks private IPs via dst ACLs).
+_PROXY_MODE = bool(os.environ.get("HTTPS_PROXY"))
+
+
+# Ranges that are ALWAYS blocked, even for admin-approved hosts.
+# These cover loopback, link-local/cloud-metadata, and "this network".
+# Admin approval can only override RFC 1918 private ranges (10/8, 172.16/12,
+# 192.168/16) and shared address space (100.64/10).
+_ALWAYS_BLOCKED_NETWORKS = [
+    ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("::/128"),
+    ipaddress.ip_network("fe80::/10"),
+    ipaddress.ip_network("ff00::/8"),
+]
+
+
+def _is_always_blocked_ip(ip_str: str) -> bool:
+    """Check if an IP is in a range that can never be overridden by admin approval.
+
+    Covers loopback, link-local, cloud metadata, and "this network" ranges.
+    """
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        for network in _ALWAYS_BLOCKED_NETWORKS:
+            if ip in network:
+                return True
+        return False
+    except ValueError:
+        return False
+
 
 # Blocked IP ranges (private, loopback, link-local, metadata endpoints)
 BLOCKED_IP_RANGES = [
@@ -148,11 +189,16 @@ def _is_private_ip(ip_str: str) -> bool:
         return False
 
 
-def validate_url_with_pinning(url: str) -> ValidatedURL:
+def validate_url_with_pinning(
+    url: str, *, admin_approved: bool = False
+) -> ValidatedURL:
     """Validate a URL and return pinned IP to prevent DNS rebinding.
 
     Args:
         url: The URL to validate
+        admin_approved: When True, the host was explicitly approved by an admin
+            via the network-access-request flow.  RFC 1918 private IPs are
+            allowed; loopback / link-local / metadata are still blocked.
 
     Returns:
         ValidatedURL with pinned IP address
@@ -188,9 +234,14 @@ def validate_url_with_pinning(url: str) -> ValidatedURL:
     # Check if hostname is an IP address in blocked range
     try:
         ip = ipaddress.ip_address(hostname)
-        for blocked_range in BLOCKED_IP_RANGES:
-            if ip in blocked_range:
+        if admin_approved:
+            # Admin approved — only block truly dangerous ranges
+            if _is_always_blocked_ip(hostname):
                 raise SSRFError(f"URL targets blocked IP range: {hostname}")
+        else:
+            for blocked_range in BLOCKED_IP_RANGES:
+                if ip in blocked_range:
+                    raise SSRFError(f"URL targets blocked IP range: {hostname}")
         pinned_ip = hostname
     except ValueError:
         # Not an IP address, it's a hostname - resolve it
@@ -200,7 +251,12 @@ def validate_url_with_pinning(url: str) -> ValidatedURL:
             )
             for result in addr_info:
                 ip_str = result[4][0]
-                if _is_private_ip(ip_str):
+                if admin_approved:
+                    if _is_always_blocked_ip(ip_str):
+                        raise SSRFError(
+                            f"Hostname {hostname} resolves to blocked IP: {ip_str}"
+                        )
+                elif _is_private_ip(ip_str):
                     raise SSRFError(
                         f"Hostname {hostname} resolves to blocked IP: {ip_str}"
                     )
@@ -221,12 +277,14 @@ def validate_url_with_pinning(url: str) -> ValidatedURL:
     )
 
 
-def _prepare_pinned_request(url: str, kwargs: dict) -> tuple[str, dict]:
+def _prepare_pinned_request(
+    url: str, kwargs: dict, *, admin_approved: bool = False
+) -> tuple[str, dict]:
     """Validate URL and prepare request with IP pinning.
 
     Returns the pinned URL and updated kwargs with Host header and SNI hostname.
     """
-    validated = validate_url_with_pinning(str(url))
+    validated = validate_url_with_pinning(str(url), admin_approved=admin_approved)
     pinned_url = validated.get_pinned_url()
 
     # Set Host header to original hostname
@@ -246,6 +304,53 @@ def _prepare_pinned_request(url: str, kwargs: dict) -> tuple[str, dict]:
         kwargs["extensions"] = extensions
 
     return pinned_url, kwargs
+
+
+def _validate_hostname_only(
+    url: str, kwargs: dict, *, admin_approved: bool = False
+) -> tuple[str, dict]:
+    """Validate URL hostname without IP pinning (proxy mode).
+
+    In proxy mode, squid handles DNS resolution and private IP blocking.
+    We still check for blocked hostnames and literal private IP addresses
+    in the URL, but skip DNS resolution and IP pinning since that would
+    break TLS via CONNECT tunnels (the proxy sees an IP instead of a
+    hostname, and TLS SNI fails).
+
+    When *admin_approved* is True, RFC 1918 private IPs are allowed (the
+    admin approved this host via the network-access-request flow).
+    Loopback / link-local / metadata IPs are still blocked.
+    """
+    if not url:
+        raise SSRFError("URL cannot be empty")
+
+    try:
+        parsed = urlparse(str(url))
+    except Exception as e:
+        raise SSRFError(f"Invalid URL format: {e}")
+
+    if parsed.scheme not in ("http", "https"):
+        raise SSRFError(f"Invalid scheme: {parsed.scheme}. Only http/https allowed.")
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise SSRFError("URL must have a hostname")
+
+    hostname_lower = hostname.lower()
+    if hostname_lower in BLOCKED_HOSTNAMES:
+        raise SSRFError(f"Blocked hostname: {hostname}")
+
+    # If the hostname is a literal IP, still validate it client-side
+    try:
+        if admin_approved:
+            if _is_always_blocked_ip(hostname):
+                raise SSRFError(f"URL targets blocked IP range: {hostname}")
+        elif _is_private_ip(hostname):
+            raise SSRFError(f"URL targets blocked IP range: {hostname}")
+    except ValueError:
+        pass  # Not a literal IP; DNS resolution delegated to proxy
+
+    return str(url), kwargs
 
 
 class SSRFProtectedHttpx:
@@ -309,7 +414,10 @@ class SSRFProtectedHttpx:
 class SSRFProtectedAsyncHttpClient:
     """Wrapper around httpx.AsyncClient that validates URLs before requests.
 
-    Uses IP pinning to prevent DNS rebinding attacks.
+    In direct mode (no proxy): uses IP pinning to prevent DNS rebinding.
+    In proxy mode (HTTPS_PROXY set): validates hostnames only; IP pinning
+    and private IP blocking are handled by the squid proxy.
+
     Uses __slots__ to prevent sandbox code from accessing the underlying
     client via attribute access (e.g., http._client).
 
@@ -318,12 +426,13 @@ class SSRFProtectedAsyncHttpClient:
     standard SSRF blocklist checks).
     """
 
-    __slots__ = ("__wrapped_client", "__allowed_hosts")
+    __slots__ = ("__wrapped_client", "__allowed_hosts", "__proxy_mode")
 
     def __init__(
         self,
         client: httpx.AsyncClient,
         allowed_hosts: set[str] | None = None,
+        proxy_mode: bool | None = None,
     ):
         # Use object.__setattr__ to bypass our __setattr__ guard
         object.__setattr__(
@@ -333,6 +442,12 @@ class SSRFProtectedAsyncHttpClient:
         # Empty set means explicitly no hosts allowed.
         object.__setattr__(
             self, "_SSRFProtectedAsyncHttpClient__allowed_hosts", allowed_hosts
+        )
+        # Auto-detect from environment if not explicitly set
+        object.__setattr__(
+            self,
+            "_SSRFProtectedAsyncHttpClient__proxy_mode",
+            proxy_mode if proxy_mode is not None else _PROXY_MODE,
         )
 
     def __getattr__(self, name: str):
@@ -345,9 +460,16 @@ class SSRFProtectedAsyncHttpClient:
         raise AttributeError("Cannot set attributes on the HTTP client")
 
     def _prepare_request(self, url: str, kwargs: dict) -> tuple[str, dict]:
-        """Validate URL and prepare request with IP pinning.
+        """Validate URL and prepare request.
 
+        In direct mode: full IP pinning with DNS resolution.
+        In proxy mode: hostname-only validation (proxy handles DNS/IP checks).
         Also enforces the per-server network allowlist if configured.
+
+        When a host passes the ``allowed_hosts`` check (admin approved it via
+        the network-access-request flow), ``admin_approved=True`` is forwarded
+        to the SSRF validation functions so that RFC 1918 private IPs are
+        permitted while loopback / link-local / metadata remain blocked.
         """
         # Force-disable redirects to prevent redirect-based SSRF bypass.
         # The underlying client may have been configured with follow_redirects=True;
@@ -356,6 +478,8 @@ class SSRFProtectedAsyncHttpClient:
 
         # Enforce network allowlist before SSRF validation.
         # If allowed_hosts is set (even if empty), only those hosts are permitted.
+        # A host that passes this check was explicitly approved by an admin.
+        admin_approved = False
         if self.__allowed_hosts is not None:
             parsed = urlparse(str(url))
             hostname = (parsed.hostname or "").lower()
@@ -364,8 +488,11 @@ class SSRFProtectedAsyncHttpClient:
                     f"Network access to '{hostname}' is not approved for this server. "
                     f"Use mcpbox_request_network_access to request access."
                 )
+            admin_approved = True
 
-        return _prepare_pinned_request(url, kwargs)
+        if self.__proxy_mode:
+            return _validate_hostname_only(url, kwargs, admin_approved=admin_approved)
+        return _prepare_pinned_request(url, kwargs, admin_approved=admin_approved)
 
     async def get(self, url, **kwargs):
         pinned_url, kwargs = self._prepare_request(url, kwargs)

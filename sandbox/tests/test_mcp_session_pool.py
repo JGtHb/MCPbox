@@ -49,10 +49,14 @@ class TestTransientErrorClassification:
         assert _is_transient_error(MCPClientError("HTTP 502: Bad Gateway")) is True
 
     def test_503_is_transient(self):
-        assert _is_transient_error(MCPClientError("HTTP 503: Service Unavailable")) is True
+        assert (
+            _is_transient_error(MCPClientError("HTTP 503: Service Unavailable")) is True
+        )
 
     def test_429_is_transient(self):
-        assert _is_transient_error(MCPClientError("HTTP 429: Too Many Requests")) is True
+        assert (
+            _is_transient_error(MCPClientError("HTTP 429: Too Many Requests")) is True
+        )
 
     def test_401_is_not_transient(self):
         assert _is_transient_error(MCPClientError("HTTP 401: Unauthorized")) is False
@@ -174,9 +178,7 @@ class TestMCPSessionPool:
             MockClient.return_value = mock_client
 
             with patch("app.mcp_session_pool.asyncio.sleep", new_callable=AsyncMock):
-                result = await pool.call_tool(
-                    "https://example.com/mcp", "my_tool", {}
-                )
+                result = await pool.call_tool("https://example.com/mcp", "my_tool", {})
 
             assert result["success"] is True
             assert call_count == 2  # First attempt failed, second succeeded
@@ -198,9 +200,7 @@ class TestMCPSessionPool:
             )
             MockClient.return_value = mock_client
 
-            result = await pool.call_tool(
-                "https://example.com/mcp", "my_tool", {}
-            )
+            result = await pool.call_tool("https://example.com/mcp", "my_tool", {})
 
             assert result["success"] is False
             assert "401" in result["error"]
@@ -224,9 +224,7 @@ class TestMCPSessionPool:
             )
             MockClient.return_value = mock_client
 
-            result = await pool.call_tool(
-                "https://example.com/mcp", "my_tool", {}
-            )
+            result = await pool.call_tool("https://example.com/mcp", "my_tool", {})
 
             assert result["success"] is False
             assert "CF challenge" in result["error"]
@@ -250,9 +248,7 @@ class TestMCPSessionPool:
             MockClient.return_value = mock_client
 
             with patch("app.mcp_session_pool.asyncio.sleep", new_callable=AsyncMock):
-                result = await pool.call_tool(
-                    "https://example.com/mcp", "my_tool", {}
-                )
+                result = await pool.call_tool("https://example.com/mcp", "my_tool", {})
 
             assert result["success"] is False
             assert "timed out" in result["error"]
