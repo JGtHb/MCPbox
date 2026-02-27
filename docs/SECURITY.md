@@ -42,6 +42,7 @@ MCPbox executes LLM-generated Python code in a sandboxed environment. Security i
 - Five isolated Docker networks segment traffic between services
 - Sandbox has no direct internet access — all outbound traffic is forced through the squid proxy via Docker network isolation (`mcpbox-sandbox-proxy` is internal-only; sandbox is not on the external network)
 - Squid proxy blocks private/internal IPs (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 169.254.0.0/16, etc.) and only allows HTTPS CONNECT on port 443
+- **Allowed private ranges**: Operators can set `MCPBOX_ALLOWED_PRIVATE_RANGES` (comma-separated IP/CIDR, optionally with `:PORT`) to let sandbox tools reach specific LAN hosts (e.g., NAS, Home Assistant). Both the SSRF client and squid proxy honour this setting. Loopback, link-local, and metadata ranges are always rejected for safety.
 - Per-server domain enforcement handled at the application layer (SSRF client) — squid provides network-level isolation that survives Python sandbox escapes
 - Sandbox has no direct database access
 - MCP Gateway runs as a separate process with its own middleware stack

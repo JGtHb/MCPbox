@@ -185,6 +185,11 @@ services:
       - HTTP_PROXY=http://squid-proxy:3128
       # Exclude internal service communication from proxy
       - NO_PROXY=backend,localhost,127.0.0.1
+      # OPTIONAL: Allow sandbox to reach specific private/LAN IPs.
+      # Both the SSRF client and squid proxy honour this setting.
+      # Format: comma-separated IP or CIDR, optionally with :PORT.
+      # Example: 192.168.1.50,10.0.1.0/24:8080
+      - MCPBOX_ALLOWED_PRIVATE_RANGES=${MCPBOX_ALLOWED_PRIVATE_RANGES:-}
     cap_drop:
       - ALL
     security_opt:
@@ -228,6 +233,9 @@ services:
     build:
       context: ./squid-proxy
       dockerfile: Dockerfile
+    environment:
+      # Passed through to entrypoint.sh for ACL generation
+      - MCPBOX_ALLOWED_PRIVATE_RANGES=${MCPBOX_ALLOWED_PRIVATE_RANGES:-}
     cap_drop:
       - ALL
     security_opt:
@@ -237,6 +245,7 @@ services:
       - /var/spool/squid:size=16M
       - /var/log/squid:size=8M
       - /var/run/squid:size=1M
+      - /tmp:size=1M
     networks:
       - mcpbox-sandbox-proxy     # Receives sandbox traffic
       - mcpbox-sandbox-external  # Outbound to internet

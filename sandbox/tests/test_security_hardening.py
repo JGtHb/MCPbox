@@ -274,6 +274,89 @@ class TestProxyMode:
 
 
 # =============================================================================
+# Allowed Private Ranges + Proxy/Direct Mode Tests
+# =============================================================================
+
+
+class TestAllowedPrivateRangesMode:
+    """Tests for MCPBOX_ALLOWED_PRIVATE_RANGES with SSRFProtectedAsyncHttpClient."""
+
+    def _make_client(self, allowed_hosts=None, proxy_mode=None):
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        return SSRFProtectedAsyncHttpClient(
+            mock_client, allowed_hosts=allowed_hosts, proxy_mode=proxy_mode
+        )
+
+    def test_proxy_mode_allows_approved_private_ip(self):
+        """Proxy mode allows admin-approved private IP."""
+        from app.ssrf import _parse_allowed_private_ranges
+
+        ranges = _parse_allowed_private_ranges("192.168.1.50")
+        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges):
+            client = self._make_client(proxy_mode=True)
+            url, _ = client._prepare_request("http://192.168.1.50:8080/api", {})
+            assert url == "http://192.168.1.50:8080/api"
+
+    def test_proxy_mode_still_blocks_unapproved_private_ip(self):
+        """Proxy mode blocks private IPs not in approved ranges."""
+        from app.ssrf import _parse_allowed_private_ranges
+
+        ranges = _parse_allowed_private_ranges("192.168.1.50")
+        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges):
+            client = self._make_client(proxy_mode=True)
+            with pytest.raises(SSRFError, match="blocked IP range"):
+                client._prepare_request("http://10.0.0.1/api", {})
+
+    def test_proxy_mode_port_restriction(self):
+        """Proxy mode enforces port restriction from allowed ranges."""
+        from app.ssrf import _parse_allowed_private_ranges
+
+        ranges = _parse_allowed_private_ranges("192.168.1.50:8080")
+        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges):
+            client = self._make_client(proxy_mode=True)
+            # Matching port passes
+            url, _ = client._prepare_request("http://192.168.1.50:8080/api", {})
+            assert "192.168.1.50" in url
+            # Mismatched port blocked
+            with pytest.raises(SSRFError, match="blocked IP range"):
+                client._prepare_request("https://192.168.1.50/api", {})
+
+    def test_allowlist_plus_allowed_private(self):
+        """Per-server allowlist + allowed private ranges both required."""
+        from app.ssrf import _parse_allowed_private_ranges
+
+        ranges = _parse_allowed_private_ranges("192.168.1.50")
+        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges):
+            # Server allowlist includes the IP — should pass
+            client = self._make_client(allowed_hosts={"192.168.1.50"}, proxy_mode=True)
+            url, _ = client._prepare_request("http://192.168.1.50:8080/api", {})
+            assert "192.168.1.50" in url
+
+    def test_allowlist_blocks_even_with_allowed_private(self):
+        """Per-server allowlist blocks IP not in its list, even if admin-approved."""
+        from app.ssrf import _parse_allowed_private_ranges
+
+        ranges = _parse_allowed_private_ranges("192.168.1.50")
+        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges):
+            # Server only allows api.example.com, not the private IP
+            client = self._make_client(
+                allowed_hosts={"api.example.com"}, proxy_mode=True
+            )
+            with pytest.raises(SSRFError, match="not approved"):
+                client._prepare_request("http://192.168.1.50:8080/api", {})
+
+    def test_localhost_always_blocked_with_allowed_private(self):
+        """Localhost is always blocked regardless of allowed ranges."""
+        from app.ssrf import _parse_allowed_private_ranges
+
+        ranges = _parse_allowed_private_ranges("192.168.1.0/24")
+        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges):
+            client = self._make_client(proxy_mode=True)
+            with pytest.raises(SSRFError, match="Blocked hostname"):
+                client._prepare_request("http://localhost/api", {})
+
+
+# =============================================================================
 # Registry Allowed Hosts Tests
 # =============================================================================
 

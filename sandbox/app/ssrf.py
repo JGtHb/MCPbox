@@ -27,6 +27,97 @@ import httpx
 # delegated to the proxy (squid blocks private IPs via dst ACLs).
 _PROXY_MODE = bool(os.environ.get("HTTPS_PROXY"))
 
+
+# --- Admin-approved private ranges ---
+# Operators can set MCPBOX_ALLOWED_PRIVATE_RANGES to allow sandbox tools
+# to access specific LAN hosts (e.g., NAS, Home Assistant).
+# Format: comma-separated "IP_OR_CIDR" or "IP_OR_CIDR:PORT" entries.
+# Example: MCPBOX_ALLOWED_PRIVATE_RANGES=192.168.1.50,10.0.1.0/24:8080
+# Loopback (127/8), link-local (169.254/16), and "this network" (0/8)
+# ranges are always rejected for safety.
+
+_NEVER_ALLOW_NETWORKS = [
+    ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("::/128"),
+    ipaddress.ip_network("fe80::/10"),
+    ipaddress.ip_network("ff00::/8"),
+]
+
+
+def _parse_allowed_private_ranges(
+    raw: str,
+) -> list[tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, int | None]]:
+    """Parse ``MCPBOX_ALLOWED_PRIVATE_RANGES`` into (network, port) tuples.
+
+    Each comma-separated entry is either ``IP_OR_CIDR`` (any port) or
+    ``IP_OR_CIDR:PORT`` (specific port only).  Entries overlapping loopback,
+    link-local, or metadata ranges are silently rejected.
+    """
+    result: list[tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, int | None]] = []
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+
+        port: int | None = None
+
+        # Detect optional port suffix (last ":" followed by digits).
+        last_colon = entry.rfind(":")
+        if last_colon > 0:
+            suffix = entry[last_colon + 1 :]
+            prefix = entry[:last_colon]
+            if suffix.isdigit():
+                try:
+                    network = ipaddress.ip_network(prefix, strict=False)
+                    port = int(suffix)
+                except ValueError:
+                    # Prefix isn't a valid network — try full entry below.
+                    port = None
+                else:
+                    if any(network.overlaps(n) for n in _NEVER_ALLOW_NETWORKS):
+                        continue
+                    result.append((network, port))
+                    continue
+
+        # Parse as a plain network (no port).
+        try:
+            network = ipaddress.ip_network(entry, strict=False)
+        except ValueError:
+            continue
+        if any(network.overlaps(n) for n in _NEVER_ALLOW_NETWORKS):
+            continue
+        result.append((network, None))
+
+    return result
+
+
+_ALLOWED_PRIVATE_RANGES: list[
+    tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, int | None]
+] = _parse_allowed_private_ranges(os.environ.get("MCPBOX_ALLOWED_PRIVATE_RANGES", ""))
+
+
+def _is_allowed_private(ip_str: str, port: int | None = None) -> bool:
+    """Check if *ip_str* falls in an admin-approved private range.
+
+    When a range carries a port restriction, *port* must also match.
+    Returns ``False`` when no ranges are configured.
+    """
+    if not _ALLOWED_PRIVATE_RANGES:
+        return False
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    for network, allowed_port in _ALLOWED_PRIVATE_RANGES:
+        if ip in network:
+            if allowed_port is None or allowed_port == port:
+                return True
+    return False
+
+
 # Blocked IP ranges (private, loopback, link-local, metadata endpoints)
 BLOCKED_IP_RANGES = [
     ipaddress.ip_network("0.0.0.0/8"),  # "This network" RFC 1122 (F-05)
@@ -200,6 +291,8 @@ def validate_url_with_pinning(url: str) -> ValidatedURL:
         ip = ipaddress.ip_address(hostname)
         for blocked_range in BLOCKED_IP_RANGES:
             if ip in blocked_range:
+                if _is_allowed_private(hostname, port):
+                    break  # Admin-approved private range
                 raise SSRFError(f"URL targets blocked IP range: {hostname}")
         pinned_ip = hostname
     except ValueError:
@@ -210,7 +303,7 @@ def validate_url_with_pinning(url: str) -> ValidatedURL:
             )
             for result in addr_info:
                 ip_str = result[4][0]
-                if _is_private_ip(ip_str):
+                if _is_private_ip(ip_str) and not _is_allowed_private(ip_str, port):
                     raise SSRFError(
                         f"Hostname {hostname} resolves to blocked IP: {ip_str}"
                     )
@@ -289,7 +382,11 @@ def _validate_hostname_only(url: str, kwargs: dict) -> tuple[str, dict]:
     # If the hostname is a literal IP, still validate it client-side
     try:
         if _is_private_ip(hostname):
-            raise SSRFError(f"URL targets blocked IP range: {hostname}")
+            effective_port = parsed.port
+            if effective_port is None:
+                effective_port = 443 if parsed.scheme == "https" else 80
+            if not _is_allowed_private(hostname, effective_port):
+                raise SSRFError(f"URL targets blocked IP range: {hostname}")
     except ValueError:
         pass  # Not a literal IP; DNS resolution delegated to proxy
 
