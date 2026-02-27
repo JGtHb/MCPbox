@@ -662,12 +662,19 @@ class CloudflareService:
                 # `npm install` works on read-only root filesystems where
                 # the default ~/.npm is not writable.
                 npm_cache_dir = os.path.join(tmpdir, ".npm-cache")
+                wrangler_config_dir = os.path.join(tmpdir, ".config")
+                os.makedirs(wrangler_config_dir, exist_ok=True)
                 env = {
                     "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
                     "HOME": os.environ.get("HOME", "/root"),
                     "CLOUDFLARE_API_TOKEN": api_token,
                     "CLOUDFLARE_ACCOUNT_ID": config.account_id,
                     "npm_config_cache": npm_cache_dir,
+                    # Redirect wrangler's config/log directory into the tmpdir
+                    # so it doesn't try to create $HOME/.config which may not
+                    # exist in the container (the mcpbox user has /home/mcpbox
+                    # but .config is not pre-created).
+                    "XDG_CONFIG_HOME": wrangler_config_dir,
                 }
 
                 # Create OAUTH_KV namespace if not yet created (via wrangler CLI,
