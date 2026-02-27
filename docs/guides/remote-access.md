@@ -31,11 +31,12 @@ No inbound ports are opened on your network. The tunnel makes an outbound connec
 
 - A [Cloudflare account](https://dash.cloudflare.com/sign-up) (free tier works)
 - A Cloudflare API token with these permissions:
-  - Account > Cloudflare Tunnel > Edit
-  - Account > Workers Scripts > Edit
-  - Account > Workers KV Storage > Edit
   - Account > Access: Apps and Policies > Edit
   - Account > Access: Organizations, Identity Providers, and Groups > Read
+  - Account > Cloudflare Tunnel > Edit
+  - Account > Connectivity Directory > Admin
+  - Account > Workers Scripts > Edit
+  - Account > Workers KV Storage > Edit
 
 ## Using the Setup Wizard
 

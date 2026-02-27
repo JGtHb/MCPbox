@@ -34,7 +34,6 @@ from app.schemas.cloudflare import (
     UpdateWorkerConfigRequest,
     UpdateWorkerConfigResponse,
     WizardStatusResponse,
-    Zone,
 )
 from app.services.cloudflare import CloudflareAPIError, CloudflareService, ResourceConflictError
 
@@ -82,10 +81,12 @@ async def start_with_api_token(
     retrieves account information, and creates a configuration.
 
     Required token permissions:
-    - Account > Cloudflare Tunnel > Edit
     - Account > Access: Apps and Policies > Edit
+    - Account > Access: Organizations, Identity Providers, and Groups > Read
+    - Account > Cloudflare Tunnel > Edit
+    - Account > Connectivity Directory > Admin
     - Account > Workers Scripts > Edit
-    - Zone > Zone > Read (for all zones)
+    - Account > Workers KV Storage > Edit
     """
     try:
         result = await service.start_with_api_token(request.api_token)
@@ -430,20 +431,3 @@ async def get_worker_config(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from None
-
-
-# =============================================================================
-# Get Zones
-# =============================================================================
-
-
-@router.get("/zones/{config_id}")
-async def get_zones(
-    config_id: UUID,
-    service: CloudflareService = Depends(get_cloudflare_service),
-) -> list[Zone]:
-    """Get available zones (domains) for the account.
-
-    Returns zones that can be used for the Worker hostname.
-    """
-    return await service.get_zones(config_id)

@@ -141,6 +141,7 @@ All endpoints require an API token with the following permissions:
 | `Access: Apps and Policies` | Edit | Create Access for SaaS OIDC application |
 | `Access: Organizations, Identity Providers, and Groups` | Read | Get team domain for OIDC URLs |
 | `Cloudflare Tunnel` | Edit | Create and manage tunnels |
+| `Connectivity Directory` | Admin | Create VPC service binding tunnel to gateway |
 | `Workers Scripts` | Edit | Deploy Worker |
 | `Workers KV Storage` | Edit | Create KV namespace for OAuth token storage |
 
@@ -228,9 +229,10 @@ JWKS URL:     https://{auth_domain}/cdn-cgi/access/certs
 |   Required permissions:                     |
 |   - Access: Apps and Policies (Edit)       |
 |   - Access: Organizations (Read)           |
+|   - Cloudflare Tunnel (Edit)               |
+|   - Connectivity Directory (Admin)         |
 |   - Workers Scripts (Edit)                  |
 |   - Workers KV Storage (Edit)              |
-|   - Cloudflare Tunnel (Edit)               |
 |   [Verify Token] +                          |
 +---------------------------------------------+
 | Step 2: Create Tunnel                       |
@@ -390,11 +392,12 @@ Before implementing the wizard, verify the API flow works:
 Go to Cloudflare Dashboard -> My Profile -> API Tokens -> Create Token
 
 Required permissions:
-- Account -> Cloudflare Tunnel -> Edit
-- Account -> Workers Scripts -> Edit
-- Account -> Workers KV Storage -> Edit
 - Account -> Access: Apps and Policies -> Edit
 - Account -> Access: Organizations, Identity Providers, and Groups -> Read
+- Account -> Cloudflare Tunnel -> Edit
+- Account -> Connectivity Directory -> Admin
+- Account -> Workers Scripts -> Edit
+- Account -> Workers KV Storage -> Edit
 
 ### 2. Test API Endpoints
 
