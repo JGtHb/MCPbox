@@ -46,7 +46,6 @@ docker-compose up -d
 |----------|---------|-------------|
 | `DATABASE_URL` | (from compose) | PostgreSQL connection string |
 | `CORS_ORIGINS` | `http://localhost:3000` | Admin CORS origins (only needed for direct backend access) |
-| `MCPBOX_ALLOWED_PRIVATE_RANGES` | (none) | Comma-separated IP/CIDR[:PORT] entries for LAN access (e.g., `192.168.1.50,10.0.1.0/24:8080`). Both SSRF client and squid proxy honour this. Loopback/link-local always blocked. |
 | `LOG_RETENTION_DAYS` | `30` | Days to keep activity logs |
 | `RATE_LIMIT_REQUESTS_PER_MINUTE` | `100` | API rate limit |
 | `ENABLE_METRICS` | `true` | Enable Prometheus `/metrics` endpoint |

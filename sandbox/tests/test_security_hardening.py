@@ -110,17 +110,16 @@ class TestNetworkAllowlist:
         pinned_url, kwargs = client._prepare_request("https://api2.example.com/api", {})
         assert pinned_url is not None
 
-    def test_allowlist_still_blocks_private_ips(self):
-        """Even with allowlist, private IPs are blocked by SSRF validation.
+    def test_allowlist_allows_private_ips(self):
+        """Private IPs in allowed_hosts are permitted (admin-approved).
 
-        The allowlist check runs first (hostname check), then SSRF
-        validation runs (IP check). A private IP literal like 10.0.0.1
-        would fail SSRF validation even if somehow in the allowlist.
+        When a host is in allowed_hosts it means the admin explicitly
+        approved it, so private RFC 1918 IPs pass SSRF validation.
+        Loopback/metadata IPs are always blocked regardless.
         """
-        # This would pass the allowlist but fail SSRF
         client = self._make_client(allowed_hosts={"10.0.0.1"})
-        with pytest.raises(SSRFError):
-            client._prepare_request("http://10.0.0.1/internal", {})
+        url, _ = client._prepare_request("http://10.0.0.1/internal", {})
+        assert "10.0.0.1" in url
 
     def test_redirects_disabled_with_allowlist(self):
         """Redirects are always disabled regardless of allowlist."""
@@ -274,12 +273,12 @@ class TestProxyMode:
 
 
 # =============================================================================
-# Allowed Private Ranges + Proxy/Direct Mode Tests
+# Admin-Approved Private Access via allowed_hosts
 # =============================================================================
 
 
-class TestAllowedPrivateRangesMode:
-    """Tests for MCPBOX_ALLOWED_PRIVATE_RANGES with SSRFProtectedAsyncHttpClient."""
+class TestAdminApprovedMode:
+    """Tests for admin-approved private access via allowed_hosts + SSRFProtectedAsyncHttpClient."""
 
     def _make_client(self, allowed_hosts=None, proxy_mode=None):
         mock_client = AsyncMock(spec=httpx.AsyncClient)
@@ -287,73 +286,53 @@ class TestAllowedPrivateRangesMode:
             mock_client, allowed_hosts=allowed_hosts, proxy_mode=proxy_mode
         )
 
-    def test_proxy_mode_allows_approved_private_ip(self):
-        """Proxy mode allows admin-approved private IP."""
-        from app.ssrf import _parse_allowed_private_ranges
+    def test_proxy_mode_allows_private_ip_via_allowlist(self):
+        """When private IP is in allowed_hosts, proxy mode allows it."""
+        client = self._make_client(allowed_hosts={"192.168.1.50"}, proxy_mode=True)
+        url, _ = client._prepare_request("http://192.168.1.50:8080/api", {})
+        assert url == "http://192.168.1.50:8080/api"
 
-        ranges = _parse_allowed_private_ranges("192.168.1.50")
-        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges):
-            client = self._make_client(proxy_mode=True)
-            url, _ = client._prepare_request("http://192.168.1.50:8080/api", {})
-            assert url == "http://192.168.1.50:8080/api"
+    def test_proxy_mode_blocks_private_ip_not_in_allowlist(self):
+        """Private IP not in allowed_hosts is blocked in proxy mode."""
+        client = self._make_client(allowed_hosts={"api.example.com"}, proxy_mode=True)
+        with pytest.raises(SSRFError, match="not approved"):
+            client._prepare_request("http://192.168.1.50/api", {})
 
-    def test_proxy_mode_still_blocks_unapproved_private_ip(self):
-        """Proxy mode blocks private IPs not in approved ranges."""
-        from app.ssrf import _parse_allowed_private_ranges
+    def test_proxy_mode_blocks_private_ip_without_allowlist(self):
+        """Private IP blocked when no allowlist set (admin_approved=False)."""
+        client = self._make_client(proxy_mode=True)
+        with pytest.raises(SSRFError, match="blocked IP range"):
+            client._prepare_request("http://10.0.0.1/api", {})
 
-        ranges = _parse_allowed_private_ranges("192.168.1.50")
-        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges):
-            client = self._make_client(proxy_mode=True)
-            with pytest.raises(SSRFError, match="blocked IP range"):
-                client._prepare_request("http://10.0.0.1/api", {})
+    def test_proxy_mode_allows_10_x_via_allowlist(self):
+        """10.x.x.x private IP allowed when in allowed_hosts."""
+        client = self._make_client(allowed_hosts={"10.0.0.5"}, proxy_mode=True)
+        url, _ = client._prepare_request("http://10.0.0.5:9090/api", {})
+        assert "10.0.0.5" in url
 
-    def test_proxy_mode_port_restriction(self):
-        """Proxy mode enforces port restriction from allowed ranges."""
-        from app.ssrf import _parse_allowed_private_ranges
+    def test_allowlist_blocks_even_if_other_privates_approved(self):
+        """Per-server allowlist blocks IPs not in its list."""
+        client = self._make_client(allowed_hosts={"api.example.com"}, proxy_mode=True)
+        with pytest.raises(SSRFError, match="not approved"):
+            client._prepare_request("http://192.168.1.50:8080/api", {})
 
-        ranges = _parse_allowed_private_ranges("192.168.1.50:8080")
-        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges):
-            client = self._make_client(proxy_mode=True)
-            # Matching port passes
-            url, _ = client._prepare_request("http://192.168.1.50:8080/api", {})
-            assert "192.168.1.50" in url
-            # Mismatched port blocked
-            with pytest.raises(SSRFError, match="blocked IP range"):
-                client._prepare_request("https://192.168.1.50/api", {})
+    def test_localhost_always_blocked_even_in_allowlist(self):
+        """Localhost is always blocked even if in allowed_hosts."""
+        client = self._make_client(allowed_hosts={"localhost"}, proxy_mode=True)
+        with pytest.raises(SSRFError, match="Blocked hostname"):
+            client._prepare_request("http://localhost/api", {})
 
-    def test_allowlist_plus_allowed_private(self):
-        """Per-server allowlist + allowed private ranges both required."""
-        from app.ssrf import _parse_allowed_private_ranges
+    def test_metadata_always_blocked_even_in_allowlist(self):
+        """Cloud metadata IP is always blocked even if in allowed_hosts."""
+        client = self._make_client(allowed_hosts={"169.254.169.254"}, proxy_mode=True)
+        with pytest.raises(SSRFError, match="Blocked"):
+            client._prepare_request("http://169.254.169.254/latest/meta-data/", {})
 
-        ranges = _parse_allowed_private_ranges("192.168.1.50")
-        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges):
-            # Server allowlist includes the IP — should pass
-            client = self._make_client(allowed_hosts={"192.168.1.50"}, proxy_mode=True)
-            url, _ = client._prepare_request("http://192.168.1.50:8080/api", {})
-            assert "192.168.1.50" in url
-
-    def test_allowlist_blocks_even_with_allowed_private(self):
-        """Per-server allowlist blocks IP not in its list, even if admin-approved."""
-        from app.ssrf import _parse_allowed_private_ranges
-
-        ranges = _parse_allowed_private_ranges("192.168.1.50")
-        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges):
-            # Server only allows api.example.com, not the private IP
-            client = self._make_client(
-                allowed_hosts={"api.example.com"}, proxy_mode=True
-            )
-            with pytest.raises(SSRFError, match="not approved"):
-                client._prepare_request("http://192.168.1.50:8080/api", {})
-
-    def test_localhost_always_blocked_with_allowed_private(self):
-        """Localhost is always blocked regardless of allowed ranges."""
-        from app.ssrf import _parse_allowed_private_ranges
-
-        ranges = _parse_allowed_private_ranges("192.168.1.0/24")
-        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges):
-            client = self._make_client(proxy_mode=True)
-            with pytest.raises(SSRFError, match="Blocked hostname"):
-                client._prepare_request("http://localhost/api", {})
+    def test_loopback_always_blocked_even_in_allowlist(self):
+        """Loopback IP is always blocked even if in allowed_hosts."""
+        client = self._make_client(allowed_hosts={"127.0.0.1"}, proxy_mode=True)
+        with pytest.raises(SSRFError, match="Blocked"):
+            client._prepare_request("http://127.0.0.1/api", {})
 
 
 # =============================================================================

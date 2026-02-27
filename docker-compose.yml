@@ -185,11 +185,6 @@ services:
       - HTTP_PROXY=http://squid-proxy:3128
       # Exclude internal service communication from proxy
       - NO_PROXY=backend,localhost,127.0.0.1
-      # OPTIONAL: Allow sandbox to reach specific private/LAN IPs.
-      # Both the SSRF client and squid proxy honour this setting.
-      # Format: comma-separated IP or CIDR, optionally with :PORT.
-      # Example: 192.168.1.50,10.0.1.0/24:8080
-      - MCPBOX_ALLOWED_PRIVATE_RANGES=${MCPBOX_ALLOWED_PRIVATE_RANGES:-}
     cap_drop:
       - ALL
     security_opt:
@@ -199,6 +194,7 @@ services:
       - /tmp:size=64M
     volumes:
       - mcpbox-sandbox-packages:/app/site-packages
+      - mcpbox-squid-acl:/shared/squid-acl        # Approved private hosts → squid ACL helper
     depends_on:
       squid-proxy:
         condition: service_healthy
@@ -233,9 +229,6 @@ services:
     build:
       context: ./squid-proxy
       dockerfile: Dockerfile
-    environment:
-      # Passed through to entrypoint.sh for ACL generation
-      - MCPBOX_ALLOWED_PRIVATE_RANGES=${MCPBOX_ALLOWED_PRIVATE_RANGES:-}
     cap_drop:
       - ALL
     security_opt:
@@ -246,6 +239,8 @@ services:
       - /var/log/squid:size=8M
       - /var/run/squid:size=1M
       - /tmp:size=1M
+    volumes:
+      - mcpbox-squid-acl:/shared/squid-acl:ro   # Read approved private hosts from sandbox
     networks:
       - mcpbox-sandbox-proxy     # Receives sandbox traffic
       - mcpbox-sandbox-external  # Outbound to internet
@@ -380,4 +375,6 @@ volumes:
   mcpbox-postgres:
     driver: local
   mcpbox-sandbox-packages:
+    driver: local
+  mcpbox-squid-acl:
     driver: local

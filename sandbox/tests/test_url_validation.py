@@ -1,14 +1,12 @@
 """Unit tests for URL validation (SSRF prevention)."""
 
-import ipaddress
 from unittest.mock import patch
 
 import pytest
 
 from app.ssrf import (
     SSRFError,
-    _is_allowed_private,
-    _parse_allowed_private_ranges,
+    _is_always_blocked_ip,
     _validate_hostname_only,
     validate_url_with_pinning,
 )
@@ -328,269 +326,151 @@ class TestValidateHostnameOnly:
 
 
 # =============================================================================
-# Allowed Private Ranges — Parsing
+# _is_always_blocked_ip — Unit Tests
 # =============================================================================
 
 
-class TestParseAllowedPrivateRanges:
-    """Tests for _parse_allowed_private_ranges parser."""
+class TestIsAlwaysBlockedIp:
+    """Tests for _is_always_blocked_ip helper."""
 
-    def test_empty_string(self):
-        """Empty string yields no ranges."""
-        assert _parse_allowed_private_ranges("") == []
+    def test_loopback_blocked(self):
+        """127.x.x.x is always blocked."""
+        assert _is_always_blocked_ip("127.0.0.1") is True
+        assert _is_always_blocked_ip("127.255.255.255") is True
 
-    def test_single_ip(self):
-        """Single IP is parsed as /32 network, no port."""
-        result = _parse_allowed_private_ranges("192.168.1.50")
-        assert len(result) == 1
-        network, port = result[0]
-        assert network == ipaddress.ip_network("192.168.1.50/32")
-        assert port is None
+    def test_link_local_blocked(self):
+        """169.254.x.x (cloud metadata) is always blocked."""
+        assert _is_always_blocked_ip("169.254.169.254") is True
+        assert _is_always_blocked_ip("169.254.0.1") is True
 
-    def test_cidr_range(self):
-        """CIDR notation is parsed correctly."""
-        result = _parse_allowed_private_ranges("10.0.1.0/24")
-        assert len(result) == 1
-        network, port = result[0]
-        assert network == ipaddress.ip_network("10.0.1.0/24")
-        assert port is None
+    def test_this_network_blocked(self):
+        """0.0.0.0/8 is always blocked."""
+        assert _is_always_blocked_ip("0.0.0.0") is True
+        assert _is_always_blocked_ip("0.1.2.3") is True
 
-    def test_ip_with_port(self):
-        """IP:PORT is parsed with port restriction."""
-        result = _parse_allowed_private_ranges("192.168.1.50:8080")
-        assert len(result) == 1
-        network, port = result[0]
-        assert network == ipaddress.ip_network("192.168.1.50/32")
-        assert port == 8080
+    def test_ipv6_loopback_blocked(self):
+        """::1 is always blocked."""
+        assert _is_always_blocked_ip("::1") is True
 
-    def test_cidr_with_port(self):
-        """CIDR:PORT is parsed correctly."""
-        result = _parse_allowed_private_ranges("10.0.1.0/24:443")
-        assert len(result) == 1
-        network, port = result[0]
-        assert network == ipaddress.ip_network("10.0.1.0/24")
-        assert port == 443
+    def test_ipv6_link_local_blocked(self):
+        """fe80::/10 is always blocked."""
+        assert _is_always_blocked_ip("fe80::1") is True
 
-    def test_multiple_entries(self):
-        """Multiple comma-separated entries are all parsed."""
-        result = _parse_allowed_private_ranges(
-            "192.168.1.50, 10.0.0.0/8:443, 172.16.5.0/24"
-        )
-        assert len(result) == 3
+    def test_public_ip_not_blocked(self):
+        """Public IPs are not always-blocked."""
+        assert _is_always_blocked_ip("8.8.8.8") is False
+        assert _is_always_blocked_ip("93.184.216.34") is False
 
-    def test_whitespace_trimmed(self):
-        """Whitespace around entries is trimmed."""
-        result = _parse_allowed_private_ranges("  192.168.1.50  ,  10.0.0.1  ")
-        assert len(result) == 2
+    def test_private_ip_not_always_blocked(self):
+        """RFC 1918 private IPs are NOT in always-blocked (admin can approve)."""
+        assert _is_always_blocked_ip("192.168.1.50") is False
+        assert _is_always_blocked_ip("10.0.0.1") is False
+        assert _is_always_blocked_ip("172.16.0.1") is False
 
-    def test_empty_entries_skipped(self):
-        """Empty entries (from trailing commas) are skipped."""
-        result = _parse_allowed_private_ranges("192.168.1.50,,10.0.0.1,")
-        assert len(result) == 2
-
-    def test_invalid_entry_skipped(self):
-        """Invalid entries are silently skipped."""
-        result = _parse_allowed_private_ranges("not-an-ip,192.168.1.50")
-        assert len(result) == 1
-        assert result[0][0] == ipaddress.ip_network("192.168.1.50/32")
-
-    # --- Safety: never-allow ranges ---
-
-    def test_loopback_rejected(self):
-        """127.0.0.0/8 range is rejected."""
-        assert _parse_allowed_private_ranges("127.0.0.1") == []
-
-    def test_loopback_cidr_rejected(self):
-        """Loopback CIDR is rejected."""
-        assert _parse_allowed_private_ranges("127.0.0.0/8") == []
-
-    def test_link_local_rejected(self):
-        """Link-local / cloud metadata range is rejected."""
-        assert _parse_allowed_private_ranges("169.254.169.254") == []
-
-    def test_link_local_cidr_rejected(self):
-        """Link-local CIDR is rejected."""
-        assert _parse_allowed_private_ranges("169.254.0.0/16") == []
-
-    def test_this_network_rejected(self):
-        """0.0.0.0/8 is rejected."""
-        assert _parse_allowed_private_ranges("0.0.0.1") == []
-
-    def test_ipv6_loopback_rejected(self):
-        """IPv6 loopback is rejected."""
-        assert _parse_allowed_private_ranges("::1") == []
-
-    def test_mixed_valid_and_rejected(self):
-        """Valid entries pass while unsafe ones are dropped."""
-        result = _parse_allowed_private_ranges("192.168.1.50,127.0.0.1,10.0.0.1")
-        assert len(result) == 2
-        networks = {str(n) for n, _ in result}
-        assert "192.168.1.50/32" in networks
-        assert "10.0.0.1/32" in networks
-
-
-# =============================================================================
-# Allowed Private Ranges — _is_allowed_private
-# =============================================================================
-
-
-class TestIsAllowedPrivate:
-    """Tests for _is_allowed_private helper."""
-
-    def _make_ranges(self, raw):
-        """Parse and patch _ALLOWED_PRIVATE_RANGES for testing."""
-        return _parse_allowed_private_ranges(raw)
-
-    def test_ip_in_range_allowed(self):
-        """IP in an allowed range returns True."""
-        ranges = self._make_ranges("192.168.1.0/24")
-        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges):
-            assert _is_allowed_private("192.168.1.50") is True
-
-    def test_ip_not_in_range_denied(self):
-        """IP outside allowed ranges returns False."""
-        ranges = self._make_ranges("192.168.1.0/24")
-        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges):
-            assert _is_allowed_private("10.0.0.1") is False
-
-    def test_port_restriction_matching(self):
-        """Matching port passes when range has port restriction."""
-        ranges = self._make_ranges("192.168.1.50:8080")
-        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges):
-            assert _is_allowed_private("192.168.1.50", 8080) is True
-
-    def test_port_restriction_mismatched(self):
-        """Non-matching port fails when range has port restriction."""
-        ranges = self._make_ranges("192.168.1.50:8080")
-        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges):
-            assert _is_allowed_private("192.168.1.50", 443) is False
-
-    def test_no_port_restriction_any_port(self):
-        """No port restriction allows any port."""
-        ranges = self._make_ranges("192.168.1.50")
-        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges):
-            assert _is_allowed_private("192.168.1.50", 8080) is True
-            assert _is_allowed_private("192.168.1.50", 443) is True
-            assert _is_allowed_private("192.168.1.50") is True
-
-    def test_empty_ranges_always_false(self):
-        """No configured ranges always returns False."""
-        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", []):
-            assert _is_allowed_private("192.168.1.50") is False
-
-    def test_invalid_ip_returns_false(self):
+    def test_invalid_string_returns_false(self):
         """Non-IP string returns False."""
-        ranges = self._make_ranges("192.168.1.0/24")
-        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges):
-            assert _is_allowed_private("not-an-ip") is False
+        assert _is_always_blocked_ip("not-an-ip") is False
+        assert _is_always_blocked_ip("example.com") is False
 
 
 # =============================================================================
-# Allowed Private Ranges — Integration with Validation Functions
+# Admin-Approved Private Access — Integration with Validation Functions
 # =============================================================================
 
 
-class TestAllowedPrivateIntegration:
-    """Tests for allowed private ranges in validate_url_with_pinning and
+class TestAdminApprovedIntegration:
+    """Tests for admin_approved parameter in validate_url_with_pinning and
     _validate_hostname_only.
     """
 
-    # --- _validate_hostname_only (proxy mode) ---
+    # --- _validate_hostname_only (proxy mode) with admin_approved ---
 
-    def test_proxy_mode_allows_approved_private_ip(self):
-        """Approved private IP passes in proxy mode."""
-        ranges = _parse_allowed_private_ranges("192.168.1.50")
-        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges):
-            url, _ = _validate_hostname_only("http://192.168.1.50:8080/api", {})
-            assert url == "http://192.168.1.50:8080/api"
+    def test_proxy_mode_allows_private_ip_when_admin_approved(self):
+        """admin_approved=True allows private IP in proxy mode."""
+        url, _ = _validate_hostname_only(
+            "http://192.168.1.50:8080/api", {}, admin_approved=True
+        )
+        assert url == "http://192.168.1.50:8080/api"
 
-    def test_proxy_mode_blocks_unapproved_private_ip(self):
-        """Non-approved private IP is still blocked in proxy mode."""
-        ranges = _parse_allowed_private_ranges("192.168.1.50")
-        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges):
-            with pytest.raises(SSRFError, match="blocked IP range"):
-                _validate_hostname_only("http://10.0.0.1/api", {})
+    def test_proxy_mode_blocks_private_ip_without_approval(self):
+        """admin_approved=False (default) blocks private IP in proxy mode."""
+        with pytest.raises(SSRFError, match="blocked IP range"):
+            _validate_hostname_only("http://192.168.1.50/api", {})
 
-    def test_proxy_mode_port_restriction_enforced(self):
-        """Port restriction blocks mismatched port in proxy mode."""
-        ranges = _parse_allowed_private_ranges("192.168.1.50:8080")
-        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges):
-            # Port 8080 should pass
-            url, _ = _validate_hostname_only("http://192.168.1.50:8080/api", {})
-            assert "192.168.1.50" in url
+    def test_proxy_mode_localhost_blocked_even_when_approved(self):
+        """Localhost is always blocked even with admin_approved=True."""
+        with pytest.raises(SSRFError, match="Blocked hostname"):
+            _validate_hostname_only("http://localhost/api", {}, admin_approved=True)
 
-            # Port 443 (default HTTPS) should be blocked
-            with pytest.raises(SSRFError, match="blocked IP range"):
-                _validate_hostname_only("https://192.168.1.50/api", {})
+    def test_proxy_mode_metadata_blocked_even_when_approved(self):
+        """Cloud metadata endpoints are always blocked."""
+        with pytest.raises(SSRFError, match="Blocked"):
+            _validate_hostname_only(
+                "http://169.254.169.254/latest/meta-data/", {}, admin_approved=True
+            )
 
-    def test_proxy_mode_localhost_still_blocked(self):
-        """Localhost is always blocked even with allowed private ranges."""
-        ranges = _parse_allowed_private_ranges("192.168.1.0/24")
-        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges):
-            with pytest.raises(SSRFError, match="Blocked hostname"):
-                _validate_hostname_only("http://localhost/api", {})
+    def test_proxy_mode_loopback_blocked_even_when_approved(self):
+        """Loopback is always blocked even with admin_approved=True."""
+        with pytest.raises(SSRFError, match="Blocked"):
+            _validate_hostname_only("http://127.0.0.1/api", {}, admin_approved=True)
 
-    def test_proxy_mode_metadata_still_blocked(self):
-        """Metadata endpoints are always blocked (169.254/16 rejected by parser)."""
-        ranges = _parse_allowed_private_ranges("169.254.169.254")
-        assert len(ranges) == 0  # Parser rejects link-local
-        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges):
-            with pytest.raises(SSRFError, match="Blocked"):
-                _validate_hostname_only("http://169.254.169.254/latest/meta-data/", {})
+    def test_proxy_mode_10_x_allowed_when_approved(self):
+        """10.x.x.x private IP allowed with admin approval."""
+        url, _ = _validate_hostname_only(
+            "http://10.0.0.5:9090/api", {}, admin_approved=True
+        )
+        assert url == "http://10.0.0.5:9090/api"
 
-    # --- validate_url_with_pinning (direct mode) ---
+    # --- validate_url_with_pinning (direct mode) with admin_approved ---
 
-    def test_direct_mode_allows_approved_private_literal_ip(self):
-        """Approved private IP literal passes in direct mode."""
-        ranges = _parse_allowed_private_ranges("192.168.1.50")
-        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges):
-            result = validate_url_with_pinning("http://192.168.1.50:8080/api")
-            assert result.pinned_ip == "192.168.1.50"
-            assert result.port == 8080
+    def test_direct_mode_allows_private_literal_when_approved(self):
+        """admin_approved=True allows private IP literal in direct mode."""
+        result = validate_url_with_pinning(
+            "http://192.168.1.50:8080/api", admin_approved=True
+        )
+        assert result.pinned_ip == "192.168.1.50"
+        assert result.port == 8080
 
-    def test_direct_mode_blocks_unapproved_private_literal_ip(self):
-        """Non-approved private IP literal is blocked in direct mode."""
-        ranges = _parse_allowed_private_ranges("192.168.1.50")
-        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges):
-            with pytest.raises(SSRFError, match="blocked IP range"):
-                validate_url_with_pinning("http://10.0.0.1/api")
+    def test_direct_mode_blocks_private_literal_without_approval(self):
+        """Private IP literal is blocked without admin approval."""
+        with pytest.raises(SSRFError, match="blocked IP range"):
+            validate_url_with_pinning("http://192.168.1.50/api")
 
-    def test_direct_mode_allows_dns_resolving_to_approved_private(self):
-        """Hostname resolving to approved private IP passes in direct mode."""
-        ranges = _parse_allowed_private_ranges("192.168.1.50")
+    def test_direct_mode_allows_dns_to_private_when_approved(self):
+        """Hostname resolving to private IP passes with admin_approved=True."""
 
         def mock_dns(host, port, *args, **kwargs):
             return [(2, 1, 6, "", ("192.168.1.50", port))]
 
-        with (
-            patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges),
-            patch("socket.getaddrinfo", mock_dns),
-        ):
-            result = validate_url_with_pinning("http://mynas.local:8080/api")
+        with patch("socket.getaddrinfo", mock_dns):
+            result = validate_url_with_pinning(
+                "http://mynas.local:8080/api", admin_approved=True
+            )
             assert result.pinned_ip == "192.168.1.50"
 
-    def test_direct_mode_blocks_dns_resolving_to_unapproved_private(self):
-        """Hostname resolving to non-approved private IP is blocked."""
-        ranges = _parse_allowed_private_ranges("192.168.1.50")
+    def test_direct_mode_blocks_dns_to_private_without_approval(self):
+        """Hostname resolving to private IP is blocked without approval."""
 
         def mock_dns(host, port, *args, **kwargs):
-            return [(2, 1, 6, "", ("10.0.0.5", port))]
+            return [(2, 1, 6, "", ("192.168.1.50", port))]
 
-        with (
-            patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges),
-            patch("socket.getaddrinfo", mock_dns),
-        ):
+        with patch("socket.getaddrinfo", mock_dns):
             with pytest.raises(SSRFError, match="resolves to blocked IP"):
-                validate_url_with_pinning("http://other.local/api")
+                validate_url_with_pinning("http://mynas.local/api")
 
-    def test_direct_mode_port_restriction_on_literal_ip(self):
-        """Port restriction enforced for literal IP in direct mode."""
-        ranges = _parse_allowed_private_ranges("192.168.1.50:8080")
-        with patch("app.ssrf._ALLOWED_PRIVATE_RANGES", ranges):
-            # Matching port passes
-            result = validate_url_with_pinning("http://192.168.1.50:8080/api")
-            assert result.pinned_ip == "192.168.1.50"
+    def test_direct_mode_loopback_blocked_even_when_approved(self):
+        """Loopback is always blocked in direct mode even with approval."""
+        with pytest.raises(SSRFError, match="Blocked"):
+            validate_url_with_pinning("http://127.0.0.1/api", admin_approved=True)
 
-            # Default HTTP port (80) is blocked
-            with pytest.raises(SSRFError, match="blocked IP range"):
-                validate_url_with_pinning("http://192.168.1.50/api")
+    def test_direct_mode_metadata_blocked_even_when_approved(self):
+        """Metadata IP is always blocked in direct mode even with approval."""
+
+        def mock_dns(host, port, *args, **kwargs):
+            return [(2, 1, 6, "", ("169.254.169.254", port))]
+
+        with patch("socket.getaddrinfo", mock_dns):
+            with pytest.raises(SSRFError, match="resolves to blocked IP"):
+                validate_url_with_pinning(
+                    "http://evil.example.com/api", admin_approved=True
+                )

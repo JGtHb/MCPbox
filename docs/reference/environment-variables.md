@@ -33,7 +33,6 @@ Each secret must be a unique value. MCPBox checks on startup that secrets are di
 | `ENABLE_METRICS` | `True` | Enable Prometheus metrics endpoint at `/metrics` |
 | `MCPBOX_ENABLE_HSTS` | `false` | Enable HSTS header in nginx. Set to `true` only when behind a TLS-terminating reverse proxy. |
 | `CLOUDFLARED_API_KEY` | (falls back to `SANDBOX_API_KEY`) | Dedicated API key for the cloudflared container. Limits blast radius if cloudflared is compromised. |
-| `MCPBOX_ALLOWED_PRIVATE_RANGES` | (none) | Comma-separated IP/CIDR entries, optionally with `:PORT`, to allow sandbox tools to reach specific LAN hosts (e.g., `192.168.1.50,10.0.1.0/24:8080`). Applied to both the SSRF client and squid proxy. Loopback, link-local, and metadata ranges are always rejected. |
 
 ## HTTP Client
 

@@ -1,7 +1,10 @@
 """Tool Registry - manages tool definitions and execution."""
 
+import ipaddress
 import logging
+import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Optional
 
 import httpx
@@ -9,6 +12,13 @@ import httpx
 from app.executor import python_executor
 
 logger = logging.getLogger(__name__)
+
+# Path where approved private hosts are written for the squid proxy ACL helper.
+# Must match the shared volume mount in docker-compose.yml and the path
+# in the squid external ACL helper script.
+_SQUID_ACL_PATH = Path(
+    os.environ.get("SQUID_ACL_PATH", "/shared/squid-acl/approved-private.txt")
+)
 
 
 @dataclass
@@ -146,7 +156,57 @@ class ToolRegistry:
             f"Registered server {server_name} ({server_id}) with {len(server.tools)} tools"
             f" ({len(server.external_sources)} external sources)"
         )
+        self._update_squid_approved_hosts()
         return len(server.tools)
+
+    def _update_squid_approved_hosts(self) -> None:
+        """Write all admin-approved hosts to the squid ACL file.
+
+        The squid proxy's external ACL helper reads this file to decide
+        whether to allow requests to private IP destinations that would
+        otherwise be blocked by the ``blocked_dst`` ACL.
+
+        Only hosts that *look* private are written: literal private IPs
+        and common LAN hostname suffixes (.local, .lan, .home, .internal)
+        or single-label names.  Public hostnames (e.g. ``api.example.com``)
+        are omitted — squid already allows those.
+        """
+        all_hosts: set[str] = set()
+        for server in self.servers.values():
+            if server.allowed_hosts:
+                all_hosts.update(server.allowed_hosts)
+
+        # Filter to hosts that are likely private / LAN targets.
+        private_hosts: list[str] = []
+        for host in sorted(all_hosts):
+            host_lower = host.lower()
+            # Literal private IP?
+            try:
+                ip = ipaddress.ip_address(host_lower)
+                if ip.is_private:
+                    private_hosts.append(host_lower)
+                continue
+            except ValueError:
+                pass
+            # Common LAN TLDs or single-label hostname?
+            if (
+                host_lower.endswith((".local", ".lan", ".home", ".internal"))
+                or "." not in host_lower
+            ):
+                private_hosts.append(host_lower)
+
+        try:
+            _SQUID_ACL_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _SQUID_ACL_PATH.write_text(
+                "\n".join(private_hosts) + "\n" if private_hosts else ""
+            )
+            logger.debug(
+                "Updated squid ACL file with %d approved private host(s)",
+                len(private_hosts),
+            )
+        except OSError:
+            # Shared volume not mounted (e.g. in tests) — silently skip.
+            pass
 
     def update_secrets(self, server_id: str, secrets: dict[str, str]) -> bool:
         """Update secrets for a running server.
@@ -176,6 +236,7 @@ class ToolRegistry:
         if server_id in self.servers:
             server = self.servers.pop(server_id)
             logger.info(f"Unregistered server {server.server_name} ({server_id})")
+            self._update_squid_approved_hosts()
             return True
         return False
 

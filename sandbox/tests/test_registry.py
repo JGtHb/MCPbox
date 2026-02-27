@@ -26,7 +26,6 @@ class TestToolRegistry:
             server_id="server-1",
             server_name="TestServer",
             tools=tools,
-
         )
 
         assert count == 2
@@ -37,14 +36,12 @@ class TestToolRegistry:
             server_id="server-1",
             server_name="OldServer",
             tools=[sample_tool_def],
-
         )
 
         tool_registry.register_server(
             server_id="server-1",
             server_name="NewServer",
             tools=[{**sample_tool_def, "name": "new_tool"}],
-
         )
 
         assert tool_registry.servers["server-1"].server_name == "NewServer"
@@ -57,7 +54,6 @@ class TestToolRegistry:
             server_id="server-1",
             server_name="TestServer",
             tools=[sample_tool_def],
-
         )
 
         result = tool_registry.unregister_server("server-1")
@@ -76,7 +72,6 @@ class TestToolRegistry:
             server_id="server-1",
             server_name="TestServer",
             tools=[sample_tool_def],
-
         )
 
         tool = tool_registry.get_tool("TestServer__get_weather")
@@ -96,7 +91,6 @@ class TestToolRegistry:
             server_id="server-1",
             server_name="TestServer",
             tools=[sample_tool_def],
-
         )
 
         tools = tool_registry.list_tools()
@@ -112,13 +106,11 @@ class TestToolRegistry:
             server_id="server-1",
             server_name="Server1",
             tools=[sample_tool_def],
-
         )
         tool_registry.register_server(
             server_id="server-2",
             server_name="Server2",
             tools=[{**sample_tool_def, "name": "other_tool"}],
-
         )
 
         tools = tool_registry.list_tools_for_server("server-1")
@@ -132,13 +124,11 @@ class TestToolRegistry:
             server_id="server-1",
             server_name="Server1",
             tools=[sample_tool_def, {**sample_tool_def, "name": "tool2"}],
-
         )
         tool_registry.register_server(
             server_id="server-2",
             server_name="Server2",
             tools=[sample_tool_def],
-
         )
 
         assert tool_registry.tool_count == 3
