@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import secrets
+import shutil
 import subprocess
 from typing import Any
 from uuid import UUID
@@ -766,19 +767,32 @@ id = "{kv_namespace_id}"
                 with open(wrangler_path, "w") as f:
                     f.write(wrangler_toml)
 
-                # Install npm dependencies (required for @cloudflare/workers-oauth-provider)
-                npm_result = subprocess.run(
-                    ["npm", "install", "--omit=dev"],
-                    cwd=tmpdir,
-                    env=env,
-                    capture_output=True,
-                    text=True,
-                    timeout=120,
-                )
-                if npm_result.returncode != 0:
-                    error_msg = npm_result.stderr or npm_result.stdout or "Unknown error"
-                    raise CloudflareAPIError(f"npm install failed: {error_msg}")
-                logger.info("npm install completed successfully")
+                # Install npm dependencies (required for @cloudflare/workers-oauth-provider).
+                # Prefer copying pre-installed node_modules from the Docker image
+                # (built at image build time) to avoid downloading packages into
+                # the space-constrained /tmp tmpfs at runtime.
+                preinstalled_nm = "/app/worker/node_modules"
+                dst_nm = os.path.join(tmpdir, "node_modules")
+                if os.path.isdir(preinstalled_nm):
+                    shutil.copytree(preinstalled_nm, dst_nm)
+                    logger.info("Copied pre-installed node_modules from Docker image")
+                else:
+                    logger.warning(
+                        "Pre-installed node_modules not found at %s, falling back to npm install",
+                        preinstalled_nm,
+                    )
+                    npm_result = subprocess.run(
+                        ["npm", "install", "--omit=dev"],
+                        cwd=tmpdir,
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                    )
+                    if npm_result.returncode != 0:
+                        error_msg = npm_result.stderr or npm_result.stdout or "Unknown error"
+                        raise CloudflareAPIError(f"npm install failed: {error_msg}")
+                    logger.info("npm install completed successfully")
 
                 # Run wrangler deploy
                 result = subprocess.run(

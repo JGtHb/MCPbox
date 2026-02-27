@@ -347,6 +347,8 @@ async def test_deploy_worker_success(
     def mock_isdir(path):
         if "/app/worker/src" in str(path):
             return True
+        if str(path) == "/app/worker/node_modules":
+            return True
         return _real_isdir(path)
 
     def mock_listdir(path):
@@ -370,6 +372,7 @@ async def test_deploy_worker_success(
 
     with (
         patch("app.services.cloudflare.subprocess.run", side_effect=mock_subprocess_run),
+        patch("app.services.cloudflare.shutil.copytree"),
         patch("os.path.isdir", side_effect=mock_isdir),
         patch("os.path.exists", side_effect=mock_exists),
         patch("os.listdir", side_effect=mock_listdir),
