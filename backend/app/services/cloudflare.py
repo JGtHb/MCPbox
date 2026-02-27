@@ -29,7 +29,6 @@ from app.schemas.cloudflare import (
     UpdateAccessPolicyResponse,
     UpdateWorkerConfigResponse,
     WizardStatusResponse,
-    Zone,
 )
 from app.services.crypto import (
     DecryptionError,
@@ -177,28 +176,6 @@ class CloudflareService:
             logger.warning(f"Failed to decrypt tunnel token: {e}")
             return None
 
-    async def get_zones(self, config_id: UUID) -> list[Zone]:
-        """Get zones for a config's account."""
-        config = await self.get_config_by_id(config_id)
-        if not config or not config.account_id:
-            return []
-
-        api_token = await self._get_decrypted_token(config)
-        if not api_token:
-            return []
-
-        try:
-            data = await self._cf_request(
-                "GET",
-                f"/zones?account.id={config.account_id}&per_page=50",
-                api_token,
-            )
-            zones = data.get("result", [])
-            return [Zone(id=z["id"], name=z["name"]) for z in zones]
-        except Exception as e:
-            logger.warning(f"Could not get zones: {e}")
-            return []
-
     async def set_api_token(self, config_id: UUID, api_token: str) -> SetApiTokenResponse:
         """Set an API token for operations requiring higher permissions.
 
@@ -230,11 +207,12 @@ class CloudflareService:
         verifies the token, and retrieves account information.
 
         Required token permissions:
-        - Account > Cloudflare Tunnel > Edit
         - Account > Access: Apps and Policies > Edit
+        - Account > Access: Organizations, Identity Providers, and Groups > Read
+        - Account > Cloudflare Tunnel > Edit
+        - Account > Connectivity Directory > Admin
         - Account > Workers Scripts > Edit
         - Account > Workers KV Storage > Edit
-        - Zone > Zone > Read (for all zones)
         """
         # Verify the token works
         try:
@@ -273,19 +251,6 @@ class CloudflareService:
         except Exception as e:
             logger.warning(f"Could not get team domain: {e}")
 
-        # Get zones for the account
-        zones: list[Zone] = []
-        try:
-            zones_data = await self._cf_request(
-                "GET",
-                f"/zones?account.id={account_id}&per_page=50",
-                api_token,
-            )
-            zones_list = zones_data.get("result", [])
-            zones = [Zone(id=z["id"], name=z["name"]) for z in zones_list]
-        except CloudflareAPIError as e:
-            logger.warning(f"Could not get zones: {e}")
-
         # Create the config
         config = CloudflareConfig(
             encrypted_api_token=encrypt_to_base64(api_token, aad="cloudflare_api_token"),
@@ -304,7 +269,6 @@ class CloudflareService:
             account_id=account_id,
             account_name=account_name,
             team_domain=team_domain,
-            zones=zones,
             message="API token verified. Ready to create tunnel.",
         )
 
@@ -1081,79 +1045,6 @@ id = "{kv_namespace_id}"
             worker_synced=worker_synced,
             message=message,
         )
-
-    async def _create_dns_record(
-        self,
-        api_token: str,
-        hostname: str,
-    ) -> None:
-        """Create a DNS record for the MCP Portal hostname.
-
-        Creates a proxied CNAME record pointing to the Cloudflare Access
-        endpoint. If the record already exists, this is a no-op.
-        """
-        # Extract subdomain and domain from hostname (e.g., "mcp.example.com")
-        parts = hostname.split(".")
-        if len(parts) < 2:
-            logger.warning(f"Invalid hostname for DNS: {hostname}")
-            return
-
-        # Get the zone for this domain
-        try:
-            # Try to find the zone - could be example.com or sub.example.com
-            zone_id = None
-            for i in range(len(parts) - 1):
-                domain = ".".join(parts[i:])
-                try:
-                    zones_data = await self._cf_request(
-                        "GET",
-                        "/zones",
-                        api_token,
-                        params={"name": domain},
-                    )
-                    zones = zones_data.get("result", [])
-                    if zones:
-                        zone_id = zones[0].get("id")
-                        break
-                except CloudflareAPIError:
-                    continue
-
-            if not zone_id:
-                logger.warning(f"Could not find Cloudflare zone for {hostname}")
-                return
-
-            # Check if record already exists
-            records_data = await self._cf_request(
-                "GET",
-                f"/zones/{zone_id}/dns_records",
-                api_token,
-                params={"name": hostname, "type": "CNAME"},
-            )
-            existing_records = records_data.get("result", [])
-
-            if existing_records:
-                logger.info(f"DNS record for {hostname} already exists")
-                return
-
-            # Create CNAME record pointing to Cloudflare Access
-            # The target doesn't matter much since Access intercepts the request
-            await self._cf_request(
-                "POST",
-                f"/zones/{zone_id}/dns_records",
-                api_token,
-                json={
-                    "type": "CNAME",
-                    "name": hostname,
-                    "content": "access.cloudflare.com",
-                    "proxied": True,
-                    "ttl": 1,  # Auto TTL
-                },
-            )
-            logger.info(f"Created DNS record for {hostname}")
-
-        except CloudflareAPIError as e:
-            logger.warning(f"Failed to create DNS record: {e}")
-            # Non-fatal - user can add DNS manually
 
     # =========================================================================
     # Step 7: Configure Worker JWT

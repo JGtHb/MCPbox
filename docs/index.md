@@ -7,7 +7,7 @@ nav_order: 1
 
 **A self-extending MCP platform where LLMs create their own tools.**
 
-MCPBox lets AI create, test, and manage its own MCP tools — write Python code, register it as a permanent tool, and use it in future conversations. Think of it as a tool forge: the LLM is both the toolmaker and the tool user.
+MCPBox lets AI create, test, and manage its own MCP tools — write Python code, register it as a permanent tool, and use it in future conversations. You stay in as much control as you want, optionally approving individual tools, libraries, and egress domains.
 
 ---
 

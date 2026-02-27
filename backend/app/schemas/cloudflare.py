@@ -51,13 +51,6 @@ class AccessPolicyConfig(BaseModel):
 # =============================================================================
 
 
-class Zone(BaseModel):
-    """Cloudflare zone (domain) info."""
-
-    id: str
-    name: str
-
-
 class StartWithApiTokenRequest(BaseModel):
     """Request to start the wizard with an API token."""
 
@@ -76,7 +69,6 @@ class StartWithApiTokenResponse(BaseModel):
     account_id: str | None = None
     account_name: str | None = None
     team_domain: str | None = None
-    zones: list[Zone] = Field(default_factory=list)
     message: str | None = None
     error: str | None = None
 

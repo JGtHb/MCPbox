@@ -13,11 +13,6 @@ export interface AccessPolicyConfig {
   email_domain: string | null
 }
 
-export interface Zone {
-  id: string
-  name: string
-}
-
 // Primary authentication method
 export interface StartWithApiTokenRequest {
   api_token: string
@@ -29,7 +24,6 @@ export interface StartWithApiTokenResponse {
   account_id: string | null
   account_name: string | null
   team_domain: string | null
-  zones: Zone[]
   message: string | null
   error: string | null
 }
@@ -182,10 +176,6 @@ export async function configureWorkerJwt(
 
 export async function teardown(configId: string): Promise<TeardownResponse> {
   return api.delete<TeardownResponse>(`/api/cloudflare/teardown/${configId}`)
-}
-
-export async function getZones(configId: string): Promise<Zone[]> {
-  return api.get<Zone[]>(`/api/cloudflare/zones/${configId}`)
 }
 
 export async function updateAccessPolicy(

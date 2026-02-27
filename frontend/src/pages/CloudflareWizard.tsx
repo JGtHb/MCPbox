@@ -16,8 +16,6 @@ import {
   useUpdateWorkerConfig,
   cloudflareKeys,
   AccessPolicyType,
-  getZones,
-  Zone,
 } from '../api/cloudflare'
 
 // Step status indicator
@@ -271,8 +269,6 @@ export function CloudflareWizard() {
   // Step results
   const [workerUrl, setWorkerUrl] = useState<string | null>(null)
   const [tokenError, setTokenError] = useState<string | null>(null)
-  const [_zones, setZones] = useState<Zone[]>([])
-  const [selectedZone, setSelectedZone] = useState<string | null>(null)
 
   // Mutations
   const startWithApiTokenMutation = useStartWithApiToken()
@@ -308,10 +304,6 @@ export function CloudflareWizard() {
       })
       if (result.success && result.config_id) {
         setConfigId(result.config_id)
-        if (result.zones && result.zones.length > 0) {
-          setZones(result.zones)
-          setSelectedZone(result.zones[0].name)
-        }
         setCurrentStep(2)
         queryClient.invalidateQueries({ queryKey: cloudflareKeys.status() })
       } else if (result.error) {
@@ -332,18 +324,6 @@ export function CloudflareWizard() {
       })
       if (result.success) {
         setApiToken('')
-        // Fetch zones with the new token
-        try {
-          const fetchedZones = await getZones(configId)
-          if (fetchedZones.length > 0) {
-            setZones(fetchedZones)
-            if (!selectedZone) {
-              setSelectedZone(fetchedZones[0].name)
-            }
-          }
-        } catch {
-          // Ignore zone fetch errors
-        }
         setCurrentStep(2)
         queryClient.invalidateQueries({ queryKey: cloudflareKeys.status() })
       }
@@ -517,14 +497,12 @@ export function CloudflareWizard() {
                   with these permissions:
                 </p>
                 <ul className="text-sm text-pine space-y-1 list-disc list-inside">
+                  <li>Account &rarr; Access: Apps and Policies &rarr; Edit</li>
+                  <li>Account &rarr; Access: Organizations, Identity Providers, and Groups &rarr; Read</li>
                   <li>Account &rarr; Cloudflare Tunnel &rarr; Edit</li>
+                  <li>Account &rarr; Connectivity Directory &rarr; Admin</li>
                   <li>Account &rarr; Workers Scripts &rarr; Edit</li>
                   <li>Account &rarr; Workers KV Storage &rarr; Edit</li>
-                  <li>Account &rarr; Connectivity Directory &rarr; Admin</li>
-                  <li>Account &rarr; MCP Portals &rarr; Edit</li>
-                  <li>Account &rarr; Access: Organizations, Identity Providers, and Groups &rarr; Read</li>
-                  <li>Account &rarr; Access: Apps and Policies &rarr; Edit</li>
-                  <li>Zone &rarr; Zone &rarr; Read (for all zones)</li>
                 </ul>
               </div>
 

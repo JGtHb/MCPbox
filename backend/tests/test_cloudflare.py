@@ -91,15 +91,10 @@ async def test_start_with_api_token_success(async_client, admin_headers, mock_cl
                 "success": True,
                 "result": {"status": "active"},
             }
-        elif "/accounts" in url and "/access" not in url and "/zones" not in url:
+        elif "/accounts" in url and "/access" not in url:
             response.json.return_value = {
                 "success": True,
                 "result": [{"id": "account123", "name": "Test Account"}],
-            }
-        elif "/zones" in url:
-            response.json.return_value = {
-                "success": True,
-                "result": [{"id": "zone123", "name": "example.com"}],
             }
         elif "/access/organizations" in url:
             response.json.return_value = {
@@ -124,8 +119,6 @@ async def test_start_with_api_token_success(async_client, admin_headers, mock_cl
     assert data["account_id"] == "account123"
     assert data["account_name"] == "Test Account"
     assert data["team_domain"] == "test.cloudflareaccess.com"
-    assert len(data["zones"]) == 1
-    assert data["zones"][0]["name"] == "example.com"
 
 
 @pytest.mark.asyncio
