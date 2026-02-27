@@ -16,9 +16,13 @@ NC='\033[0m' # No Color
 # Track failures
 FAILED=0
 
+# Determine ruff binary: prefer backend venv, then system
+RUFF="ruff"
+[ -f "backend/.venv/bin/ruff" ] && RUFF="backend/.venv/bin/ruff"
+
 # 1. Format check
 echo "1. Checking Python formatting..."
-if ruff format --check backend/app sandbox/app 2>/dev/null; then
+if $RUFF format --check backend/app sandbox/app 2>/dev/null; then
     echo -e "   ${GREEN}✓ Formatting OK${NC}"
 else
     echo -e "   ${RED}✗ Formatting issues found${NC}"
@@ -29,7 +33,7 @@ echo ""
 
 # 2. Lint check
 echo "2. Checking Python linting..."
-if ruff check backend/app sandbox/app 2>/dev/null; then
+if $RUFF check backend/app sandbox/app 2>/dev/null; then
     echo -e "   ${GREEN}✓ Linting OK${NC}"
 else
     echo -e "   ${RED}✗ Linting issues found${NC}"
@@ -40,14 +44,16 @@ echo ""
 
 # 3. Python import validation (catches issues like wrong datetime imports)
 echo "3. Validating Python imports..."
-if python scripts/validate_imports.py 2>/dev/null; then
+VALIDATE_PYTHON="python3"
+[ -f "backend/.venv/bin/python" ] && VALIDATE_PYTHON="backend/.venv/bin/python"
+if $VALIDATE_PYTHON scripts/validate_imports.py 2>/dev/null; then
     echo -e "   ${GREEN}✓ Import validation OK${NC}"
 elif [ $? -eq 0 ]; then
     # Script exited cleanly but skipped (missing deps)
     echo -e "   ${YELLOW}⚠ Skipped (missing dependencies)${NC}"
 else
     echo -e "   ${RED}✗ Import validation failed${NC}"
-    python scripts/validate_imports.py 2>&1 | sed 's/^/   /'
+    $VALIDATE_PYTHON scripts/validate_imports.py 2>&1 | sed 's/^/   /'
     FAILED=1
 fi
 echo ""
@@ -57,7 +63,10 @@ echo "4. Running backend tests..."
 if command -v docker &> /dev/null; then
     echo "   (Using testcontainers for PostgreSQL)"
     cd backend
-    if python -m pytest tests -v --tb=short -q 2>/dev/null; then
+    # Use venv Python if available, fall back to system python
+    BACKEND_PYTHON="${PWD}/.venv/bin/python"
+    [ ! -f "$BACKEND_PYTHON" ] && BACKEND_PYTHON="python"
+    if $BACKEND_PYTHON -m pytest tests -v --tb=short -q 2>/dev/null; then
         echo -e "   ${GREEN}✓ Backend tests passed${NC}"
     else
         echo -e "   ${RED}✗ Backend tests failed${NC}"
@@ -73,7 +82,10 @@ echo ""
 # 5. Sandbox tests
 echo "5. Running sandbox tests..."
 cd sandbox
-if python -m pytest tests -v --tb=short -q 2>/dev/null; then
+# Use venv Python if available, fall back to system python
+SANDBOX_PYTHON="${PWD}/.venv/bin/python"
+[ ! -f "$SANDBOX_PYTHON" ] && SANDBOX_PYTHON="python"
+if $SANDBOX_PYTHON -m pytest tests -v --tb=short -q 2>/dev/null; then
     echo -e "   ${GREEN}✓ Sandbox tests passed${NC}"
 else
     echo -e "   ${RED}✗ Sandbox tests failed${NC}"
