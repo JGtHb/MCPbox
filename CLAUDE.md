@@ -11,7 +11,7 @@ MCPbox is a self-extending MCP platform where LLMs create their own tools. The L
 | Sandbox | Python 3.11+, FastAPI | httpx, regex |
 | Worker | TypeScript, Cloudflare Workers | @cloudflare/workers-oauth-provider |
 | Database | PostgreSQL 16 | Alembic (migrations) |
-| Infra | Docker Compose | 6 services, 4 networks |
+| Infra | Docker Compose | 7 services, 5 networks |
 
 ## Essential Commands
 

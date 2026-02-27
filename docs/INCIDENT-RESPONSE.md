@@ -12,13 +12,13 @@ Operational runbooks for common failure scenarios in MCPbox.
 
 ```bash
 # Check PostgreSQL container
-docker-compose ps postgres
+docker compose ps postgres
 
 # Check database logs
-docker-compose logs --tail=50 postgres
+docker compose logs --tail=50 postgres
 
 # Test connection from backend
-docker-compose exec backend python -c "
+docker compose exec backend python -c "
 from app.core.database import engine
 import asyncio
 print(asyncio.run(engine.dialect.do_ping(engine)))
@@ -32,32 +32,32 @@ curl http://localhost:8000/health/services | python -m json.tool
 
 ```bash
 # Restart PostgreSQL
-docker-compose restart postgres
+docker compose restart postgres
 
 # Wait for health check to recover
 watch -n2 'curl -s http://localhost:8000/health | python -m json.tool'
 
 # If data corruption suspected, restore from backup
-docker-compose stop postgres
-docker-compose exec -T postgres psql -U mcpbox mcpbox < backup.sql
-docker-compose start postgres
+docker compose stop postgres
+docker compose exec -T postgres psql -U mcpbox mcpbox < backup.sql
+docker compose start postgres
 ```
 
 ### If Database Is Unrecoverable
 
 ```bash
 # Stop all services
-docker-compose down
+docker compose down
 
 # Restore from latest backup
-docker-compose up -d postgres
-docker-compose exec -T postgres psql -U mcpbox mcpbox < /backups/latest.sql.gz
+docker compose up -d postgres
+docker compose exec -T postgres psql -U mcpbox mcpbox < /backups/latest.sql.gz
 
 # Re-run migrations in case backup is from an older version
-docker-compose run --rm backend alembic upgrade head
+docker compose run --rm backend alembic upgrade head
 
 # Restart all services
-docker-compose up -d
+docker compose up -d
 ```
 
 ---
@@ -70,41 +70,41 @@ docker-compose up -d
 
 ```bash
 # Check sandbox container
-docker-compose ps sandbox
+docker compose ps sandbox
 
 # Check sandbox logs
-docker-compose logs --tail=50 sandbox
+docker compose logs --tail=50 sandbox
 
 # Check circuit breaker state
 curl http://localhost:8000/health/circuits | python -m json.tool
 
 # Test sandbox health directly
-docker-compose exec sandbox curl -s http://localhost:8001/health
+docker compose exec sandbox curl -s http://localhost:8001/health
 ```
 
 ### Resolution
 
 ```bash
 # Restart sandbox container
-docker-compose restart sandbox
+docker compose restart sandbox
 
 # Server recovery happens automatically — backend and mcp-gateway both run
 # a background task (server_recovery.py) that re-registers all "running"
 # servers with the sandbox on startup. Check logs for recovery status:
-docker-compose logs --tail=20 backend | grep -i "recover"
-docker-compose logs --tail=20 mcp-gateway | grep -i "recover"
+docker compose logs --tail=20 backend | grep -i "recover"
+docker compose logs --tail=20 mcp-gateway | grep -i "recover"
 
 # If automatic recovery failed, restart backend/mcp-gateway to trigger it again:
-docker-compose restart backend mcp-gateway
+docker compose restart backend mcp-gateway
 
 # If circuit breaker is stuck open, reset it (requires admin JWT)
 curl -X POST http://localhost:8000/health/circuits/reset \
   -H "Authorization: Bearer <admin-jwt-token>"
 
 # If sandbox is OOM-killed, check resource limits
-docker-compose logs sandbox | grep -i "killed\|oom"
+docker compose logs sandbox | grep -i "killed\|oom"
 
-# Increase memory limit if needed (in docker-compose.yml)
+# Increase memory limit if needed (in docker compose.yml)
 # sandbox service: mem_limit: 2g (default: 1g)
 ```
 
@@ -129,7 +129,7 @@ NEW_KEY=$(openssl rand -hex 32)
 sed -i "s/MCPBOX_ENCRYPTION_KEY=.*/MCPBOX_ENCRYPTION_KEY=$NEW_KEY/" .env
 
 # Restart services
-docker-compose restart backend mcp-gateway
+docker compose restart backend mcp-gateway
 ```
 
 3. **Re-encrypt stored secrets** — after updating the key, all previously encrypted values (server secrets, Cloudflare config) will be unreadable. You must re-enter them:
@@ -148,13 +148,13 @@ docker-compose restart backend mcp-gateway
 
 ```bash
 # Check cloudflared container
-docker-compose ps cloudflared
+docker compose ps cloudflared
 
 # Check tunnel logs
-docker-compose logs --tail=50 cloudflared
+docker compose logs --tail=50 cloudflared
 
 # Verify tunnel token is valid
-docker-compose exec backend curl -s http://localhost:8000/internal/active-tunnel-token \
+docker compose exec backend curl -s http://localhost:8000/internal/active-tunnel-token \
   -H "Authorization: Bearer $SANDBOX_API_KEY" | python -m json.tool
 ```
 
@@ -162,7 +162,7 @@ docker-compose exec backend curl -s http://localhost:8000/internal/active-tunnel
 
 ```bash
 # Restart cloudflared
-docker-compose restart cloudflared
+docker compose restart cloudflared
 
 # If tunnel token expired or invalid, re-run setup wizard
 # Navigate to http://localhost:3000/tunnel/setup
@@ -181,10 +181,10 @@ docker-compose restart cloudflared
 
 ```bash
 # Check MCP gateway logs
-docker-compose logs --tail=50 mcp-gateway | grep -i "service.token\|403"
+docker compose logs --tail=50 mcp-gateway | grep -i "service.token\|403"
 
 # Verify service token is configured
-docker-compose exec backend python -c "
+docker compose exec backend python -c "
 import asyncio
 from app.api.auth_simple import ServiceTokenCache
 cache = ServiceTokenCache()
@@ -199,7 +199,7 @@ cache = ServiceTokenCache()
 ./scripts/deploy-worker.sh --set-secrets
 
 # Restart MCP gateway to clear token cache
-docker-compose restart mcp-gateway
+docker compose restart mcp-gateway
 ```
 
 ---
@@ -212,7 +212,7 @@ docker-compose restart mcp-gateway
 
 ```bash
 # Check rate limiter state (in-memory, resets on restart)
-docker-compose logs backend | grep -i "rate.limit\|429"
+docker compose logs backend | grep -i "rate.limit\|429"
 ```
 
 ### Resolution
@@ -220,10 +220,10 @@ docker-compose logs backend | grep -i "rate.limit\|429"
 ```bash
 # Temporarily increase rate limit
 export RATE_LIMIT_REQUESTS_PER_MINUTE=500
-docker-compose up -d backend
+docker compose up -d backend
 
 # Or restart to clear in-memory state
-docker-compose restart backend
+docker compose restart backend
 ```
 
 **Note:** Rate limit state is in-memory and per-worker. Restarting clears all state.
@@ -240,21 +240,21 @@ This is almost always caused by running the MCP gateway with more than 1 worker.
 
 ```bash
 # Check if mcp-gateway is running with multiple workers
-docker-compose logs mcp-gateway | grep -i "worker\|started"
+docker compose logs mcp-gateway | grep -i "worker\|started"
 
 # Check session creation/termination in logs
-docker-compose logs mcp-gateway | grep -i "session"
+docker compose logs mcp-gateway | grep -i "session"
 ```
 
 ### Resolution
 
 ```bash
-# Ensure docker-compose.yml has --workers 1 for mcp-gateway
+# Ensure docker compose.yml has --workers 1 for mcp-gateway
 # The command should be:
 # ["python", "-m", "uvicorn", "app.mcp_only:app", "--host", "0.0.0.0", "--port", "8002", "--workers", "1", ...]
 
 # Restart mcp-gateway
-docker-compose restart mcp-gateway
+docker compose restart mcp-gateway
 ```
 
 **Root cause:** `--workers N` spawns N separate Python processes, each with its own in-memory `_active_sessions` dict. Session created on Worker A gets routed to Worker B on the next request, which doesn't know about it.
@@ -269,7 +269,7 @@ docker-compose restart mcp-gateway
 
 ```bash
 # Check activity logs for safety violations
-docker-compose logs sandbox | grep -i "safety\|forbidden\|blocked\|__class__\|__subclasses__"
+docker compose logs sandbox | grep -i "safety\|forbidden\|blocked\|__class__\|__subclasses__"
 
 # Check the admin activity log UI
 # Navigate to http://localhost:3000/activity

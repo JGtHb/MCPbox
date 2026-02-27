@@ -24,10 +24,10 @@ echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)" >> .env
 echo "SANDBOX_API_KEY=$(openssl rand -hex 32)" >> .env
 
 # 4. Run database migrations
-docker-compose run --rm backend alembic upgrade head
+docker compose run --rm backend alembic upgrade head
 
 # 5. Start all services
-docker-compose up -d
+docker compose up -d
 ```
 
 ## Environment Variables
@@ -66,13 +66,13 @@ Always use Alembic migrations in production instead of auto-creation.
 
 ```bash
 # Run all pending migrations
-docker-compose run --rm backend alembic upgrade head
+docker compose run --rm backend alembic upgrade head
 
 # Check current migration state
-docker-compose run --rm backend alembic current
+docker compose run --rm backend alembic current
 
 # View migration history
-docker-compose run --rm backend alembic history
+docker compose run --rm backend alembic history
 ```
 
 ### Database Backup
@@ -81,17 +81,17 @@ Set up regular PostgreSQL backups:
 
 ```bash
 # Create a backup
-docker-compose exec postgres pg_dump -U mcpbox mcpbox > backup_$(date +%Y%m%d_%H%M%S).sql
+docker compose exec postgres pg_dump -U mcpbox mcpbox > backup_$(date +%Y%m%d_%H%M%S).sql
 
 # Restore from backup
-docker-compose exec -T postgres psql -U mcpbox mcpbox < backup.sql
+docker compose exec -T postgres psql -U mcpbox mcpbox < backup.sql
 ```
 
 Consider using a cron job for automated backups:
 
 ```bash
 # Add to crontab (daily at 2am)
-0 2 * * * cd /path/to/MCPbox && docker-compose exec -T postgres pg_dump -U mcpbox mcpbox | gzip > /backups/mcpbox_$(date +\%Y\%m\%d).sql.gz
+0 2 * * * cd /path/to/MCPbox && docker compose exec -T postgres pg_dump -U mcpbox mcpbox | gzip > /backups/mcpbox_$(date +\%Y\%m\%d).sql.gz
 ```
 
 ### Connection Pool Tuning
@@ -218,7 +218,7 @@ Alerts are sent on `log_alert()` calls (circuit breaker trips, security events, 
 MCPbox logs to stdout in structured JSON format (when `DEBUG=false`). Configure your Docker logging driver:
 
 ```yaml
-# docker-compose.override.yml
+# docker compose.override.yml
 services:
   backend:
     logging:
@@ -280,39 +280,39 @@ For higher traffic:
 **Database connection errors:**
 ```bash
 # Check PostgreSQL is running
-docker-compose ps postgres
+docker compose ps postgres
 
 # Check connection from backend
-docker-compose exec backend python -c "from app.core.database import engine; print('OK')"
+docker compose exec backend python -c "from app.core.database import engine; print('OK')"
 ```
 
 **Migration failures:**
 ```bash
 # Check current state
-docker-compose run --rm backend alembic current
+docker compose run --rm backend alembic current
 
 # See what's pending
-docker-compose run --rm backend alembic upgrade head --sql
+docker compose run --rm backend alembic upgrade head --sql
 ```
 
 **Rate limiting:**
 ```bash
 # Temporarily increase limit
 export RATE_LIMIT_REQUESTS_PER_MINUTE=500
-docker-compose up -d backend
+docker compose up -d backend
 ```
 
 ### Logs
 
 ```bash
 # View all logs
-docker-compose logs -f
+docker compose logs -f
 
 # View specific service
-docker-compose logs -f backend
+docker compose logs -f backend
 
 # View last 100 lines
-docker-compose logs --tail=100 backend
+docker compose logs --tail=100 backend
 ```
 
 ## Upgrading
@@ -324,18 +324,18 @@ docker-compose logs --tail=100 backend
 
 ```bash
 # Backup
-docker-compose exec -T postgres pg_dump -U mcpbox mcpbox > backup_pre_upgrade.sql
+docker compose exec -T postgres pg_dump -U mcpbox mcpbox > backup_pre_upgrade.sql
 
 # Update (from main branch for stable releases)
 git checkout main
 git pull
-docker-compose build
+docker compose build
 
 # Migrate
-docker-compose run --rm backend alembic upgrade head
+docker compose run --rm backend alembic upgrade head
 
 # Restart
-docker-compose up -d
+docker compose up -d
 ```
 
 ## Rollback
@@ -344,24 +344,24 @@ If an upgrade introduces issues, roll back to the previous version:
 
 ```bash
 # 1. Stop services
-docker-compose down
+docker compose down
 
 # 2. Revert to previous code
 git checkout <previous-tag-or-commit>
-docker-compose build
+docker compose build
 
 # 3. Downgrade database migrations (if the upgrade added new migrations)
 # First, identify the target revision:
-docker-compose run --rm backend alembic history
+docker compose run --rm backend alembic history
 # Then downgrade:
-docker-compose run --rm backend alembic downgrade <target-revision>
+docker compose run --rm backend alembic downgrade <target-revision>
 
 # 4. Restore database from pre-upgrade backup (if schema changes are complex)
-docker-compose up -d postgres
-docker-compose exec -T postgres psql -U mcpbox mcpbox < backup_pre_upgrade.sql
+docker compose up -d postgres
+docker compose exec -T postgres psql -U mcpbox mcpbox < backup_pre_upgrade.sql
 
 # 5. Restart all services
-docker-compose up -d
+docker compose up -d
 
 # 6. Verify health
 curl http://localhost:8000/health/services

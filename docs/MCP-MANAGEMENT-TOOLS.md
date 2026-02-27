@@ -65,6 +65,15 @@ All management tools use the `mcpbox_` prefix to distinguish them from user-crea
 | `mcpbox_get_tool_status` | Get approval status and pending requests for a tool |
 | `mcpbox_list_pending_requests` | List all pending approval requests |
 
+### External MCP Sources
+
+| Tool | Description |
+|------|-------------|
+| `mcpbox_add_external_source` | Add an external MCP server as a tool source |
+| `mcpbox_list_external_sources` | List all configured external MCP sources for a server |
+| `mcpbox_discover_external_tools` | Connect to an external source and discover available tools |
+| `mcpbox_import_external_tools` | Import selected tools from an external source |
+
 ### Observability
 
 | Tool | Description |

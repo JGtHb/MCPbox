@@ -397,6 +397,7 @@ MCPbox exposes 28 management tools with the `mcpbox_` prefix:
 | Development | `test_code`, `validate_code` |
 | Secrets | `create_server_secret`, `list_server_secrets` |
 | Approval | `request_publish`, `request_module`, `request_network_access`, `get_tool_status`, `list_pending_requests` |
+| External Sources | `add_external_source`, `list_external_sources`, `discover_external_tools`, `import_external_tools` |
 | Observability | `get_tool_logs` |
 
 See `docs/MCP-MANAGEMENT-TOOLS.md` for complete documentation.

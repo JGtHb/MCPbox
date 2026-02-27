@@ -2,14 +2,14 @@
 
 ## Summary
 
-MCPbox maintains **1,139+ test functions** across backend, sandbox, frontend, and worker. Security-critical paths (sandbox escape, SSRF, auth) have excellent coverage. Backend API coverage is good for core endpoints but has gaps in secondary endpoints. Frontend coverage is poor (4 components tested out of ~30). Worker tests are comprehensive.
+MCPbox maintains **1,300+ test functions** across backend, sandbox, frontend, and worker. Security-critical paths (sandbox escape, SSRF, auth) have excellent coverage. Backend API coverage is good for core endpoints but has gaps in secondary endpoints. Frontend coverage is poor (4 components tested out of ~30). Worker tests are comprehensive.
 
 | Component | Test Files | Test Functions | Estimated Coverage | Grade |
 |-----------|-----------|---------------|-------------------|-------|
-| Backend | 37 | ~600 | 65-70% | B |
-| Sandbox | 13 | ~204 | 75-80% | A |
-| Frontend | 4 | ~36 | 15-20% | D |
-| Worker | 1 | ~85 | 85% | A |
+| Backend | 46 | ~840 | 65-70% | B |
+| Sandbox | 13 | ~350 | 75-80% | A |
+| Frontend | 4 | ~50 | 15-20% | D |
+| Worker | 1 | ~72 | 85% | A |
 
 **Coverage minimum enforced**: Backend `fail_under = 60` in `pyproject.toml`. No minimum for other components.
 
