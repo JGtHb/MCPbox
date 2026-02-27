@@ -108,7 +108,7 @@ echo "    Generated: $WORKER_DIR/wrangler.toml"
 echo ""
 echo "==> Installing dependencies..."
 cd "$WORKER_DIR"
-npm install --production
+npm install --omit=dev
 
 echo ""
 echo "==> Deploying Worker..."

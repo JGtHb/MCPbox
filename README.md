@@ -1,6 +1,6 @@
 # MCPbox
 
-Self-hosted MCP platform. LLMs write Python code via MCP management tools, that code becomes a permanent MCP tool in a sandboxed executor, and it's available in future conversations. Optionally approve individual tools, libraries, and egress domains.
+A self-hosted platform where your LLM creates its own tools. When it needs a capability that doesn't exist yet, it writes Python code, you approve it, and it becomes a permanent MCP tool running in a sandbox. Optionally approve each tool, library, and network request before it goes live.
 
 [![CI](https://github.com/JGtHb/MCPbox/actions/workflows/ci.yml/badge.svg)](https://github.com/JGtHb/MCPbox/actions/workflows/ci.yml)
 
