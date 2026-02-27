@@ -6,6 +6,18 @@ nav_order: 1
 
 # Monitoring
 
+The MCPBox dashboard provides at-a-glance monitoring of your servers, tools, request volume, and error rates.
+
+![Dashboard](../images/dashboard.png)
+
+The Activity page provides detailed execution history and protocol logs for debugging.
+
+![Activity - Execution History](../images/activity-execution.png)
+*Execution history with success/failure status, duration, and tool name.*
+
+![Activity - Protocol Logs](../images/activity-protocol.png)
+*MCP protocol logs showing request types, levels, and messages.*
+
 ## Health Checks
 
 MCPBox provides several health check endpoints:

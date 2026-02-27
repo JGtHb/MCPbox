@@ -82,6 +82,9 @@ Open the MCPBox admin UI at [http://localhost:3000](http://localhost:3000) and g
 
 Review the code and click **Approve** (or **Reject** with a reason).
 
+![Approvals Page](../images/approvals-tools.png)
+*The Approvals page showing pending, needs-submission, and approved tools.*
+
 ### 6. Start the Server
 
 ```

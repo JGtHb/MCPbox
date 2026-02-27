@@ -22,6 +22,8 @@ After logging in, you'll see the dashboard with:
 - **Tool count** — Total tools created and how many are approved
 - **Recent activity** — A live feed of actions (tool creations, approvals, executions)
 
+![Dashboard](../images/dashboard.png)
+
 ### Key Pages
 
 | Page | What it does |
@@ -30,6 +32,9 @@ After logging in, you'll see the dashboard with:
 | **Approvals** | Review pending tool publish requests, module requests, and network access requests. |
 | **Activity** | Full activity log with search and filtering. |
 | **Remote Access** | Cloudflare setup wizard for remote MCP client access. |
+
+![Servers Page](../images/servers.png)
+*The Servers page showing all configured MCP servers with their status.*
 
 ## What Happens Next
 

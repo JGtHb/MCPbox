@@ -6,6 +6,16 @@ MCPbox lets AI create, test, and manage its own MCP tools — write Python code,
 
 [![CI](https://github.com/JGtHb/MCPbox/actions/workflows/ci.yml/badge.svg)](https://github.com/JGtHb/MCPbox/actions/workflows/ci.yml)
 
+> [!WARNING]
+> **Active Development** — This project is under active development. Expect breaking changes, incomplete features, and rough edges. Pin to a specific commit if you need stability.
+
+> [!CAUTION]
+> **AI-Generated Codebase** — This repository was entirely coded by Claude (Opus 4.6). While it includes tests, security reviews, and CI checks, you should review the code yourself before running it in any environment. Evaluate your own comfort level with AI-generated code, especially for the sandbox execution and authentication components.
+
+---
+
+![MCPbox Dashboard](docs/images/dashboard.png)
+
 ---
 
 ## See It in Action

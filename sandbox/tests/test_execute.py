@@ -265,6 +265,98 @@ result = dict(sorted(data.items()))
         assert data["success"] is True
         assert data["result"] is None
 
+    def test_execute_print_inside_async_main(self, client):
+        """Test that print() inside async def main() is captured in stdout.
+
+        Regression test: redirect_stdout only covered Phase 1 (exec),
+        so print() inside main() was lost. Fixed by overriding print()
+        in the namespace builtins.
+        """
+        code = (
+            "async def main():\n"
+            "    print('hello from main')\n"
+            "    return 'done'\n"
+        )
+        response = client.post(
+            "/execute",
+            json={"code": code, "arguments": {}},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["result"] == "done"
+        assert "hello from main" in data["stdout"]
+
+    def test_execute_print_both_phases(self, client):
+        """Test that print() is captured in both module-level and main()."""
+        code = (
+            "print('phase1')\n"
+            "async def main():\n"
+            "    print('phase2')\n"
+            "    return 'ok'\n"
+        )
+        response = client.post(
+            "/execute",
+            json={"code": code, "arguments": {}},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert "phase1" in data["stdout"]
+        assert "phase2" in data["stdout"]
+
+    def test_execute_print_inside_sync_main(self, client):
+        """Test that print() inside sync def main() is captured."""
+        code = (
+            "def main():\n"
+            "    print('sync hello')\n"
+            "    return 'sync done'\n"
+        )
+        response = client.post(
+            "/execute",
+            json={"code": code, "arguments": {}},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["result"] == "sync done"
+        assert "sync hello" in data["stdout"]
+
+    def test_execute_result_size_limit(self, client, monkeypatch):
+        """Test that oversized return values are truncated."""
+        # Set a small limit for testing (10KB)
+        monkeypatch.setattr("app.routes.MAX_RESULT_SIZE", 10 * 1024)
+        code = (
+            "async def main():\n"
+            "    return 'x' * 50000\n"  # 50KB > 10KB limit
+        )
+        response = client.post(
+            "/execute",
+            json={"code": code, "arguments": {}},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        # Result should be truncated
+        assert "RESULT TRUNCATED" in data["result"]
+        assert len(data["result"]) < 50000
+
+    def test_execute_result_under_limit_not_truncated(self, client):
+        """Test that results under the size limit are returned in full."""
+        code = (
+            "async def main():\n"
+            "    return 'hello world'\n"
+        )
+        response = client.post(
+            "/execute",
+            json={"code": code, "arguments": {}},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["result"] == "hello world"
+        assert "TRUNCATED" not in data["result"]
+
 
 class TestSecretsSecurity:
     """Tests for secrets dict security in execute endpoint."""

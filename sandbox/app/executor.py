@@ -1403,9 +1403,27 @@ class ExecutionResult:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
+        # Enforce result size limit to prevent memory exhaustion
+        result_value = self.result
+        if result_value is not None:
+            try:
+                result_serialized = (
+                    json.dumps(result_value)
+                    if not isinstance(result_value, str)
+                    else result_value
+                )
+                if len(result_serialized) > MAX_OUTPUT_SIZE:
+                    result_value = (
+                        result_serialized[:MAX_OUTPUT_SIZE]
+                        + f"\n... [RESULT TRUNCATED - exceeded"
+                        f" {MAX_OUTPUT_SIZE // 1024}KB limit] ..."
+                    )
+            except (TypeError, ValueError):
+                pass  # Non-serializable handled upstream
+
         result = {
             "success": self.success,
-            "result": self.result,
+            "result": result_value,
             "error": self.error,
             "stdout": self.stdout[:MAX_OUTPUT_SIZE] if self.stdout else "",
             "duration_ms": self.duration_ms,

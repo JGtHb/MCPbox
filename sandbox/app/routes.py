@@ -46,6 +46,9 @@ router = APIRouter(dependencies=[Depends(verify_api_key)])
 # Maximum size limits for code fields (100KB each)
 MAX_CODE_SIZE = 100 * 1024  # 100KB
 
+# Maximum result size (return value from main()), configurable, default 1MB
+MAX_RESULT_SIZE = int(os.environ.get("SANDBOX_MAX_RESULT_SIZE", 1024 * 1024))
+
 
 class ToolDef(BaseModel):
     """Tool definition for registration.
@@ -763,6 +766,14 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
     # Capture stdout (size-limited to prevent memory exhaustion)
     stdout_capture = SizeLimitedStringIO()
 
+    # SECURITY: Override print() in builtins to capture stdout per-execution
+    # (matches PythonExecutor.execute() pattern — see executor.py line 1879).
+    # redirect_stdout only covers Phase 1 (exec), so print() inside main()
+    # would go to real stdout without this override.
+    safe_builtins_with_import["print"] = lambda *args, **kwargs: print(
+        *args, file=stdout_capture, **kwargs
+    )
+
     # Phase 1: exec() the code to define functions (synchronous, just defines main())
     # Phase 2: If async main() is defined, create http client on THIS loop and await it
     # This mirrors PythonExecutor.execute() which does exec() then await main_func()
@@ -846,8 +857,21 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
                 stdout=stdout_capture.getvalue()[:10000],
             )
 
-        # Get result
+        # Get result and enforce size limit to prevent memory exhaustion
         result = namespace.get("result")
+        if result is not None:
+            try:
+                result_str = (
+                    json_module.dumps(result) if not isinstance(result, str) else result
+                )
+                if len(result_str) > MAX_RESULT_SIZE:
+                    result = (
+                        result_str[:MAX_RESULT_SIZE]
+                        + f"\n... [RESULT TRUNCATED - exceeded"
+                        f" {MAX_RESULT_SIZE // 1024}KB limit] ..."
+                    )
+            except (TypeError, ValueError):
+                pass  # Non-serializable results handled downstream
 
         return ExecuteCodeResponse(
             success=True,

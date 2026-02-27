@@ -43,6 +43,15 @@ Updating a tool's code after approval resets it to **pending_review**. This prev
    - Notes from the LLM explaining the purpose
 4. Click **Approve** or **Reject** (with an optional reason)
 
+![Tool Approvals](../images/approvals-tools.png)
+*Tool approval queue with pending, rejected, and approved tools.*
+
+![Module Requests](../images/approvals-modules.png)
+*Module whitelist requests showing package details and PyPI metadata.*
+
+![Network Requests](../images/approvals-network.png)
+*Network access requests for external hosts and ports.*
+
 ## What to Look For
 
 When reviewing tool code:
