@@ -218,13 +218,20 @@ class TestMCPGatewayRemoteMode:
         mock_sandbox_client.mcp_request = AsyncMock(return_value={"result": {"tools": []}})
         test_token = "a" * 32
 
+        from app.services.email_policy_cache import EmailPolicyCache
         from app.services.service_token_cache import ServiceTokenCache
 
         mock_cache = MagicMock()
         mock_cache.is_auth_enabled = AsyncMock(return_value=True)
         mock_cache.get_token = AsyncMock(return_value=test_token)
 
-        with patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache):
+        mock_email_policy = MagicMock()
+        mock_email_policy.check_email = AsyncMock(return_value=(True, "test"))
+
+        with (
+            patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache),
+            patch.object(EmailPolicyCache, "get_instance", return_value=mock_email_policy),
+        ):
             response = await async_client.post(
                 "/mcp",
                 json={
@@ -777,7 +784,14 @@ class TestOIDCIntegrationWithGateway:
         mock_cache.is_auth_enabled = AsyncMock(return_value=True)
         mock_cache.get_token = AsyncMock(return_value=test_token)
 
-        with patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache):
+        with (
+            patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache),
+            patch.object(
+                EmailPolicyCache,
+                "get_instance",
+                return_value=_make_permissive_email_policy_cache(),
+            ),
+        ):
             response = await async_client.post(
                 "/mcp",
                 json={
@@ -819,13 +833,36 @@ class TestMCPGatewaySyncAuth:
         mock_cache.get_token = AsyncMock(return_value=test_token)
         return mock_cache
 
+    @staticmethod
+    def _patch_remote_mode(mock_cache):
+        """Context manager that patches both ServiceTokenCache and EmailPolicyCache.
+
+        EmailPolicyCache must also be mocked because in the test environment the
+        singleton cannot reach the database and fails closed (denying all emails).
+        """
+        from contextlib import contextmanager
+
+        @contextmanager
+        def _cm():
+            with (
+                patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache),
+                patch.object(
+                    EmailPolicyCache,
+                    "get_instance",
+                    return_value=_make_permissive_email_policy_cache(),
+                ),
+            ):
+                yield
+
+        return _cm()
+
     @pytest.mark.asyncio
     async def test_sync_initialize_allowed(self, async_client: AsyncClient, mock_sandbox_client):
         """Cloudflare sync can call initialize (needed for MCP handshake)."""
         test_token = "a" * 32
         mock_cache = self._make_sync_cache(test_token)
 
-        with patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache):
+        with self._patch_remote_mode(mock_cache):
             response = await async_client.post(
                 "/mcp",
                 json={
@@ -856,7 +893,7 @@ class TestMCPGatewaySyncAuth:
         test_token = "a" * 32
         mock_cache = self._make_sync_cache(test_token)
 
-        with patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache):
+        with self._patch_remote_mode(mock_cache):
             response = await async_client.post(
                 "/mcp",
                 json={
@@ -879,7 +916,7 @@ class TestMCPGatewaySyncAuth:
         test_token = "a" * 32
         mock_cache = self._make_sync_cache(test_token)
 
-        with patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache):
+        with self._patch_remote_mode(mock_cache):
             response = await async_client.post(
                 "/mcp",
                 json={
@@ -897,7 +934,7 @@ class TestMCPGatewaySyncAuth:
         test_token = "a" * 32
         mock_cache = self._make_sync_cache(test_token)
 
-        with patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache):
+        with self._patch_remote_mode(mock_cache):
             response = await async_client.post(
                 "/mcp",
                 json={
@@ -929,7 +966,7 @@ class TestMCPGatewaySyncAuth:
             "X-MCPbox-User-Email": "user@example.com",
         }
 
-        with patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache):
+        with self._patch_remote_mode(mock_cache):
             response = await async_client.post(
                 "/mcp",
                 json={
@@ -955,7 +992,7 @@ class TestMCPGatewaySyncAuth:
         test_token = "a" * 32
         mock_cache = self._make_sync_cache(test_token)
 
-        with patch.object(ServiceTokenCache, "get_instance", return_value=mock_cache):
+        with self._patch_remote_mode(mock_cache):
             response = await async_client.post(
                 "/mcp",
                 json={

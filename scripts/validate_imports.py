@@ -45,22 +45,31 @@ MODULES_TO_CHECK = [
     "app.services.auth",
     "app.services.server",
     "app.services.tool",
-    "app.services.credential",
     "app.services.activity_logger",
     "app.services.mcp_management",
     "app.services.sandbox_client",
+    "app.services.setting",
+    "app.services.cloudflare",
+    "app.services.crypto",
+    "app.services.tunnel",
+    "app.services.tunnel_configuration",
+    "app.services.server_secret",
+    "app.services.external_mcp_source",
 
     # Models
     "app.models.server",
     "app.models.tool",
-    "app.models.credential",
     "app.models.activity_log",
     "app.models.admin_user",
+    "app.models.setting",
+    "app.models.cloudflare_config",
+    "app.models.tunnel_configuration",
+    "app.models.server_secret",
+    "app.models.external_mcp_source",
 
     # Schemas
     "app.schemas.server",
     "app.schemas.tool",
-    "app.schemas.credential",
 
     # API routes
     "app.api.router",

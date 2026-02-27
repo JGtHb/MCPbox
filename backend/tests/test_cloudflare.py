@@ -1,7 +1,8 @@
 """Tests for Cloudflare remote access wizard API."""
 
 import json
-from unittest.mock import AsyncMock, Mock, patch
+import os
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from uuid import uuid4
 
 import pytest
@@ -342,7 +343,45 @@ async def test_deploy_worker_success(
             result.stdout = "Deployed successfully"
         return result
 
-    with patch("app.services.cloudflare.subprocess.run", side_effect=mock_subprocess_run):
+    # Mock filesystem ops — the service checks /app/worker/src and
+    # /app/worker/package.json (Docker-only paths). We only intercept calls
+    # touching Docker paths; everything else (tmpdir) uses the real filesystem.
+    _real_isdir = os.path.isdir
+    _real_listdir = os.listdir
+    _real_exists = os.path.exists
+    _real_open = open
+
+    def mock_isdir(path):
+        if "/app/worker/src" in str(path):
+            return True
+        return _real_isdir(path)
+
+    def mock_listdir(path):
+        if "/app/worker/src" in str(path):
+            return ["index.ts", "utils.ts"]
+        return _real_listdir(path)
+
+    def mock_exists(path):
+        if "/app/worker/" in str(path):
+            return True
+        return _real_exists(path)
+
+    def mock_open_fn(path, *args, **kwargs):
+        if "/app/worker/" in str(path):
+            from io import StringIO
+
+            if "package.json" in str(path):
+                return StringIO('{"name":"mcpbox-proxy","dependencies":{}}')
+            return StringIO("// mock ts source")
+        return _real_open(path, *args, **kwargs)
+
+    with (
+        patch("app.services.cloudflare.subprocess.run", side_effect=mock_subprocess_run),
+        patch("os.path.isdir", side_effect=mock_isdir),
+        patch("os.path.exists", side_effect=mock_exists),
+        patch("os.listdir", side_effect=mock_listdir),
+        patch("builtins.open", side_effect=mock_open_fn),
+    ):
         response = await async_client.post(
             "/api/cloudflare/worker",
             json={"config_id": str(config.id), "name": "mcpbox-proxy"},

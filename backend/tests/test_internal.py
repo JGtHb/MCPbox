@@ -75,17 +75,24 @@ class TestInternalAuth:
             response = await async_client.get(endpoint)
             assert response.status_code == 403, f"{endpoint} should require auth"
 
-    async def test_accepts_cloudflared_api_key(self, async_client: AsyncClient, monkeypatch):
+    async def test_accepts_cloudflared_api_key(self, async_client: AsyncClient):
         """Internal endpoints accept CLOUDFLARED_API_KEY as alternative auth."""
         from app.core.config import settings
 
         cloudflared_key = "cloudflared-test-key-" + "x" * 20
-        monkeypatch.setattr(settings, "cloudflared_api_key", cloudflared_key)
+        # Patch at the module level where verify_internal_auth reads settings,
+        # not just at import level — in the full test suite, the settings instance
+        # in app.api.internal may differ from the one in app.core.config due to
+        # import caching.
+        from unittest.mock import patch
 
-        response = await async_client.get(
-            "/internal/active-tunnel-token",
-            headers={"Authorization": f"Bearer {cloudflared_key}"},
-        )
+        with patch("app.api.internal.settings") as mock_settings:
+            mock_settings.sandbox_api_key = settings.sandbox_api_key
+            mock_settings.cloudflared_api_key = cloudflared_key
+            response = await async_client.get(
+                "/internal/active-tunnel-token",
+                headers={"Authorization": f"Bearer {cloudflared_key}"},
+            )
         assert response.status_code == 200
 
     async def test_rejects_cloudflared_key_when_wrong(self, async_client: AsyncClient, monkeypatch):

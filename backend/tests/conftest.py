@@ -546,6 +546,24 @@ def mock_sandbox_client():
         yield client_instance
 
 
+@pytest.fixture(autouse=True)
+def _reset_singletons():
+    """Reset singleton caches between tests to prevent cross-test pollution.
+
+    EmailPolicyCache and ServiceTokenCache are singletons that retain state
+    across tests. When a test runs that initialises the singleton without
+    a database (e.g. MCP gateway remote-mode tests), the singleton enters
+    a "fail-closed" state and poisons all subsequent tests in the suite.
+    """
+    yield
+    # Tear down: reset singletons after each test
+    from app.services.email_policy_cache import EmailPolicyCache
+    from app.services.service_token_cache import ServiceTokenCache
+
+    EmailPolicyCache._instance = None
+    ServiceTokenCache._instance = None
+
+
 @pytest.fixture
 def mock_tunnel_service():
     """Mock tunnel service for testing."""
