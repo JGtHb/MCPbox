@@ -77,17 +77,22 @@ class TestSettingServiceGet:
 
         assert value == "secret_value"
 
-    async def test_get_value_decryption_error_returns_default(self, db_session):
-        """Decryption error returns default value."""
+    async def test_get_value_decryption_error_raises(self, db_session):
+        """Decryption error is raised, not silently swallowed.
+
+        This ensures operators notice immediately when MCPBOX_ENCRYPTION_KEY
+        does not match the key used to encrypt the stored value.
+        """
+        from app.services.crypto import DecryptionError
+
         # Store invalid encrypted value
         setting = Setting(key="bad_encrypted", value="not-valid-base64-crypto", encrypted=True)
         db_session.add(setting)
         await db_session.flush()
 
         service = SettingService(db_session)
-        value = await service.get_value("bad_encrypted", default="fallback")
-
-        assert value == "fallback"
+        with pytest.raises(DecryptionError):
+            await service.get_value("bad_encrypted", default="fallback")
 
     async def test_get_value_invalid_key_raises(self, db_session):
         """InvalidKeyError is re-raised (needs fixing, not resilience)."""

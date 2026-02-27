@@ -26,6 +26,6 @@ USER squid
 EXPOSE 3128
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD squidclient -h localhost -p 3128 mgr:info 2>/dev/null | grep -q "Squid Object Cache" || exit 1
+    CMD test -f /var/run/squid/squid.pid && kill -0 $(cat /var/run/squid/squid.pid)
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

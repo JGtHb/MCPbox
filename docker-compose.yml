@@ -235,9 +235,9 @@ services:
       - no-new-privileges:true
     read_only: true
     tmpfs:
-      - /var/spool/squid:size=16M
-      - /var/log/squid:size=8M
-      - /var/run/squid:size=1M
+      - /var/spool/squid:size=16M,uid=31,gid=31
+      - /var/log/squid:size=8M,uid=31,gid=31
+      - /var/run/squid:size=1M,uid=31,gid=31
       - /tmp:size=1M
     volumes:
       - mcpbox-squid-acl:/shared/squid-acl:ro   # Read approved private hosts from sandbox
@@ -245,7 +245,7 @@ services:
       - mcpbox-sandbox-proxy     # Receives sandbox traffic
       - mcpbox-sandbox-external  # Outbound to internet
     healthcheck:
-      test: ["CMD", "squidclient", "-h", "localhost", "-p", "3128", "mgr:info"]
+      test: ["CMD-SHELL", "test -f /var/run/squid/squid.pid && kill -0 $(cat /var/run/squid/squid.pid)"]
       interval: 30s
       timeout: 5s
       start_period: 5s
@@ -260,7 +260,7 @@ services:
       resources:
         limits:
           cpus: '0.25'
-          memory: 64M
+          memory: 128M
           pids: 32
 
   # ============================================================

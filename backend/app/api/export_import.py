@@ -250,7 +250,9 @@ async def import_servers(
     errors = []
     warnings = []
 
-    # Verify signature for data integrity (warn if invalid, don't block)
+    # Reconstruct the same data structure that was signed during export.
+    # Must include all ExportedServer fields (name, description, tools,
+    # allowed_hosts, default_timeout_ms) to match the export signature.
     import_data = {
         "version": data.version,
         "servers": [
@@ -258,6 +260,8 @@ async def import_servers(
                 "name": s.name,
                 "description": s.description,
                 "tools": [t.model_dump() for t in s.tools],
+                "allowed_hosts": s.allowed_hosts,
+                "default_timeout_ms": s.default_timeout_ms,
             }
             for s in data.servers
         ],

@@ -10,7 +10,7 @@ import asyncio
 import os
 from collections.abc import AsyncGenerator, Generator
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
@@ -524,14 +524,25 @@ def sample_tool_data() -> dict[str, Any]:
 
 @pytest.fixture
 def mock_sandbox_client():
-    """Mock sandbox client for testing without actual sandbox service."""
-    with patch("app.services.sandbox_client.SandboxClient") as mock:
+    """Mock sandbox client for testing without actual sandbox service.
+
+    Patches SandboxClient in both its home module and in approvals.py
+    (which imports the name directly), so that get_instance() returns
+    the same mock regardless of call-site.
+    """
+    with (
+        patch("app.services.sandbox_client.SandboxClient") as mock_orig,
+        patch("app.api.approvals.SandboxClient") as mock_approvals,
+    ):
         client_instance = MagicMock()
         client_instance.health_check.return_value = True
-        client_instance.register_server.return_value = {"success": True, "tools_registered": 1}
+        client_instance.register_server = AsyncMock(
+            return_value={"success": True, "tools_registered": 1}
+        )
         client_instance.unregister_server.return_value = {"success": True}
         client_instance.list_tools.return_value = []
-        mock.get_instance.return_value = client_instance
+        mock_orig.get_instance.return_value = client_instance
+        mock_approvals.get_instance.return_value = client_instance
         yield client_instance
 
 
