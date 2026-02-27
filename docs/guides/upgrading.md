@@ -17,7 +17,8 @@ docker compose exec -T postgres pg_dump -U mcpbox mcpbox > backup_pre_upgrade.sq
 ## Upgrade Steps
 
 ```bash
-# 1. Pull latest code
+# 1. Pull latest release
+git checkout main
 git pull
 
 # 2. Rebuild containers

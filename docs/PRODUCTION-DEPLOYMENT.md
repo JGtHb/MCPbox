@@ -11,8 +11,8 @@ This guide covers deploying MCPbox in a production environment.
 ## Quick Start
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/JGtHb/MCPbox.git
+# 1. Clone the repository (main branch = stable releases)
+git clone -b main https://github.com/JGtHb/MCPbox.git
 cd MCPbox
 
 # 2. Create environment file
@@ -326,7 +326,8 @@ docker-compose logs --tail=100 backend
 # Backup
 docker-compose exec -T postgres pg_dump -U mcpbox mcpbox > backup_pre_upgrade.sql
 
-# Update
+# Update (from main branch for stable releases)
+git checkout main
 git pull
 docker-compose build
 

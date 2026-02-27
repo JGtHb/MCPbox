@@ -86,6 +86,14 @@ Two modes: **Local** (no auth, local MCP client → localhost:8000/mcp) and **Re
 | [docs/INCIDENT-RESPONSE.md](docs/INCIDENT-RESPONSE.md) | Operational runbooks for failures |
 | [docs/FRONTEND-STANDARDS.md](docs/FRONTEND-STANDARDS.md) | Frontend style guide: colors, buttons, focus, ARIA, spacing, typography |
 
+## Branching Model
+
+- **`develop`** — default branch. All PRs merge here. CI runs on push and PR.
+- **`main`** — releases only. Merge `develop → main` when ready to release, then tag `vX.Y.Z`.
+- **Hotfixes** — branch from `main`, fix, PR to `main`, then merge `main → develop` to sync.
+- **Releases** — pushing a `v*` tag triggers `.github/workflows/release.yml`, which creates a GitHub Release with auto-generated notes.
+- End users install from `main` (stable). Contributors work on `develop`.
+
 ## Workflow Rules
 
 - After implementing a new feature → update `docs/FEATURES.md`
@@ -97,6 +105,7 @@ Two modes: **Local** (no auth, local MCP client → localhost:8000/mcp) and **Re
 - After adding/changing environment variables → update `docs/reference/environment-variables.md`
 - After changing MCP management tools → update `docs/reference/mcp-tools.md`
 - Always run `./scripts/pre-pr-check.sh` before PRs
+- PRs target `develop` unless it's a hotfix (target `main`)
 
 ## Known Gotchas
 

@@ -16,9 +16,11 @@ No other dependencies are required — everything runs in containers.
 ## Install
 
 ```bash
-git clone https://github.com/JGtHb/MCPbox.git
+git clone -b main https://github.com/JGtHb/MCPbox.git
 cd MCPbox
 ```
+
+The `main` branch contains stable releases. The `develop` branch has the latest changes and is used for contributions.
 
 ## Configure
 
