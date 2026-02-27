@@ -22,6 +22,9 @@ Many tools need API keys or other credentials. MCPBox handles this securely — 
 
 2. **You set the value** in the admin UI at **Servers** > select the server > **Secrets** tab. Enter the actual API key.
 
+   ![Server Secrets](../images/server-detail-secrets.png)
+   *The Secrets tab showing key names with value status — the actual values are never exposed.*
+
 3. **Tool code reads the secret:**
 
    ```python

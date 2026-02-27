@@ -42,7 +42,10 @@ No inbound ports are opened on your network. The tunnel makes an outbound connec
 MCPBox includes a 6-step setup wizard that automates the entire process.
 
 1. Open [http://localhost:3000](http://localhost:3000) and go to **Remote Access**
-2. Click **Setup Wizard**
+2. Click **Start Setup Wizard**
+
+![Remote Access](../images/remote-access.png)
+*The Remote Access page with the setup wizard.*
 
 ### Step 1: API Token
 

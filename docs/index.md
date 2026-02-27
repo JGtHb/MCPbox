@@ -37,6 +37,11 @@ The tool now exists permanently. Next time anyone asks about Claude's status, th
 
 ---
 
+![MCPBox Dashboard](images/dashboard.png)
+*The MCPBox dashboard showing servers, tools, request volume, and system health.*
+
+---
+
 ## Key Features
 
 - **LLM as Toolmaker** — The LLM writes Python code via MCP tools, and that code becomes a permanent, reusable tool

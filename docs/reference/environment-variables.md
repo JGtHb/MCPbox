@@ -34,6 +34,12 @@ Each secret must be a unique value. MCPBox checks on startup that secrets are di
 | `MCPBOX_ENABLE_HSTS` | `false` | Enable HSTS header in nginx. Set to `true` only when behind a TLS-terminating reverse proxy. |
 | `CLOUDFLARED_API_KEY` | (falls back to `SANDBOX_API_KEY`) | Dedicated API key for the cloudflared container. Limits blast radius if cloudflared is compromised. |
 
+## Sandbox
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SANDBOX_MAX_RESULT_SIZE` | `1048576` (1 MB) | Maximum size in bytes for tool return values. Results exceeding this are truncated with a notice. |
+
 ## HTTP Client
 
 | Variable | Default | Description |
@@ -73,6 +79,9 @@ Each secret must be a unique value. MCPBox checks on startup that secrets are di
 ## Runtime Settings (Admin UI)
 
 The following settings can be configured via the admin UI or API (`PATCH /api/settings/security-policy`). `RATE_LIMIT_REQUESTS_PER_MINUTE` and `ALERT_WEBHOOK_URL` can also be set as environment variables for initial defaults.
+
+![Settings - Security](../images/settings-security.png)
+*Security policy settings in the admin UI.*
 
 | Setting | Default | Description |
 |---------|---------|-------------|

@@ -31,6 +31,18 @@ export function useTheme() {
       } else {
         document.documentElement.classList.remove('dark')
       }
+
+      // Sync iOS/Android status bar color with current theme.
+      // The <meta name="theme-color"> in index.html uses media queries
+      // for system-preference detection, but when the user overrides
+      // the theme via the in-app toggle we must update both meta tags
+      // so the browser picks up the correct color immediately.
+      const themeColor = shouldBeDark ? '#232136' : '#faf4ed'
+      document
+        .querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')
+        .forEach((meta) => {
+          meta.setAttribute('content', themeColor)
+        })
     }
 
     updateDarkMode()
