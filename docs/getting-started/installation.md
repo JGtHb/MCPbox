@@ -44,7 +44,7 @@ echo "SANDBOX_API_KEY=$(openssl rand -hex 32)" >> .env
 {: .important }
 Each secret must be a unique value. MCPBox checks on startup and logs a warning if duplicates are detected.
 
-See [Environment Variables]({% link reference/environment-variables.md %}) for the full list of optional settings.
+See [Environment Variables]({{ site.baseurl }}/reference/environment-variables.html) for the full list of optional settings.
 
 ## Start
 
@@ -58,23 +58,9 @@ Database migrations run automatically on first startup. You can check the backen
 docker compose logs backend | grep "migrations"
 ```
 
-## Verify
-
-Check that all services are healthy:
-
-```bash
-curl http://localhost:8000/health
-```
-
-Expected response:
-
-```json
-{"status": "healthy"}
-```
-
 Open [http://localhost:3000](http://localhost:3000) in your browser to access the admin UI.
 
 ## Next Steps
 
-- [Quick Start]({% link getting-started/quick-start.md %}) — Set up your admin account and tour the UI
-- [Connecting MCP Clients]({% link getting-started/connecting-clients.md %}) — Point your LLM at MCPBox
+- [Quick Start]({{ site.baseurl }}/getting-started/quick-start.html) — Set up your admin account and tour the UI
+- [Connecting MCP Clients]({{ site.baseurl }}/getting-started/connecting-clients.html) — Point your LLM at MCPBox

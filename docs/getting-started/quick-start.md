@@ -6,7 +6,7 @@ nav_order: 2
 
 # Quick Start
 
-After [installing MCPBox]({% link getting-started/installation.md %}), follow these steps to set up your admin account and get familiar with the interface.
+After [installing MCPBox]({{ site.baseurl }}/getting-started/installation.html), follow these steps to set up your admin account and get familiar with the interface.
 
 ## Create Your Admin Account
 
@@ -38,7 +38,7 @@ After logging in, you'll see the dashboard with:
 
 ## What Happens Next
 
-Once you [connect an MCP client]({% link getting-started/connecting-clients.md %}), the LLM will discover 28 `mcpbox_*` management tools automatically. These let it:
+Once you [connect an MCP client]({{ site.baseurl }}/getting-started/connecting-clients.html), the LLM will discover 28 `mcpbox_*` management tools automatically. These let it:
 
 1. Create servers to organize tools
 2. Write Python code that becomes a permanent tool
@@ -50,5 +50,5 @@ You stay in control — nothing runs until you approve it in the Approvals page.
 
 ## Next Steps
 
-- [Connect your MCP client]({% link getting-started/connecting-clients.md %})
-- [Create your first tool]({% link guides/first-tool.md %})
+- [Connect your MCP client]({{ site.baseurl }}/getting-started/connecting-clients.html)
+- [Create your first tool]({{ site.baseurl }}/guides/first-tool.html)

@@ -50,8 +50,8 @@ If the tools don't appear, check that MCPBox is running (`docker compose ps`) an
 
 ## Remote Access
 
-To connect MCP clients from outside your local network (e.g., claude.ai, remote Cursor), you need to set up Cloudflare remote access. See [Remote Access Setup]({% link guides/remote-access.md %}).
+To connect MCP clients from outside your local network (e.g., claude.ai, remote Cursor), you need to set up Cloudflare remote access. See [Remote Access Setup]({{ site.baseurl }}/guides/remote-access.html).
 
 ## Next Steps
 
-- [Create your first tool]({% link guides/first-tool.md %}) — Walk through building a tool with your LLM
+- [Create your first tool]({{ site.baseurl }}/guides/first-tool.html) — Walk through building a tool with your LLM

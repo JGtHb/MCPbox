@@ -116,9 +116,9 @@ Every tool is an `async def main()` function with these globals:
 
 Parameters of `main()` become the tool's input schema automatically. Return values become the tool's output.
 
-Additional Python modules can be imported if they're on the [allowed list]({% link reference/mcp-tools.md %}#module-whitelist). Need a module that's not allowed? The LLM can request it with `mcpbox_request_module`, and you approve it in the admin UI.
+Additional Python modules can be imported if they're on the [allowed list]({{ site.baseurl }}/reference/mcp-tools.html#module-whitelist). Need a module that's not allowed? The LLM can request it with `mcpbox_request_module`, and you approve it in the admin UI.
 
 ## Next Steps
 
-- [Admin Approval Workflow]({% link guides/approval-workflow.md %}) — Learn more about the review process
-- [Server Secrets]({% link guides/server-secrets.md %}) — Give tools access to API keys
+- [Admin Approval Workflow]({{ site.baseurl }}/guides/approval-workflow.html) — Learn more about the review process
+- [Server Secrets]({{ site.baseurl }}/guides/server-secrets.html) — Give tools access to API keys

@@ -91,6 +91,6 @@ The following settings can be configured via the admin UI or API (`PATCH /api/se
 
 ## Remote Access
 
-Remote access tokens (tunnel token, service token, OIDC credentials) are stored in the database and managed by the [setup wizard]({% link guides/remote-access.md %}). No additional environment variables are needed.
+Remote access tokens (tunnel token, service token, OIDC credentials) are stored in the database and managed by the [setup wizard]({{ site.baseurl }}/guides/remote-access.html). No additional environment variables are needed.
 
 After completing the wizard, run `./scripts/deploy-worker.sh --set-secrets` to push tokens to the Cloudflare Worker.
