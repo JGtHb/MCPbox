@@ -380,6 +380,7 @@ class ApprovalService:
             ValueError: If tool not found or duplicate request exists
         """
         # Derive server_id from tool if tool_id is provided
+        tool_name_str = "admin"
         if tool_id:
             stmt = select(Tool).where(Tool.id == tool_id)
             result = await self.db.execute(stmt)
@@ -387,6 +388,7 @@ class ApprovalService:
             if not tool:
                 raise ValueError(f"Tool {tool_id} not found")
             server_id = tool.server_id
+            tool_name_str = tool.name
 
         request = ModuleRequest(
             tool_id=tool_id,
@@ -411,7 +413,9 @@ class ApprovalService:
 
         await self.db.refresh(request)
 
-        logger.info(f"Module request created: {module_name} for tool {tool.name} by {requested_by}")
+        logger.info(
+            f"Module request created: {module_name} for tool {tool_name_str} by {requested_by}"
+        )
         return request
 
     async def approve_module_request(
@@ -652,6 +656,7 @@ class ApprovalService:
             ValueError: If tool not found or duplicate request exists
         """
         # Derive server_id from tool if tool_id is provided
+        tool_name_str = "admin"
         if tool_id:
             stmt = select(Tool).where(Tool.id == tool_id)
             result = await self.db.execute(stmt)
@@ -659,6 +664,7 @@ class ApprovalService:
             if not tool:
                 raise ValueError(f"Tool {tool_id} not found")
             server_id = tool.server_id
+            tool_name_str = tool.name
         elif not server_id:
             raise ValueError("Either tool_id or server_id must be provided")
 
@@ -688,7 +694,7 @@ class ApprovalService:
         await self.db.refresh(request)
 
         logger.info(
-            f"Network access request created: {host} for tool {tool.name} by {requested_by}"
+            f"Network access request created: {host} for tool {tool_name_str} by {requested_by}"
         )
         return request
 

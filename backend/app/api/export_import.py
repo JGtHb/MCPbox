@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -18,6 +19,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import get_db, settings
 from app.models.module_request import ModuleRequest
 from app.models.network_access_request import NetworkAccessRequest
+
+if TYPE_CHECKING:
+    from app.models.tool import Tool
 from app.schemas.server import ServerCreate
 from app.schemas.tool import ToolCreate
 from app.services.approval import sync_allowed_hosts, sync_allowed_modules
@@ -174,7 +178,7 @@ class ImportResult(BaseModel):
     warnings: list[str] = []
 
 
-def _export_tool(tool) -> ExportedTool:
+def _export_tool(tool: "Tool") -> ExportedTool:
     """Build an ExportedTool from a Tool ORM object."""
     return ExportedTool(
         name=tool.name,
@@ -376,10 +380,7 @@ async def import_servers(
     # v1.0 exports were signed without module/network request fields,
     # so we strip them for backward-compatible signature verification.
     is_v1_0 = data.version == "1.0"
-    import_data = {
-        "version": data.version,
-        "servers": [],
-    }
+    servers_list: list[dict] = []
     for s in data.servers:
         tools_list = []
         for t in s.tools:
@@ -399,8 +400,12 @@ async def import_servers(
             server_dict["admin_network_requests"] = [
                 anr.model_dump() for anr in s.admin_network_requests
             ]
-        import_data["servers"].append(server_dict)
+        servers_list.append(server_dict)
 
+    import_data: dict = {
+        "version": data.version,
+        "servers": servers_list,
+    }
     if is_v1_2:
         import_data["admin_module_requests"] = [m.model_dump() for m in data.admin_module_requests]
 
