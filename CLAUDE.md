@@ -88,10 +88,12 @@ Two modes: **Local** (no auth, local MCP client → localhost:8000/mcp) and **Re
 
 ## Branching Model
 
-- **`develop`** — default branch. All PRs merge here. CI runs on push and PR.
-- **`main`** — releases only. Merge `develop → main` when ready to release, then tag `vX.Y.Z`.
-- **Hotfixes** — branch from `main`, fix, PR to `main`, then merge `main → develop` to sync.
-- **Releases** — pushing a `v*` tag triggers `.github/workflows/release.yml`, which creates a GitHub Release with auto-generated notes.
+- **`develop`** — default branch. CI runs on push and PR.
+- **`main`** — releases only.
+- **Never push directly to `main` or `develop`** — all changes go through PRs.
+- **Feature work** — branch from `develop`, PR back to `develop`.
+- **Hotfixes** — branch from `main`, PR to `main`, then merge `main → develop` to sync.
+- **Releases** — open a PR from `develop → main`, merge it, then tag `vX.Y.Z`. Pushing a `v*` tag triggers `.github/workflows/release.yml`, which creates a GitHub Release with auto-generated notes.
 - End users install from `main` (stable). Contributors work on `develop`.
 
 ## Workflow Rules
