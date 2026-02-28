@@ -91,7 +91,8 @@ class ModuleRequestResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    tool_id: UUID
+    tool_id: UUID | None
+    server_id: UUID | None = None
     module_name: str
     justification: str
     requested_by: str | None
@@ -141,10 +142,10 @@ class ModuleRequestQueueItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    tool_id: UUID
-    tool_name: str
-    server_id: UUID
-    server_name: str
+    tool_id: UUID | None
+    tool_name: str | None
+    server_id: UUID | None
+    server_name: str | None
     module_name: str
     justification: str
     requested_by: str | None
@@ -153,6 +154,7 @@ class ModuleRequestQueueItem(BaseModel):
     reviewed_at: datetime | None = None
     rejection_reason: str | None = None
     created_at: datetime
+    source: str = "llm"  # "llm" or "admin"
     # PyPI info (populated separately, not from DB)
     pypi_info: PyPIPackageInfo | None = None
 
@@ -213,7 +215,8 @@ class NetworkAccessRequestResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    tool_id: UUID
+    tool_id: UUID | None
+    server_id: UUID | None = None
     host: str
     port: int | None
     justification: str
@@ -232,10 +235,10 @@ class NetworkAccessRequestQueueItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    tool_id: UUID
-    tool_name: str
-    server_id: UUID
-    server_name: str
+    tool_id: UUID | None
+    tool_name: str | None
+    server_id: UUID | None
+    server_name: str | None
     host: str
     port: int | None
     justification: str
@@ -245,6 +248,7 @@ class NetworkAccessRequestQueueItem(BaseModel):
     reviewed_at: datetime | None = None
     rejection_reason: str | None = None
     created_at: datetime
+    source: str = "llm"  # "llm" or "admin"
 
 
 class NetworkAccessRequestQueueResponse(BaseModel):

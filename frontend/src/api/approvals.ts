@@ -49,10 +49,10 @@ export interface PyPIPackageInfo {
 
 export interface ModuleRequestQueueItem {
   id: string
-  tool_id: string
-  tool_name: string
-  server_id: string
-  server_name: string
+  tool_id: string | null
+  tool_name: string | null
+  server_id: string | null
+  server_name: string | null
   module_name: string
   justification: string
   requested_by: string | null
@@ -62,14 +62,15 @@ export interface ModuleRequestQueueItem {
   reviewed_by?: string
   reviewed_at?: string
   rejection_reason?: string
+  source: string  // "llm" or "admin"
 }
 
 export interface NetworkAccessRequestQueueItem {
   id: string
-  tool_id: string
-  tool_name: string
-  server_id: string
-  server_name: string
+  tool_id: string | null
+  tool_name: string | null
+  server_id: string | null
+  server_name: string | null
   host: string
   port: number | null
   justification: string
@@ -79,6 +80,7 @@ export interface NetworkAccessRequestQueueItem {
   reviewed_by?: string
   reviewed_at?: string
   rejection_reason?: string
+  source: string  // "llm" or "admin"
 }
 
 export interface ApprovalDashboardStats {

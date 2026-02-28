@@ -69,6 +69,7 @@ async def pending_module_request(db_session: AsyncSession, draft_tool: Tool) -> 
     """Create a pending module request."""
     request = ModuleRequest(
         tool_id=draft_tool.id,
+        server_id=draft_tool.server_id,
         module_name="pandas",
         justification="Need pandas for data processing",
         requested_by="test@example.com",
@@ -87,6 +88,7 @@ async def pending_network_request(
     """Create a pending network access request."""
     request = NetworkAccessRequest(
         tool_id=draft_tool.id,
+        server_id=draft_tool.server_id,
         host="api.example.com",
         port=443,
         justification="Need to call external API",
@@ -537,6 +539,7 @@ async def multiple_pending_module_requests(
     for module_name in ["numpy", "scipy", "matplotlib"]:
         req = ModuleRequest(
             tool_id=draft_tool.id,
+            server_id=draft_tool.server_id,
             module_name=module_name,
             justification=f"Need {module_name} for data processing",
             requested_by="test@example.com",
@@ -559,6 +562,7 @@ async def multiple_pending_network_requests(
     for host in ["api.github.com", "api.stripe.com", "api.openai.com"]:
         req = NetworkAccessRequest(
             tool_id=draft_tool.id,
+            server_id=draft_tool.server_id,
             host=host,
             port=443,
             justification=f"Need access to {host}",
@@ -951,6 +955,7 @@ async def approved_module_request(db_session: AsyncSession, draft_tool: Tool) ->
 
     request = ModuleRequest(
         tool_id=draft_tool.id,
+        server_id=draft_tool.server_id,
         module_name="requests",
         justification="Need requests for HTTP calls",
         requested_by="dev@example.com",
@@ -973,6 +978,7 @@ async def approved_network_request(
 
     request = NetworkAccessRequest(
         tool_id=draft_tool.id,
+        server_id=draft_tool.server_id,
         host="api.approved.com",
         port=443,
         justification="Need access",
@@ -1617,6 +1623,7 @@ async def running_server_pending_network_request(
     """Create a pending network access request on a running server."""
     request = NetworkAccessRequest(
         tool_id=running_server_tool.id,
+        server_id=running_server_tool.server_id,
         host="api.newhost.com",
         port=443,
         justification="Need access to new API",
@@ -1636,12 +1643,9 @@ async def running_server_approved_network_request(
     """Create an approved network access request on a running server."""
     from datetime import UTC, datetime
 
-    # Add host to server's allowed_hosts so revocation has something to remove
-    running_server.allowed_hosts = ["api.revokable.com"]
-    await db_session.flush()
-
     request = NetworkAccessRequest(
         tool_id=running_server_tool.id,
+        server_id=running_server_tool.server_id,
         host="api.revokable.com",
         port=443,
         justification="Previously approved access",
@@ -1737,6 +1741,7 @@ async def multiple_running_server_pending_network_requests(
     for host in ["api.bulk1.com", "api.bulk2.com", "api.bulk3.com"]:
         req = NetworkAccessRequest(
             tool_id=running_server_tool.id,
+            server_id=running_server_tool.server_id,
             host=host,
             port=443,
             justification=f"Need access to {host}",
@@ -1805,6 +1810,7 @@ async def running_server_pending_module_request(
     """Create a pending module request on a running server."""
     request = ModuleRequest(
         tool_id=running_server_tool.id,
+        server_id=running_server_tool.server_id,
         module_name="numpy",
         justification="Need numpy for numerical computation",
         requested_by="test@example.com",
@@ -1825,6 +1831,7 @@ async def running_server_approved_module_request(
 
     request = ModuleRequest(
         tool_id=running_server_tool.id,
+        server_id=running_server_tool.server_id,
         module_name="scipy",
         justification="Need scipy for scientific computing",
         requested_by="dev@example.com",
@@ -1911,6 +1918,7 @@ async def multiple_running_server_pending_module_requests(
     for module_name in ["pandas", "matplotlib", "seaborn"]:
         req = ModuleRequest(
             tool_id=running_server_tool.id,
+            server_id=running_server_tool.server_id,
             module_name=module_name,
             justification=f"Need {module_name} for data visualization",
             requested_by="test@example.com",
@@ -1958,3 +1966,399 @@ async def test_bulk_approve_module_requests_triggers_server_reregistration(
 
     # Server should be re-registered (at least once, deduplicated per server)
     assert mock_sandbox_client.register_server.call_count >= 1
+
+
+# =============================================================================
+# Consolidation Tests: Admin-originated records, sync helpers, source field
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_add_host_creates_record_and_syncs(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    test_server: Server,
+    db_session: AsyncSession,
+    mock_sandbox_client,
+):
+    """Adding a host via server API creates a NetworkAccessRequest record."""
+    response = await async_client.post(
+        f"/api/servers/{test_server.id}/allowed-hosts",
+        json={"host": "api.manual.com"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "api.manual.com" in data["allowed_hosts"]
+
+    # Verify a record was created in the database
+    from sqlalchemy import select
+
+    result = await db_session.execute(
+        select(NetworkAccessRequest).where(
+            NetworkAccessRequest.server_id == test_server.id,
+            NetworkAccessRequest.tool_id.is_(None),
+            NetworkAccessRequest.host == "api.manual.com",
+        )
+    )
+    record = result.scalar_one_or_none()
+    assert record is not None
+    assert record.status == "approved"
+    assert record.requested_by == "admin"
+
+
+@pytest.mark.asyncio
+async def test_add_host_deduplicates(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    test_server: Server,
+    db_session: AsyncSession,
+    mock_sandbox_client,
+):
+    """Adding the same host twice does not create duplicate records."""
+    for _ in range(2):
+        response = await async_client.post(
+            f"/api/servers/{test_server.id}/allowed-hosts",
+            json={"host": "api.dedup.com"},
+            headers=admin_headers,
+        )
+        assert response.status_code == 200
+
+    from sqlalchemy import func, select
+
+    result = await db_session.execute(
+        select(func.count())
+        .select_from(NetworkAccessRequest)
+        .where(
+            NetworkAccessRequest.server_id == test_server.id,
+            NetworkAccessRequest.tool_id.is_(None),
+            NetworkAccessRequest.host == "api.dedup.com",
+        )
+    )
+    count = result.scalar()
+    assert count == 1
+
+
+@pytest.mark.asyncio
+async def test_remove_host_deletes_admin_record_and_syncs(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    test_server: Server,
+    db_session: AsyncSession,
+    mock_sandbox_client,
+):
+    """Removing a host deletes the admin record and syncs the cache."""
+    # First add a host
+    await async_client.post(
+        f"/api/servers/{test_server.id}/allowed-hosts",
+        json={"host": "api.removeme.com"},
+        headers=admin_headers,
+    )
+
+    # Now remove it
+    response = await async_client.delete(
+        f"/api/servers/{test_server.id}/allowed-hosts",
+        params={"host": "api.removeme.com"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "api.removeme.com" not in data["allowed_hosts"]
+
+    # Verify record was deleted
+    from sqlalchemy import select
+
+    result = await db_session.execute(
+        select(NetworkAccessRequest).where(
+            NetworkAccessRequest.server_id == test_server.id,
+            NetworkAccessRequest.tool_id.is_(None),
+            NetworkAccessRequest.host == "api.removeme.com",
+        )
+    )
+    assert result.scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_add_module_creates_record_and_syncs(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    db_session: AsyncSession,
+    mock_sandbox_client,
+):
+    """Adding a module via settings API creates a ModuleRequest record."""
+    mock_sandbox_client.install_package = AsyncMock(
+        return_value={"status": "installed", "package_name": "boto3", "version": "1.0"}
+    )
+    response = await async_client.patch(
+        "/api/settings/modules",
+        json={"add_modules": ["boto3"]},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "boto3" in data["allowed_modules"]
+
+    # Verify record exists
+    from sqlalchemy import select
+
+    result = await db_session.execute(
+        select(ModuleRequest).where(
+            ModuleRequest.tool_id.is_(None),
+            ModuleRequest.module_name == "boto3",
+            ModuleRequest.status == "approved",
+        )
+    )
+    record = result.scalar_one_or_none()
+    assert record is not None
+    assert record.requested_by == "admin"
+
+
+@pytest.mark.asyncio
+async def test_remove_module_deletes_admin_record(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    db_session: AsyncSession,
+    mock_sandbox_client,
+):
+    """Removing a module via settings API deletes the admin record."""
+    mock_sandbox_client.install_package = AsyncMock(
+        return_value={"status": "installed", "package_name": "flask", "version": "3.0"}
+    )
+    # Add first
+    await async_client.patch(
+        "/api/settings/modules",
+        json={"add_modules": ["flask"]},
+        headers=admin_headers,
+    )
+
+    # Remove
+    response = await async_client.patch(
+        "/api/settings/modules",
+        json={"remove_modules": ["flask"]},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+
+    # Verify record is gone
+    from sqlalchemy import select
+
+    result = await db_session.execute(
+        select(ModuleRequest).where(
+            ModuleRequest.tool_id.is_(None),
+            ModuleRequest.module_name == "flask",
+            ModuleRequest.status == "approved",
+        )
+    )
+    assert result.scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_global_approvals_include_admin_network_records(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    test_server: Server,
+    db_session: AsyncSession,
+    mock_sandbox_client,
+):
+    """Admin-originated network records appear on the global approvals page."""
+    # Create admin record by adding a host
+    await async_client.post(
+        f"/api/servers/{test_server.id}/allowed-hosts",
+        json={"host": "api.visible.com"},
+        headers=admin_headers,
+    )
+
+    # Check global approvals page
+    response = await async_client.get(
+        "/api/approvals/network?status=approved",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    hosts = [item["host"] for item in data["items"]]
+    assert "api.visible.com" in hosts
+
+    # Verify source field
+    item = next(i for i in data["items"] if i["host"] == "api.visible.com")
+    assert item["source"] == "admin"
+    assert item["tool_name"] is None
+    assert item["server_name"] == test_server.name
+
+
+@pytest.mark.asyncio
+async def test_global_approvals_include_admin_module_records(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    db_session: AsyncSession,
+    mock_sandbox_client,
+):
+    """Admin-originated module records appear on the global approvals page."""
+    mock_sandbox_client.install_package = AsyncMock(
+        return_value={"status": "installed", "package_name": "redis", "version": "5.0"}
+    )
+    await async_client.patch(
+        "/api/settings/modules",
+        json={"add_modules": ["redis"]},
+        headers=admin_headers,
+    )
+
+    response = await async_client.get(
+        "/api/approvals/modules?status=approved",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    modules = [item["module_name"] for item in data["items"]]
+    assert "redis" in modules
+
+    item = next(i for i in data["items"] if i["module_name"] == "redis")
+    assert item["source"] == "admin"
+    assert item["tool_name"] is None
+
+
+@pytest.mark.asyncio
+async def test_per_server_view_includes_admin_network_records(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    test_server: Server,
+    db_session: AsyncSession,
+    mock_sandbox_client,
+):
+    """Admin-originated network records appear in per-server view."""
+    await async_client.post(
+        f"/api/servers/{test_server.id}/allowed-hosts",
+        json={"host": "api.perserver.com"},
+        headers=admin_headers,
+    )
+
+    response = await async_client.get(
+        f"/api/approvals/server/{test_server.id}/network?status=approved",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    hosts = [item["host"] for item in data["items"]]
+    assert "api.perserver.com" in hosts
+
+    item = next(i for i in data["items"] if i["host"] == "api.perserver.com")
+    assert item["source"] == "admin"
+
+
+@pytest.mark.asyncio
+async def test_sync_allowed_hosts_recomputes_from_records(
+    db_session: AsyncSession,
+    test_server: Server,
+    draft_tool: Tool,
+):
+    """sync_allowed_hosts correctly computes from both LLM and admin records."""
+    from datetime import UTC, datetime
+
+    from app.services.approval import sync_allowed_hosts
+
+    # Create LLM-originated approved record
+    llm_nar = NetworkAccessRequest(
+        tool_id=draft_tool.id,
+        server_id=draft_tool.server_id,
+        host="api.llm.com",
+        port=443,
+        justification="LLM requested",
+        requested_by="llm@example.com",
+        status="approved",
+        reviewed_by="admin",
+        reviewed_at=datetime.now(UTC),
+    )
+    db_session.add(llm_nar)
+
+    # Create admin-originated approved record
+    admin_nar = NetworkAccessRequest(
+        server_id=test_server.id,
+        tool_id=None,
+        host="api.admin.com",
+        port=None,
+        justification="Admin added",
+        requested_by="admin",
+        status="approved",
+        reviewed_by="admin",
+        reviewed_at=datetime.now(UTC),
+    )
+    db_session.add(admin_nar)
+    await db_session.flush()
+
+    # Sync
+    hosts = await sync_allowed_hosts(test_server.id, db_session)
+    assert "api.llm.com" in hosts
+    assert "api.admin.com" in hosts
+
+    # Verify server.allowed_hosts cache was updated
+    await db_session.refresh(test_server)
+    assert "api.llm.com" in test_server.allowed_hosts
+    assert "api.admin.com" in test_server.allowed_hosts
+
+
+@pytest.mark.asyncio
+async def test_sync_allowed_modules_recomputes_from_records(
+    db_session: AsyncSession,
+):
+    """sync_allowed_modules correctly computes from records + defaults."""
+    from datetime import UTC, datetime
+
+    from app.services.approval import sync_allowed_modules
+    from app.services.global_config import DEFAULT_ALLOWED_MODULES
+
+    # Create admin-originated approved module record
+    admin_mr = ModuleRequest(
+        server_id=None,
+        tool_id=None,
+        module_name="custom_admin_module",
+        justification="Admin added",
+        requested_by="admin",
+        status="approved",
+        reviewed_by="admin",
+        reviewed_at=datetime.now(UTC),
+    )
+    db_session.add(admin_mr)
+    await db_session.flush()
+
+    modules = await sync_allowed_modules(db_session)
+    assert "custom_admin_module" in modules
+    # All defaults should be present too
+    for default_mod in DEFAULT_ALLOWED_MODULES:
+        assert default_mod in modules
+
+
+@pytest.mark.asyncio
+async def test_llm_network_request_includes_source_field(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    pending_network_request: NetworkAccessRequest,
+):
+    """LLM-originated network requests have source='llm'."""
+    response = await async_client.get(
+        "/api/approvals/network?status=pending",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["items"]) >= 1
+    item = next(i for i in data["items"] if i["id"] == str(pending_network_request.id))
+    assert item["source"] == "llm"
+    assert item["tool_name"] is not None
+
+
+@pytest.mark.asyncio
+async def test_llm_module_request_includes_source_field(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    pending_module_request: ModuleRequest,
+):
+    """LLM-originated module requests have source='llm'."""
+    response = await async_client.get(
+        "/api/approvals/modules?status=pending",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["items"]) >= 1
+    item = next(i for i in data["items"] if i["id"] == str(pending_module_request.id))
+    assert item["source"] == "llm"
+    assert item["tool_name"] is not None

@@ -4,13 +4,16 @@ Accessible without authentication (Option B architecture - admin panel is local-
 """
 
 import logging
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import get_db
+from app.models.network_access_request import NetworkAccessRequest
 from app.schemas.server import (
     AddHostRequest,
     AllowedHostsResponse,
@@ -21,6 +24,7 @@ from app.schemas.server import (
     ServerUpdate,
     ToolSummary,
 )
+from app.services.approval import sync_allowed_hosts
 from app.services.server import ServerService
 
 logger = logging.getLogger(__name__)
@@ -133,6 +137,7 @@ async def add_allowed_host(
 ) -> AllowedHostsResponse:
     """Add a host to a server's network allowlist.
 
+    Creates an auto-approved NetworkAccessRequest record, then syncs the cache.
     Re-registers the server with the sandbox if it's running.
     """
     server = await service.get(server_id)
@@ -142,12 +147,34 @@ async def add_allowed_host(
             detail=f"Server {server_id} not found",
         )
 
-    # Deduplicate
     host = data.host.strip().lower()
-    if host not in server.allowed_hosts:
-        # Reassign list for PostgreSQL ARRAY dirty tracking
-        server.allowed_hosts = [*server.allowed_hosts, host]
 
+    # Deduplicate: skip if an approved admin record already exists for this host+server
+    existing = await db.execute(
+        select(NetworkAccessRequest).where(
+            NetworkAccessRequest.server_id == server.id,
+            NetworkAccessRequest.tool_id.is_(None),
+            NetworkAccessRequest.host == host,
+            NetworkAccessRequest.status == "approved",
+        )
+    )
+    if not existing.scalar_one_or_none():
+        now = datetime.now(UTC)
+        record = NetworkAccessRequest(
+            server_id=server.id,
+            tool_id=None,
+            host=host,
+            port=None,
+            justification="Manually added by admin",
+            requested_by="admin",
+            status="approved",
+            reviewed_at=now,
+            reviewed_by="admin",
+        )
+        db.add(record)
+
+    # Sync cache from records
+    await sync_allowed_hosts(server.id, db)
     await db.commit()
     await db.refresh(server)
 
@@ -169,6 +196,7 @@ async def remove_allowed_host(
 ) -> AllowedHostsResponse:
     """Remove a host from a server's network allowlist.
 
+    Deletes the admin-originated record, then syncs the cache.
     Re-registers the server with the sandbox if it's running.
     """
     server = await service.get(server_id)
@@ -179,15 +207,28 @@ async def remove_allowed_host(
         )
 
     host = host.strip().lower()
-    if host not in server.allowed_hosts:
+    if host not in (server.allowed_hosts or []):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Host '{host}' is not in the allowlist",
         )
 
-    # Remove host (reassign for PostgreSQL ARRAY dirty tracking)
-    server.allowed_hosts = [h for h in server.allowed_hosts if h != host]
+    # Delete admin-originated record (tool_id IS NULL) for this host+server.
+    # LLM-originated records are preserved for audit history.
+    result = await db.execute(
+        select(NetworkAccessRequest).where(
+            NetworkAccessRequest.server_id == server.id,
+            NetworkAccessRequest.tool_id.is_(None),
+            NetworkAccessRequest.host == host,
+            NetworkAccessRequest.status == "approved",
+        )
+    )
+    admin_record = result.scalar_one_or_none()
+    if admin_record:
+        await db.delete(admin_record)
 
+    # Sync cache from records
+    await sync_allowed_hosts(server.id, db)
     await db.commit()
     await db.refresh(server)
 

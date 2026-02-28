@@ -230,12 +230,17 @@ All list endpoints return paginated responses: `{ items: T[], total: number, pag
 - **Purpose**: List pending approval requests (tools, modules, network access)
 - **Auth**: JWT required
 - **Output**: `{ tool_requests: [], module_requests: [], network_requests: [] }`
+- **Queue item schemas**:
+  - Module requests: `{ id, tool_id: UUID|null, tool_name: string|null, server_id: UUID|null, server_name: string|null, module_name, justification, status, source: "llm"|"admin", created_at }`
+  - Network requests: `{ id, tool_id: UUID|null, tool_name: string|null, server_id: UUID|null, server_name: string|null, host, port, justification, status, source: "llm"|"admin", created_at }`
+  - `tool_id`/`tool_name` are null for admin-initiated requests; `server_id`/`server_name` derived from tool or set directly
 
 #### POST /api/approvals/{type}/{id}/approve
 - **Purpose**: Approve a pending request
 - **Auth**: JWT required (admin identity from JWT for audit trail)
 - **Input**: `{ reason?: string }`
 - **Output**: Updated request (status: approved)
+- **Side effects**: Calls `sync_allowed_hosts()` or `sync_allowed_modules()` to recompute cache, then re-registers sandbox
 
 #### POST /api/approvals/{type}/{id}/reject
 - **Purpose**: Reject a pending request
@@ -266,15 +271,16 @@ All list endpoints return paginated responses: `{ items: T[], total: number, pag
 - **Output**: `{ servers: { total, running }, tools: { total, approved }, recent_activity: [] }`
 
 #### POST /api/export
-- **Purpose**: Export servers and tools as JSON
+- **Purpose**: Export servers and tools as JSON (format v1.2)
 - **Auth**: JWT required
-- **Output**: JSON export blob
+- **Output**: JSON export blob including `admin_module_requests` (top-level) and `admin_network_requests` (per-server) for admin-originated approval records
 
 #### POST /api/import
 - **Purpose**: Import servers and tools from JSON
 - **Auth**: JWT required
-- **Input**: JSON export blob
+- **Input**: JSON export blob (supports v1.0, v1.1, v1.2 formats)
 - **Output**: Import summary
+- **Behavior**: Creates approval records first, then calls `sync_allowed_hosts()`/`sync_allowed_modules()` to recompute caches. For v1.0/v1.1 imports, creates admin records from `allowed_hosts` that don't match tool-originated records.
 
 #### GET /api/cloudflare/status
 - **Purpose**: Get Cloudflare setup wizard status

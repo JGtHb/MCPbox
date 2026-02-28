@@ -31,10 +31,10 @@ Features are sorted by status, with broken/partial items at the top for visibili
 
 ### Tool Approval Workflow
 - **Status**: Complete
-- **Description**: Human-in-the-loop approval for tool publishing, module whitelisting, and network access. Tools start as `draft`, move to `pending_review` on publish request, then admin approves/rejects in the `/approvals` UI. Module and network access requests follow same pattern.
+- **Description**: Human-in-the-loop approval for tool publishing, module whitelisting, and network access. Tools start as `draft`, move to `pending_review` on publish request, then admin approves/rejects in the `/approvals` UI. Module and network access requests follow same pattern. Request tables (`NetworkAccessRequest`, `ModuleRequest`) are the **single source of truth** — `Server.allowed_hosts` and `GlobalConfig.allowed_modules` are derived caches recomputed via `sync_allowed_hosts()` / `sync_allowed_modules()`. Admin-initiated additions (manual host/module adds) create auto-approved records, making them visible alongside LLM-originated requests on the global approvals page.
 - **Owner modules**: `backend/app/api/approvals.py`, `backend/app/services/approval.py`, `frontend/src/pages/Approvals.tsx`
 - **Dependencies**: Admin auth (JWT), Tool service
-- **Test coverage**: `backend/tests/test_approvals.py` (40+ tests) — well covered
+- **Test coverage**: `backend/tests/test_approvals.py` (50+ tests) — well covered
 - **Security notes**: LLMs cannot self-approve. Admin identity extracted from JWT for audit trail. TOCTOU issue (SEC-001, SEC-002) is now **fixed** — approval resets on code update and rollback.
 
 ### Sandboxed Code Execution
@@ -130,7 +130,7 @@ Features are sorted by status, with broken/partial items at the top for visibili
 
 ### Export / Import
 - **Status**: Complete
-- **Description**: Export servers and tools as JSON for backup or migration. Import from JSON to restore.
+- **Description**: Export servers and tools as JSON for backup or migration. Import from JSON to restore. Export format v1.2 includes admin-originated network and module request records. Import creates records first then syncs caches (never writes `allowed_hosts`/`allowed_modules` directly). Backward compatible with v1.0/v1.1 exports (creates admin records from `allowed_hosts` during import).
 - **Owner modules**: `backend/app/api/export_import.py`
 - **Dependencies**: Server and Tool services
 - **Test coverage**: `backend/tests/test_export_import.py` (30+ tests) — well covered
