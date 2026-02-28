@@ -194,7 +194,7 @@ Features are sorted by status, with broken/partial items at the top for visibili
 
 ### Circuit Breaker
 - **Status**: Complete
-- **Description**: Circuit breaker pattern for sandbox communication. 5 failures triggers open state, 60s recovery timeout. Prevents cascade failures.
-- **Owner modules**: `backend/app/services/sandbox_client.py`
+- **Description**: Circuit breaker pattern for sandbox communication. Configurable thresholds (default: 10 failures to open, 30s recovery timeout, 1 success to close). Each failing request counts as a single failure regardless of retries. Env vars: `CIRCUIT_BREAKER_FAILURE_THRESHOLD`, `CIRCUIT_BREAKER_TIMEOUT`, `CIRCUIT_BREAKER_SUCCESS_THRESHOLD`.
+- **Owner modules**: `backend/app/core/retry.py`, `backend/app/services/sandbox_client.py`
 - **Dependencies**: None
-- **Test coverage**: `backend/tests/test_circuit_breaker_api.py`
+- **Test coverage**: `backend/tests/test_retry.py`, `backend/tests/test_circuit_breaker_api.py`

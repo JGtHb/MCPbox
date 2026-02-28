@@ -29,11 +29,13 @@ SANDBOX_RETRY_CONFIG = RetryConfig(
     jitter=True,
 )
 
-# Circuit breaker configuration for sandbox
+# Circuit breaker configuration for sandbox — reads from env vars
+# (CIRCUIT_BREAKER_FAILURE_THRESHOLD, CIRCUIT_BREAKER_TIMEOUT,
+#  CIRCUIT_BREAKER_SUCCESS_THRESHOLD) with sensible defaults.
 SANDBOX_CIRCUIT_CONFIG = CircuitBreakerConfig(
-    failure_threshold=5,
-    success_threshold=2,
-    timeout=30.0,  # Shorter timeout since sandbox is local
+    failure_threshold=settings.circuit_breaker_failure_threshold,
+    success_threshold=settings.circuit_breaker_success_threshold,
+    timeout=settings.circuit_breaker_timeout,
 )
 
 

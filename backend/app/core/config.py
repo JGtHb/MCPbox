@@ -95,6 +95,11 @@ class Settings(BaseSettings):
     http_max_connections: int = 10
     http_keepalive_connections: int = 5
 
+    # Circuit breaker settings for sandbox communication
+    circuit_breaker_failure_threshold: int = 10  # Failures before opening circuit
+    circuit_breaker_timeout: float = 30.0  # Seconds before attempting half-open
+    circuit_breaker_success_threshold: int = 1  # Successes in half-open before closing
+
     # Rate limiting
     rate_limit_requests_per_minute: int = 100
 
