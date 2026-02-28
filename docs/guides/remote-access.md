@@ -88,8 +88,6 @@ Add the Worker URL to your MCP client:
 
 The first time you connect, you'll be redirected to Cloudflare Access for authentication.
 
-{: .note }
-If you use a custom domain in Cloudflare, the URL will be whatever you configured in the Worker's routes.
 
 ## Security Model
 
