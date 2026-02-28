@@ -75,6 +75,7 @@ Two modes: **Local** (no auth, local MCP client → localhost:8000/mcp) and **Re
 | Document | When to Consult |
 |----------|----------------|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Module map, data flow, dependencies, identified issues |
+| [docs/DATA-MODEL.md](docs/DATA-MODEL.md) | Database schema, entity relationships, design patterns |
 | [docs/FEATURES.md](docs/FEATURES.md) | Feature inventory with status, test coverage, owner modules |
 | [docs/SECURITY.md](docs/SECURITY.md) | Security model, review summary, operator best practices |
 | [docs/TESTING.md](docs/TESTING.md) | Test coverage map, critical gaps, infrastructure |

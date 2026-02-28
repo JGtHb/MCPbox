@@ -12,6 +12,7 @@ These documents are for contributors and developers working on the MCPBox codeba
 | Document | Description |
 |----------|-------------|
 | [Architecture](https://github.com/JGtHb/MCPbox/blob/main/docs/ARCHITECTURE.md) | Module map, data flow, database schema, Docker networks |
+| [Data Model](https://github.com/JGtHb/MCPbox/blob/main/docs/DATA-MODEL.md) | Database schema, entity relationships, design patterns |
 | [Auth Flow](https://github.com/JGtHb/MCPbox/blob/main/docs/AUTH-FLOW.md) | Worker + Gateway authentication and authorization flow |
 | [Decisions](https://github.com/JGtHb/MCPbox/blob/main/docs/DECISIONS.md) | Architecture decision records (ADRs) |
 | [Security](https://github.com/JGtHb/MCPbox/blob/main/docs/SECURITY.md) | Security model and operator best practices |
