@@ -12,9 +12,80 @@ from sqlalchemy.orm import selectinload
 
 from app.models.module_request import ModuleRequest
 from app.models.network_access_request import NetworkAccessRequest
+from app.models.server import Server
 from app.models.tool import Tool
 
 logger = logging.getLogger(__name__)
+
+
+# =========================================================================
+# Sync Helpers — Single Source of Truth
+#
+# These are the ONLY functions that should write to Server.allowed_hosts
+# or GlobalConfig.allowed_modules. All mutations go through request
+# records first, then call these to recompute the derived cache.
+# =========================================================================
+
+
+async def sync_allowed_hosts(server_id: UUID, db: AsyncSession) -> list[str]:
+    """Recompute Server.allowed_hosts from approved NetworkAccessRequest records.
+
+    Queries all approved network access requests for the given server
+    (both LLM-originated via tool.server_id and admin-originated via direct server_id),
+    deduplicates, and writes the result to Server.allowed_hosts.
+
+    Returns:
+        The updated list of allowed hosts.
+    """
+    # Get all approved hosts for this server from both paths
+    stmt = (
+        select(NetworkAccessRequest.host)
+        .outerjoin(Tool, NetworkAccessRequest.tool_id == Tool.id)
+        .where(
+            NetworkAccessRequest.status == "approved",
+            or_(
+                NetworkAccessRequest.server_id == server_id,
+                Tool.server_id == server_id,
+            ),
+        )
+    )
+    result = await db.execute(stmt)
+    hosts = sorted({row[0] for row in result.all()})
+
+    # Update the server's cached allowed_hosts
+    server_result = await db.execute(select(Server).where(Server.id == server_id))
+    server = server_result.scalar_one_or_none()
+    if server:
+        server.allowed_hosts = hosts
+        await db.flush()
+
+    return hosts
+
+
+async def sync_allowed_modules(db: AsyncSession) -> list[str]:
+    """Recompute GlobalConfig.allowed_modules from approved ModuleRequest records + defaults.
+
+    Queries all approved module requests, unions with DEFAULT_ALLOWED_MODULES,
+    and writes the result to GlobalConfig.allowed_modules.
+
+    Returns:
+        The updated list of allowed modules.
+    """
+    from app.services.global_config import DEFAULT_ALLOWED_MODULES, GlobalConfigService
+
+    # Get all approved module names from requests
+    stmt = select(ModuleRequest.module_name).where(ModuleRequest.status == "approved")
+    result = await db.execute(stmt)
+    approved_modules = {row[0] for row in result.all()}
+
+    # Union with defaults
+    all_modules = sorted(set(DEFAULT_ALLOWED_MODULES) | approved_modules)
+
+    # Update GlobalConfig
+    config_service = GlobalConfigService(db)
+    await config_service.set_allowed_modules(all_modules)
+
+    return all_modules
 
 
 class ApprovalService:
@@ -288,18 +359,20 @@ class ApprovalService:
 
     async def create_module_request(
         self,
-        tool_id: UUID,
+        tool_id: UUID | None,
         module_name: str,
         justification: str,
         requested_by: str | None = None,
+        server_id: UUID | None = None,
     ) -> ModuleRequest:
         """Create a request to whitelist a Python module.
 
         Args:
-            tool_id: ID of the tool that needs this module
+            tool_id: ID of the tool that needs this module (None for admin-initiated)
             module_name: Name of the module to whitelist
             justification: Why the module is needed
             requested_by: Email of the requester
+            server_id: Server ID (derived from tool if tool_id is set, direct for admin)
 
         Returns:
             Created module request
@@ -307,16 +380,20 @@ class ApprovalService:
         Raises:
             ValueError: If tool not found or duplicate request exists
         """
-        # Verify tool exists
-        stmt = select(Tool).where(Tool.id == tool_id)
-        result = await self.db.execute(stmt)
-        tool = result.scalar_one_or_none()
-
-        if not tool:
-            raise ValueError(f"Tool {tool_id} not found")
+        # Derive server_id from tool if tool_id is provided
+        tool_name_str = "admin"
+        if tool_id:
+            stmt = select(Tool).where(Tool.id == tool_id)
+            result = await self.db.execute(stmt)
+            tool = result.scalar_one_or_none()
+            if not tool:
+                raise ValueError(f"Tool {tool_id} not found")
+            server_id = tool.server_id
+            tool_name_str = tool.name
 
         request = ModuleRequest(
             tool_id=tool_id,
+            server_id=server_id,
             module_name=module_name,
             justification=justification,
             requested_by=requested_by,
@@ -337,7 +414,9 @@ class ApprovalService:
 
         await self.db.refresh(request)
 
-        logger.info(f"Module request created: {module_name} for tool {tool.name} by {requested_by}")
+        logger.info(
+            f"Module request created: {module_name} for tool {tool_name_str} by {requested_by}"
+        )
         return request
 
     async def approve_module_request(
@@ -345,7 +424,7 @@ class ApprovalService:
         request_id: UUID,
         approved_by: str,
     ) -> ModuleRequest:
-        """Approve a module whitelist request and add to server's allowed modules.
+        """Approve a module whitelist request and add to allowed modules.
 
         Args:
             request_id: ID of the request to approve
@@ -359,7 +438,10 @@ class ApprovalService:
         """
         stmt = (
             select(ModuleRequest)
-            .options(selectinload(ModuleRequest.tool).selectinload(Tool.server))
+            .options(
+                selectinload(ModuleRequest.tool).selectinload(Tool.server),
+                selectinload(ModuleRequest.server),
+            )
             .where(ModuleRequest.id == request_id)
         )
         result = await self.db.execute(stmt)
@@ -376,11 +458,8 @@ class ApprovalService:
         request.reviewed_at = datetime.now(UTC)
         request.reviewed_by = approved_by
 
-        # Add module to global allowed modules
-        from app.services.global_config import GlobalConfigService
-
-        config_service = GlobalConfigService(self.db)
-        await config_service.add_module(request.module_name)
+        # Sync allowed modules from approved records (single source of truth)
+        await sync_allowed_modules(self.db)
 
         await self.db.commit()
         await self.db.refresh(request)
@@ -497,7 +576,10 @@ class ApprovalService:
 
         stmt = (
             select(ModuleRequest)
-            .options(selectinload(ModuleRequest.tool).selectinload(Tool.server))
+            .options(
+                selectinload(ModuleRequest.tool).selectinload(Tool.server),
+                selectinload(ModuleRequest.server),
+            )
             .where(*conditions)
             .order_by(ModuleRequest.created_at.desc())
             .offset((page - 1) * page_size)
@@ -510,9 +592,13 @@ class ApprovalService:
             {
                 "id": req.id,
                 "tool_id": req.tool_id,
-                "tool_name": req.tool.name if req.tool else "Unknown",
-                "server_id": req.tool.server_id if req.tool else None,
-                "server_name": req.tool.server.name if req.tool and req.tool.server else "Unknown",
+                "tool_name": req.tool.name if req.tool else None,
+                "server_id": req.server_id or (req.tool.server_id if req.tool else None),
+                "server_name": (
+                    req.tool.server.name
+                    if req.tool and req.tool.server
+                    else (req.server.name if req.server else None)
+                ),
                 "module_name": req.module_name,
                 "justification": req.justification,
                 "requested_by": req.requested_by,
@@ -521,6 +607,7 @@ class ApprovalService:
                 "reviewed_at": req.reviewed_at,
                 "rejection_reason": req.rejection_reason,
                 "created_at": req.created_at,
+                "source": "llm" if req.tool_id else "admin",
             }
             for req in requests
         ]
@@ -546,20 +633,22 @@ class ApprovalService:
 
     async def create_network_access_request(
         self,
-        tool_id: UUID,
+        tool_id: UUID | None,
         host: str,
         port: int | None,
         justification: str,
         requested_by: str | None = None,
+        server_id: UUID | None = None,
     ) -> NetworkAccessRequest:
         """Create a request to whitelist network access.
 
         Args:
-            tool_id: ID of the tool that needs this access
+            tool_id: ID of the tool that needs this access (None for admin-initiated)
             host: Hostname or IP to whitelist
             port: Optional port restriction
             justification: Why the access is needed
             requested_by: Email of the requester
+            server_id: Server ID (derived from tool if tool_id is set, direct for admin)
 
         Returns:
             Created network access request
@@ -567,16 +656,22 @@ class ApprovalService:
         Raises:
             ValueError: If tool not found or duplicate request exists
         """
-        # Verify tool exists
-        stmt = select(Tool).where(Tool.id == tool_id)
-        result = await self.db.execute(stmt)
-        tool = result.scalar_one_or_none()
-
-        if not tool:
-            raise ValueError(f"Tool {tool_id} not found")
+        # Derive server_id from tool if tool_id is provided
+        tool_name_str = "admin"
+        if tool_id:
+            stmt = select(Tool).where(Tool.id == tool_id)
+            result = await self.db.execute(stmt)
+            tool = result.scalar_one_or_none()
+            if not tool:
+                raise ValueError(f"Tool {tool_id} not found")
+            server_id = tool.server_id
+            tool_name_str = tool.name
+        elif not server_id:
+            raise ValueError("Either tool_id or server_id must be provided")
 
         request = NetworkAccessRequest(
             tool_id=tool_id,
+            server_id=server_id,
             host=host,
             port=port,
             justification=justification,
@@ -600,7 +695,7 @@ class ApprovalService:
         await self.db.refresh(request)
 
         logger.info(
-            f"Network access request created: {host} for tool {tool.name} by {requested_by}"
+            f"Network access request created: {host} for tool {tool_name_str} by {requested_by}"
         )
         return request
 
@@ -609,7 +704,7 @@ class ApprovalService:
         request_id: UUID,
         approved_by: str,
     ) -> NetworkAccessRequest:
-        """Approve a network access request and add to server's allowed hosts.
+        """Approve a network access request and sync allowed hosts.
 
         Args:
             request_id: ID of the request to approve
@@ -620,7 +715,10 @@ class ApprovalService:
         """
         stmt = (
             select(NetworkAccessRequest)
-            .options(selectinload(NetworkAccessRequest.tool).selectinload(Tool.server))
+            .options(
+                selectinload(NetworkAccessRequest.tool).selectinload(Tool.server),
+                selectinload(NetworkAccessRequest.server),
+            )
             .where(NetworkAccessRequest.id == request_id)
         )
         result = await self.db.execute(stmt)
@@ -637,19 +735,17 @@ class ApprovalService:
         request.reviewed_at = datetime.now(UTC)
         request.reviewed_by = approved_by
 
-        # Add host to server's allowed hosts
-        server = request.tool.server
-
-        # Add host (with optional port) to allowed hosts
-        host_entry = request.host
-        if host_entry not in server.allowed_hosts:
-            server.allowed_hosts = server.allowed_hosts + [host_entry]
+        # Sync allowed hosts from approved records (single source of truth)
+        server = request.tool.server if request.tool else request.server
+        if server:
+            await sync_allowed_hosts(server.id, self.db)
 
         await self.db.commit()
         await self.db.refresh(request)
 
+        server_name = server.name if server else "unknown"
         logger.info(
-            f"Network access request approved: {request.host} added to {server.name} by {approved_by}"
+            f"Network access request approved: {request.host} added to {server_name} by {approved_by}"
         )
         return request
 
@@ -734,7 +830,10 @@ class ApprovalService:
 
         stmt = (
             select(NetworkAccessRequest)
-            .options(selectinload(NetworkAccessRequest.tool).selectinload(Tool.server))
+            .options(
+                selectinload(NetworkAccessRequest.tool).selectinload(Tool.server),
+                selectinload(NetworkAccessRequest.server),
+            )
             .where(*conditions)
             .order_by(NetworkAccessRequest.created_at.desc())
             .offset((page - 1) * page_size)
@@ -747,9 +846,13 @@ class ApprovalService:
             {
                 "id": req.id,
                 "tool_id": req.tool_id,
-                "tool_name": req.tool.name if req.tool else "Unknown",
-                "server_id": req.tool.server_id if req.tool else None,
-                "server_name": req.tool.server.name if req.tool and req.tool.server else "Unknown",
+                "tool_name": req.tool.name if req.tool else None,
+                "server_id": req.server_id or (req.tool.server_id if req.tool else None),
+                "server_name": (
+                    req.tool.server.name
+                    if req.tool and req.tool.server
+                    else (req.server.name if req.server else None)
+                ),
                 "host": req.host,
                 "port": req.port,
                 "justification": req.justification,
@@ -759,6 +862,7 @@ class ApprovalService:
                 "reviewed_at": req.reviewed_at,
                 "rejection_reason": req.rejection_reason,
                 "created_at": req.created_at,
+                "source": "llm" if req.tool_id else "admin",
             }
             for req in requests
         ]
@@ -787,16 +891,21 @@ class ApprovalService:
         server_id: UUID,
         status: str | None = "approved",
     ) -> tuple[list[dict[str, Any]], int]:
-        """Get module requests for all tools belonging to a server."""
+        """Get module requests for a server (via tool or direct server_id)."""
 
-        conditions = [Tool.server_id == server_id]
+        # Match records linked to this server via either path
+        server_condition = or_(
+            ModuleRequest.server_id == server_id,
+            Tool.server_id == server_id,
+        )
+        conditions: list[ColumnElement[bool]] = [server_condition]
         if status and status != "all":
             conditions.append(ModuleRequest.status == status)
 
         count_stmt = (
             select(func.count(ModuleRequest.id))
             .select_from(ModuleRequest)
-            .join(Tool, ModuleRequest.tool_id == Tool.id)
+            .outerjoin(Tool, ModuleRequest.tool_id == Tool.id)
             .where(*conditions)
         )
         count_result = await self.db.execute(count_stmt)
@@ -804,8 +913,11 @@ class ApprovalService:
 
         stmt = (
             select(ModuleRequest)
-            .options(selectinload(ModuleRequest.tool).selectinload(Tool.server))
-            .join(Tool, ModuleRequest.tool_id == Tool.id)
+            .options(
+                selectinload(ModuleRequest.tool).selectinload(Tool.server),
+                selectinload(ModuleRequest.server),
+            )
+            .outerjoin(Tool, ModuleRequest.tool_id == Tool.id)
             .where(*conditions)
             .order_by(ModuleRequest.created_at.desc())
         )
@@ -815,13 +927,14 @@ class ApprovalService:
         items = [
             {
                 "id": str(req.id),
-                "tool_id": str(req.tool_id),
-                "tool_name": req.tool.name if req.tool else "Unknown",
+                "tool_id": str(req.tool_id) if req.tool_id else None,
+                "tool_name": req.tool.name if req.tool else None,
                 "module_name": req.module_name,
                 "justification": req.justification,
                 "status": req.status,
                 "reviewed_by": req.reviewed_by,
                 "created_at": req.created_at.isoformat() if req.created_at else None,
+                "source": "llm" if req.tool_id else "admin",
             }
             for req in requests
         ]
@@ -833,16 +946,21 @@ class ApprovalService:
         server_id: UUID,
         status: str | None = "approved",
     ) -> tuple[list[dict[str, Any]], int]:
-        """Get network access requests for all tools belonging to a server."""
+        """Get network access requests for a server (via tool or direct server_id)."""
 
-        conditions = [Tool.server_id == server_id]
+        # Match records linked to this server via either path
+        server_condition = or_(
+            NetworkAccessRequest.server_id == server_id,
+            Tool.server_id == server_id,
+        )
+        conditions: list[ColumnElement[bool]] = [server_condition]
         if status and status != "all":
             conditions.append(NetworkAccessRequest.status == status)
 
         count_stmt = (
             select(func.count(NetworkAccessRequest.id))
             .select_from(NetworkAccessRequest)
-            .join(Tool, NetworkAccessRequest.tool_id == Tool.id)
+            .outerjoin(Tool, NetworkAccessRequest.tool_id == Tool.id)
             .where(*conditions)
         )
         count_result = await self.db.execute(count_stmt)
@@ -850,8 +968,11 @@ class ApprovalService:
 
         stmt = (
             select(NetworkAccessRequest)
-            .options(selectinload(NetworkAccessRequest.tool).selectinload(Tool.server))
-            .join(Tool, NetworkAccessRequest.tool_id == Tool.id)
+            .options(
+                selectinload(NetworkAccessRequest.tool).selectinload(Tool.server),
+                selectinload(NetworkAccessRequest.server),
+            )
+            .outerjoin(Tool, NetworkAccessRequest.tool_id == Tool.id)
             .where(*conditions)
             .order_by(NetworkAccessRequest.created_at.desc())
         )
@@ -861,14 +982,15 @@ class ApprovalService:
         items = [
             {
                 "id": str(req.id),
-                "tool_id": str(req.tool_id),
-                "tool_name": req.tool.name if req.tool else "Unknown",
+                "tool_id": str(req.tool_id) if req.tool_id else None,
+                "tool_name": req.tool.name if req.tool else None,
                 "host": req.host,
                 "port": req.port,
                 "justification": req.justification,
                 "status": req.status,
                 "reviewed_by": req.reviewed_by,
                 "created_at": req.created_at.isoformat() if req.created_at else None,
+                "source": "llm" if req.tool_id else "admin",
             }
             for req in requests
         ]
@@ -1008,8 +1130,7 @@ class ApprovalService:
     ) -> ModuleRequest:
         """Revoke an approved module request back to pending status.
 
-        The module is removed from the global allowed modules list so the
-        sandbox will no longer permit it.
+        The allowed modules cache is resynced from remaining approved records.
 
         Args:
             request_id: ID of the module request to revoke
@@ -1023,7 +1144,10 @@ class ApprovalService:
         """
         stmt = (
             select(ModuleRequest)
-            .options(selectinload(ModuleRequest.tool).selectinload(Tool.server))
+            .options(
+                selectinload(ModuleRequest.tool).selectinload(Tool.server),
+                selectinload(ModuleRequest.server),
+            )
             .where(ModuleRequest.id == request_id)
         )
         result = await self.db.execute(stmt)
@@ -1043,11 +1167,8 @@ class ApprovalService:
         request.reviewed_by = None
         request.rejection_reason = None
 
-        # Remove module from global allowed modules list
-        from app.services.global_config import GlobalConfigService
-
-        config_service = GlobalConfigService(self.db)
-        await config_service.remove_module(request.module_name)
+        # Sync allowed modules from remaining approved records
+        await sync_allowed_modules(self.db)
 
         await self.db.commit()
         await self.db.refresh(request)
@@ -1062,7 +1183,7 @@ class ApprovalService:
     ) -> NetworkAccessRequest:
         """Revoke an approved network access request back to pending status.
 
-        The host is removed from the server's allowed hosts list.
+        The allowed hosts cache is resynced from remaining approved records.
 
         Args:
             request_id: ID of the network request to revoke
@@ -1076,7 +1197,10 @@ class ApprovalService:
         """
         stmt = (
             select(NetworkAccessRequest)
-            .options(selectinload(NetworkAccessRequest.tool).selectinload(Tool.server))
+            .options(
+                selectinload(NetworkAccessRequest.tool).selectinload(Tool.server),
+                selectinload(NetworkAccessRequest.server),
+            )
             .where(NetworkAccessRequest.id == request_id)
         )
         result = await self.db.execute(stmt)
@@ -1096,11 +1220,10 @@ class ApprovalService:
         request.reviewed_by = None
         request.rejection_reason = None
 
-        # Remove host from server's allowed hosts list
-        server = request.tool.server
-        if server and server.allowed_hosts:
-            updated_hosts = [h for h in server.allowed_hosts if h != request.host]
-            server.allowed_hosts = updated_hosts
+        # Sync allowed hosts from remaining approved records
+        server = request.tool.server if request.tool else request.server
+        if server:
+            await sync_allowed_hosts(server.id, self.db)
 
         await self.db.commit()
         await self.db.refresh(request)

@@ -78,7 +78,7 @@ Two modes: **Local** (no auth, local MCP client → localhost:8000/mcp) and **Re
 | [docs/FEATURES.md](docs/FEATURES.md) | Feature inventory with status, test coverage, owner modules |
 | [docs/SECURITY.md](docs/SECURITY.md) | Security model, review summary, operator best practices |
 | [docs/TESTING.md](docs/TESTING.md) | Test coverage map, critical gaps, infrastructure |
-| [docs/DECISIONS.md](docs/DECISIONS.md) | Architecture decision records (15 ADRs) |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Architecture decision records (16 ADRs) |
 | [docs/API-CONTRACTS.md](docs/API-CONTRACTS.md) | Internal + external API contracts and schemas |
 | [docs/AUTH-FLOW.md](docs/AUTH-FLOW.md) | Worker + Gateway auth flow details |
 | [docs/PRODUCTION-DEPLOYMENT.md](docs/PRODUCTION-DEPLOYMENT.md) | Production env vars, HTTPS, monitoring |

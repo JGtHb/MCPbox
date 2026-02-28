@@ -10,6 +10,8 @@ from app.models.base import BaseModel
 
 if TYPE_CHECKING:
     from app.models.external_mcp_source import ExternalMCPSource
+    from app.models.module_request import ModuleRequest
+    from app.models.network_access_request import NetworkAccessRequest
     from app.models.server_secret import ServerSecret
     from app.models.tool import Tool
 
@@ -75,6 +77,18 @@ class Server(BaseModel):
     external_mcp_sources: Mapped[list["ExternalMCPSource"]] = relationship(
         "ExternalMCPSource",
         back_populates="server",
+        cascade="all, delete-orphan",
+    )
+    network_access_requests: Mapped[list["NetworkAccessRequest"]] = relationship(
+        "NetworkAccessRequest",
+        back_populates="server",
+        foreign_keys="[NetworkAccessRequest.server_id]",
+        cascade="all, delete-orphan",
+    )
+    module_requests: Mapped[list["ModuleRequest"]] = relationship(
+        "ModuleRequest",
+        back_populates="server",
+        foreign_keys="[ModuleRequest.server_id]",
         cascade="all, delete-orphan",
     )
 

@@ -5,18 +5,22 @@ Accessible without authentication (Option B architecture - admin panel is local-
 
 import logging
 import re
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import get_db
+from app.models.module_request import ModuleRequest
 from app.schemas.setting import (
     SettingListResponse,
     SettingResponse,
 )
+from app.services.approval import sync_allowed_modules
 from app.services.global_config import GlobalConfigService
 from app.services.sandbox_client import SandboxClient, get_sandbox_client
 from app.services.setting import SettingService
@@ -266,13 +270,24 @@ async def update_modules(
 ) -> ModuleConfigResponse:
     """Update the global allowed modules list.
 
+    Creates/deletes ModuleRequest records, then syncs the cache.
     When adding modules, triggers package installation in the sandbox.
     """
     # Handle reset first
     if request.reset_to_defaults:
-        await config_service.reset_to_defaults()
+        # Delete all admin-originated module records
+        result = await db.execute(
+            select(ModuleRequest).where(
+                ModuleRequest.tool_id.is_(None),
+                ModuleRequest.status == "approved",
+            )
+        )
+        for record in result.scalars().all():
+            await db.delete(record)
+
+        # Sync cache (will recompute from remaining records + defaults)
+        allowed = await sync_allowed_modules(db)
         await db.commit()
-        allowed = await config_service.get_allowed_modules()
 
         # Trigger sandbox sync with new module list
         await sandbox_client.sync_packages(allowed)
@@ -283,14 +298,36 @@ async def update_modules(
             is_custom=False,
         )
 
-    # Handle additions - install packages in sandbox
+    # Handle additions - create approved records, then install packages
     if request.add_modules:
         for module_name in request.add_modules:
             try:
                 _validate_module_name(module_name)
             except ValueError as e:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-            await config_service.add_module(module_name)
+
+            # Deduplicate: skip if an approved admin record already exists
+            existing = await db.execute(
+                select(ModuleRequest).where(
+                    ModuleRequest.tool_id.is_(None),
+                    ModuleRequest.module_name == module_name,
+                    ModuleRequest.status == "approved",
+                )
+            )
+            if not existing.scalar_one_or_none():
+                now = datetime.now(UTC)
+                record = ModuleRequest(
+                    server_id=None,
+                    tool_id=None,
+                    module_name=module_name,
+                    justification="Manually added by admin",
+                    requested_by="admin",
+                    status="approved",
+                    reviewed_at=now,
+                    reviewed_by="admin",
+                )
+                db.add(record)
+
             # Trigger package installation in sandbox
             install_result = await sandbox_client.install_package(module_name)
             if install_result.get("status") == "failed":
@@ -299,14 +336,24 @@ async def update_modules(
                     f"{install_result.get('error_message')}"
                 )
 
-    # Handle removals
+    # Handle removals - delete admin-originated records
     if request.remove_modules:
         for module_name in request.remove_modules:
-            await config_service.remove_module(module_name)
+            result = await db.execute(
+                select(ModuleRequest).where(
+                    ModuleRequest.tool_id.is_(None),
+                    ModuleRequest.module_name == module_name,
+                    ModuleRequest.status == "approved",
+                )
+            )
+            admin_record = result.scalar_one_or_none()
+            if admin_record:
+                await db.delete(admin_record)
 
+    # Sync cache from records
+    allowed = await sync_allowed_modules(db)
     await db.commit()
 
-    allowed = await config_service.get_allowed_modules()
     is_custom = not await config_service.is_using_defaults()
 
     return ModuleConfigResponse(

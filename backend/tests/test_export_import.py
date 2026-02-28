@@ -88,7 +88,7 @@ class TestExportAllServers:
         response = await async_client.get("/api/export/servers", headers=admin_headers)
         assert response.status_code == 200
         data = response.json()
-        assert data["version"] == "1.0"
+        assert data["version"] == "1.2"
         assert "exported_at" in data
         assert data["servers"] == []
 
