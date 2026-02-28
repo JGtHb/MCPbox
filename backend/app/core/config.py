@@ -34,7 +34,7 @@ class Settings(BaseSettings):
 
     # Application
     app_name: str = "MCPbox"
-    app_version: str = "0.1.0"
+    app_version: str = "0.2.1"
     debug: bool = False
     log_level: str = "INFO"
 
