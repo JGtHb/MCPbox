@@ -33,6 +33,7 @@ MCPbox maintains **1,300+ test functions** across backend, sandbox, frontend, an
 | `api/execution_logs.py` | - | 7 tests | - | 70% | Pagination, single log, 404 |
 | `api/server_secrets.py` | - | 8 tests | - | 75% | CRUD, duplicate key, value leak prevention |
 | `api/health.py` | - | 3 tests | - | 70% | `test_health.py` covers basic, detail, and schema |
+| `core/retry.py` | 21 tests | - | - | 90% | `test_retry.py` — timer reset, retry amplification, recovery cycle |
 | `api/settings.py` | - | indirect only | - | 20% | - |
 | `api/external_mcp_sources.py` | - | 8 tests | - | 65% | CRUD, 404, nonexistent server |
 | `services/mcp_management.py` | - | 16 tests | - | 30% | **1,927 lines with only 16 tests** |

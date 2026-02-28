@@ -46,9 +46,9 @@ class RetryConfig:
 class CircuitBreakerConfig:
     """Configuration for circuit breaker behavior."""
 
-    failure_threshold: int = 5  # Failures before opening circuit
-    success_threshold: int = 2  # Successes in half-open before closing
-    timeout: float = 60.0  # Seconds before attempting half-open
+    failure_threshold: int = 10  # Failures before opening circuit
+    success_threshold: int = 1  # Successes in half-open before closing
+    timeout: float = 30.0  # Seconds before attempting half-open
     excluded_exceptions: tuple = ()  # Exceptions that don't count as failures
 
 
@@ -117,6 +117,11 @@ class CircuitBreaker:
             "failure_count": self._state.failure_count,
             "success_count": self._state.success_count,
             "last_failure_time": self._state.last_failure_time,
+            "config": {
+                "failure_threshold": self.config.failure_threshold,
+                "success_threshold": self.config.success_threshold,
+                "timeout": self.config.timeout,
+            },
         }
 
     async def reset(self) -> None:
@@ -162,6 +167,14 @@ class CircuitBreaker:
             return
 
         async with self._lock:
+            if self._state.state == CircuitState.OPEN:
+                # Already open — don't reset the recovery timer.
+                # The timeout should count from when the circuit first opened,
+                # not from the most recent failure. Without this guard, concurrent
+                # or in-flight requests that fail after the circuit opens would
+                # keep resetting last_failure_time, preventing recovery.
+                return
+
             self._state.failure_count += 1
             self._state.last_failure_time = time.monotonic()
 
@@ -254,10 +267,6 @@ async def retry_async(
         except Exception as e:
             last_exception = e
 
-            # Record failure in circuit breaker
-            if circuit_breaker:
-                await circuit_breaker.record_failure(e)
-
             # Check if exception is retryable
             is_retryable = isinstance(e, config.retryable_exceptions)
 
@@ -266,6 +275,12 @@ async def retry_async(
                 is_retryable = e.response.status_code in config.retryable_status_codes
 
             if not is_retryable or attempt >= config.max_retries:
+                # Record a single failure in circuit breaker after all retries
+                # are exhausted (or for non-retryable errors). This prevents
+                # retry amplification where one failing request with max_retries=3
+                # would count as 4 failures, making the circuit far too sensitive.
+                if circuit_breaker:
+                    await circuit_breaker.record_failure(e)
                 logger.warning(f"Retry failed after {attempt + 1} attempts: {e}")
                 raise
 

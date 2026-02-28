@@ -884,7 +884,12 @@ function ModuleRequestsQueue() {
           <div className="flex items-center gap-2 flex-wrap">
             <code className="rounded bg-iris/10 px-2 py-0.5 text-sm font-medium text-iris">{req.module_name}</code>
             <span className="text-sm text-subtle">for</span>
-            <span className="text-sm font-medium text-on-base">{req.server_name}.{req.tool_name}</span>
+            <span className="text-sm font-medium text-on-base">
+              {req.tool_name ? `${req.server_name ?? 'Global'}.${req.tool_name}` : req.server_name ?? 'Global'}
+            </span>
+            {req.source === 'admin' && (
+              <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-iris/10 text-iris border border-iris/20">Admin</span>
+            )}
             <StatusBadge status={req.status} />
           </div>
           <p className="mt-2 text-sm text-subtle">{req.justification}</p>
@@ -1208,7 +1213,12 @@ function NetworkRequestsQueue() {
               {req.host}{req.port ? `:${req.port}` : ''}
             </code>
             <span className="text-sm text-subtle">for</span>
-            <span className="text-sm font-medium text-on-base">{req.server_name}.{req.tool_name}</span>
+            <span className="text-sm font-medium text-on-base">
+              {req.tool_name ? `${req.server_name ?? 'Unknown'}.${req.tool_name}` : req.server_name ?? 'Unknown'}
+            </span>
+            {req.source === 'admin' && (
+              <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-iris/10 text-iris border border-iris/20">Admin</span>
+            )}
             <StatusBadge status={req.status} />
           </div>
           <p className="mt-2 text-sm text-subtle">{req.justification}</p>

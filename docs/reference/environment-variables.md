@@ -59,6 +59,14 @@ Each secret must be a unique value. MCPBox checks on startup that secrets are di
 {: .warning }
 **Port changes affect MCP client config.** If you change `MCPBOX_BACKEND_PORT`, you must also update your MCP client configuration to match. For example, if you set `MCPBOX_BACKEND_PORT=9000`, your MCP client URL becomes `http://localhost:9000/mcp` instead of `http://localhost:8000/mcp`.
 
+## Circuit Breaker
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CIRCUIT_BREAKER_FAILURE_THRESHOLD` | `10` | Number of failed requests before the sandbox circuit breaker opens |
+| `CIRCUIT_BREAKER_TIMEOUT` | `30.0` | Seconds to wait before attempting a half-open probe |
+| `CIRCUIT_BREAKER_SUCCESS_THRESHOLD` | `1` | Successful probes in half-open state before closing the circuit |
+
 ## Database
 
 | Variable | Default | Description |

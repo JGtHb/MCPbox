@@ -75,10 +75,11 @@ Two modes: **Local** (no auth, local MCP client → localhost:8000/mcp) and **Re
 | Document | When to Consult |
 |----------|----------------|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Module map, data flow, dependencies, identified issues |
+| [docs/DATA-MODEL.md](docs/DATA-MODEL.md) | Database schema, entity relationships, design patterns |
 | [docs/FEATURES.md](docs/FEATURES.md) | Feature inventory with status, test coverage, owner modules |
 | [docs/SECURITY.md](docs/SECURITY.md) | Security model, review summary, operator best practices |
 | [docs/TESTING.md](docs/TESTING.md) | Test coverage map, critical gaps, infrastructure |
-| [docs/DECISIONS.md](docs/DECISIONS.md) | Architecture decision records (15 ADRs) |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Architecture decision records (16 ADRs) |
 | [docs/API-CONTRACTS.md](docs/API-CONTRACTS.md) | Internal + external API contracts and schemas |
 | [docs/AUTH-FLOW.md](docs/AUTH-FLOW.md) | Worker + Gateway auth flow details |
 | [docs/PRODUCTION-DEPLOYMENT.md](docs/PRODUCTION-DEPLOYMENT.md) | Production env vars, HTTPS, monitoring |
@@ -88,11 +89,27 @@ Two modes: **Local** (no auth, local MCP client → localhost:8000/mcp) and **Re
 
 ## Branching Model
 
-- **`develop`** — default branch. All PRs merge here. CI runs on push and PR.
-- **`main`** — releases only. Merge `develop → main` when ready to release, then tag `vX.Y.Z`.
-- **Hotfixes** — branch from `main`, fix, PR to `main`, then merge `main → develop` to sync.
-- **Releases** — pushing a `v*` tag triggers `.github/workflows/release.yml`, which creates a GitHub Release with auto-generated notes.
+- **`develop`** — default branch. CI runs on push and PR.
+- **`main`** — releases only.
+- **Never push directly to `main` or `develop`** — all changes go through PRs.
+- **Feature work** — branch from `develop`, PR back to `develop`.
+- **Hotfixes** — branch from `main`, PR to `main`, then merge `main → develop` to sync.
+- **Releases** — open a PR from `develop → main`, merge it, then tag `vX.Y.Z`. Pushing a `v*` tag triggers `.github/workflows/release.yml`, which creates a GitHub Release with auto-generated notes.
 - End users install from `main` (stable). Contributors work on `develop`.
+
+### Version Bump Checklist
+
+Before a release, bump the version in **all 5 locations** (the sidebar reads from the backend dynamically):
+
+```
+backend/pyproject.toml          → version = "X.Y.Z"
+backend/app/core/config.py      → app_version: str = "X.Y.Z"
+frontend/package.json            → "version": "X.Y.Z"
+worker/package.json              → "version": "X.Y.Z"
+sandbox/pyproject.toml           → version = "X.Y.Z"
+```
+
+Then regenerate lock files: `cd frontend && npm install --package-lock-only && cd ../worker && npm install --package-lock-only`
 
 ## Workflow Rules
 

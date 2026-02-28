@@ -1456,7 +1456,10 @@ export function Settings() {
                           )}
                           <div>
                             <p className="font-medium">
-                              Imported {importResult.servers_created} server{importResult.servers_created !== 1 ? 's' : ''} and {importResult.tools_created} tool{importResult.tools_created !== 1 ? 's' : ''}
+                              Imported {importResult.servers_created} server{importResult.servers_created !== 1 ? 's' : ''}, {importResult.tools_created} tool{importResult.tools_created !== 1 ? 's' : ''}
+                              {(importResult.module_requests_created > 0 || importResult.network_access_requests_created > 0) && (
+                                <>, {importResult.module_requests_created + importResult.network_access_requests_created} approval request{importResult.module_requests_created + importResult.network_access_requests_created !== 1 ? 's' : ''}</>
+                              )}
                             </p>
                             {importResult.errors.length > 0 && (
                               <ul className="mt-2 text-sm list-disc list-inside">

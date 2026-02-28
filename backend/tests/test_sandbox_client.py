@@ -128,7 +128,7 @@ class TestSandboxClientCircuitBreaker:
             mock_get_client.return_value = mock_client
 
             # Make multiple failing requests to trip the circuit breaker
-            for _ in range(6):  # Threshold is 5
+            for _ in range(12):  # Threshold is configurable (default 10)
                 result = await client.health_check()
                 assert result is False
 
@@ -254,8 +254,8 @@ class TestSandboxClientRegisterServer:
         """Test server registration when circuit breaker is open."""
         client = SandboxClient()
 
-        # Force circuit breaker open by recording async failures
-        for _ in range(6):
+        # Force circuit breaker open by recording failures (threshold configurable, default 10)
+        for _ in range(12):
             await client._circuit_breaker.record_failure(Exception("test"))
 
         result = await client.register_server(

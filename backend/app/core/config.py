@@ -34,7 +34,7 @@ class Settings(BaseSettings):
 
     # Application
     app_name: str = "MCPbox"
-    app_version: str = "0.1.0"
+    app_version: str = "0.2.1"
     debug: bool = False
     log_level: str = "INFO"
 
@@ -94,6 +94,11 @@ class Settings(BaseSettings):
     http_timeout: float = 30.0
     http_max_connections: int = 10
     http_keepalive_connections: int = 5
+
+    # Circuit breaker settings for sandbox communication
+    circuit_breaker_failure_threshold: int = 10  # Failures before opening circuit
+    circuit_breaker_timeout: float = 30.0  # Seconds before attempting half-open
+    circuit_breaker_success_threshold: int = 1  # Successes in half-open before closing
 
     # Rate limiting
     rate_limit_requests_per_minute: int = 100

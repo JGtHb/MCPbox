@@ -7,7 +7,7 @@ import {
   useRevokeModuleRequest,
   useRevokeNetworkRequest,
 } from '../../api/approvals'
-import { useServer, useAddAllowedHost, useRemoveAllowedHost } from '../../api/servers'
+import { useAddAllowedHost, useRemoveAllowedHost } from '../../api/servers'
 import { ConfirmModal } from '../ui'
 
 interface ApprovedResourcesTabProps {
@@ -89,7 +89,6 @@ function RemoveHostButton({
 }
 
 export function ApprovedResourcesTab({ serverId }: ApprovedResourcesTabProps) {
-  const { data: server } = useServer(serverId)
   const { data: moduleData, isLoading: modulesLoading } = useServerModuleRequests(serverId)
   const { data: networkData, isLoading: networkLoading } = useServerNetworkRequests(serverId)
   const { data: toolsData, isLoading: toolsLoading } = useServerApprovedTools(serverId)
@@ -159,15 +158,8 @@ export function ApprovedResourcesTab({ serverId }: ApprovedResourcesTabProps) {
   const networkHosts = networkData?.items ?? []
   const approvedTools = toolsData?.items ?? []
 
-  // Build a set of hosts that came from approved network requests
-  const requestHostSet = new Set(networkHosts.map((r) => r.host.toLowerCase()))
-
-  // Manually-added hosts: in server.allowed_hosts but not covered by an approved network request
-  const serverAllowedHosts = server?.allowed_hosts ?? []
-  const manualHosts = serverAllowedHosts.filter((h) => !requestHostSet.has(h.toLowerCase()))
-
-  // Total host count for display
-  const totalHostCount = networkHosts.length + manualHosts.length
+  // All hosts now come from network request records (both LLM and admin-originated)
+  const totalHostCount = networkHosts.length
 
   return (
     <div className="space-y-6">
@@ -323,7 +315,13 @@ export function ApprovedResourcesTab({ serverId }: ApprovedResourcesTabProps) {
                     <td className="px-6 py-3 text-sm font-mono text-on-base">
                       {mod.module_name}
                     </td>
-                    <td className="px-6 py-3 text-sm text-subtle">{mod.tool_name}</td>
+                    <td className="px-6 py-3 text-sm text-subtle">
+                      {mod.source === 'admin' ? (
+                        <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-iris/10 text-iris border border-iris/20">Admin</span>
+                      ) : (
+                        mod.tool_name ?? '—'
+                      )}
+                    </td>
                     <td className="px-6 py-3 text-sm text-subtle">
                       {mod.reviewed_by ?? '—'}
                     </td>
@@ -443,45 +441,39 @@ export function ApprovedResourcesTab({ serverId }: ApprovedResourcesTabProps) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-hl-med">
-                {/* Hosts from approved network requests */}
                 {networkHosts.map((req) => (
-                  <tr key={`req-${req.id}`}>
+                  <tr key={req.id}>
                     <td className="px-6 py-3 text-sm font-mono text-on-base">{req.host}</td>
                     <td className="px-6 py-3 text-sm text-subtle">{req.port ?? 'Any'}</td>
                     <td className="px-6 py-3 text-sm text-subtle">
-                      <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-foam/10 text-foam border border-foam/20">
-                        Request ({req.tool_name})
-                      </span>
+                      {req.source === 'admin' ? (
+                        <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-iris/10 text-iris border border-iris/20">
+                          Manual
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-foam/10 text-foam border border-foam/20">
+                          Request ({req.tool_name ?? 'unknown'})
+                        </span>
+                      )}
                     </td>
                     <td className="px-6 py-3 text-right">
-                      <RevokeButton
-                        label={req.host}
-                        isLoading={revokeNetworkMutation.isPending}
-                        onRevoke={() =>
-                          handleRevokeWithError(() =>
-                            revokeNetworkMutation.mutateAsync(req.id)
-                          )
-                        }
-                      />
-                    </td>
-                  </tr>
-                ))}
-                {/* Manually-added hosts */}
-                {manualHosts.map((host) => (
-                  <tr key={`manual-${host}`}>
-                    <td className="px-6 py-3 text-sm font-mono text-on-base">{host}</td>
-                    <td className="px-6 py-3 text-sm text-subtle">Any</td>
-                    <td className="px-6 py-3 text-sm text-subtle">
-                      <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-iris/10 text-iris border border-iris/20">
-                        Manual
-                      </span>
-                    </td>
-                    <td className="px-6 py-3 text-right">
-                      <RemoveHostButton
-                        host={host}
-                        isLoading={removeHostMutation.isPending}
-                        onRemove={() => handleRemoveHost(host)}
-                      />
+                      {req.source === 'admin' ? (
+                        <RemoveHostButton
+                          host={req.host}
+                          isLoading={removeHostMutation.isPending}
+                          onRemove={() => handleRemoveHost(req.host)}
+                        />
+                      ) : (
+                        <RevokeButton
+                          label={req.host}
+                          isLoading={revokeNetworkMutation.isPending}
+                          onRevoke={() =>
+                            handleRevokeWithError(() =>
+                              revokeNetworkMutation.mutateAsync(req.id)
+                            )
+                          }
+                        />
+                      )}
                     </td>
                   </tr>
                 ))}

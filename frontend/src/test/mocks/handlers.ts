@@ -65,7 +65,7 @@ export const handlers = [
   http.get(`${API_BASE}/health`, () => {
     return HttpResponse.json({
       status: 'healthy',
-      version: '0.1.0',
+      version: '0.2.1',
       database: 'connected',
     })
   }),
@@ -73,7 +73,7 @@ export const handlers = [
   http.get(`${API_BASE}/health/detail`, () => {
     return HttpResponse.json({
       status: 'healthy',
-      version: '0.1.0',
+      version: '0.2.1',
       database: 'connected',
       sandbox: 'connected',
     })
@@ -322,7 +322,7 @@ export const handlers = [
   http.get(`${API_BASE}/api/config`, () => {
     return HttpResponse.json({
       app_name: 'MCPbox',
-      app_version: '0.1.0',
+      app_version: '0.2.1',
       auth_required: true,
     })
   }),

@@ -10,8 +10,9 @@ Thanks for your interest in contributing! MCPbox is a self-extending MCP platfor
 | `main` | Stable releases only. | Tagged releases |
 
 - **Feature work**: branch from `develop`, open a PR back to `develop`
-- **Releases**: merge `develop` → `main`, tag with `vX.Y.Z`
+- **Releases**: open a PR from `develop` → `main`, merge it, then tag `vX.Y.Z`
 - **Hotfixes**: branch from `main`, PR to both `main` and `develop`
+- **Never push directly to `main` or `develop`** — all changes go through PRs
 
 ## Getting Started
 
@@ -106,11 +107,16 @@ Always use Alembic migrations. Auto table creation is disabled.
 
 ## Releases
 
-Releases are cut from `develop` → `main`:
+Releases are cut from `develop` → `main` via PR:
 
-1. Merge `develop` into `main`
-2. Tag: `git tag v0.X.0 && git push origin v0.X.0`
-3. GitHub Actions creates a release with auto-generated notes
+1. Bump version in all 5 locations (PR to `develop`):
+   - `backend/pyproject.toml`, `backend/app/core/config.py`
+   - `frontend/package.json`, `worker/package.json`, `sandbox/pyproject.toml`
+   - Regenerate lock files: `cd frontend && npm install --package-lock-only && cd ../worker && npm install --package-lock-only`
+2. Open a PR from `develop` → `main` (never push directly)
+3. Merge the PR
+4. Tag: `git tag v0.X.0 && git push origin v0.X.0`
+5. GitHub Actions creates a release with auto-generated notes
 
 ## Security
 
