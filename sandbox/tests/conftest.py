@@ -14,6 +14,8 @@ TEST_API_KEY = "test-sandbox-api-key-for-testing-only"
 # Set test environment variables BEFORE any app imports
 # A test API key is required (sandbox enforces authentication)
 os.environ["SANDBOX_API_KEY"] = TEST_API_KEY
+# Disable rate limiting during tests (default 60/min is too low for the full suite)
+os.environ["SANDBOX_TOOL_RATE_LIMIT"] = "9999/minute"
 
 
 # --- Authenticated Test Client ---
