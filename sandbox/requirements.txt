@@ -2,7 +2,7 @@
 # Dynamically loads and executes MCP tools
 
 httpx==0.28.1
-fastapi==0.133.1
+fastapi==0.134.0
 uvicorn==0.40.0
 pydantic==2.12.5
 cryptography==46.0.5
