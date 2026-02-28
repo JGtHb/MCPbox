@@ -11,7 +11,7 @@ After [installing MCPBox]({{ site.baseurl }}/getting-started/installation.html),
 ## Create Your Admin Account
 
 1. Open [http://localhost:3000](http://localhost:3000) in your browser
-2. You'll be prompted to create an admin account — enter an email and password
+2. You'll be prompted to create an admin account — enter a username and password
 3. This is a one-time setup. The credentials are stored locally and used only for the admin panel.
 
 ## Tour the Dashboard
