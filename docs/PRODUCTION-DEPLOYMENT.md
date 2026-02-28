@@ -23,10 +23,7 @@ echo "MCPBOX_ENCRYPTION_KEY=$(openssl rand -hex 32)" >> .env
 echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)" >> .env
 echo "SANDBOX_API_KEY=$(openssl rand -hex 32)" >> .env
 
-# 4. Run database migrations
-docker compose run --rm backend alembic upgrade head
-
-# 5. Start all services
+# 4. Start all services (migrations run automatically on first startup)
 docker compose up -d
 ```
 
@@ -388,12 +385,11 @@ Hardcoded limits and timeouts across the codebase:
 |---------|-------|----------|-------------|
 | Circuit breaker failure threshold | 5 | `core/retry.py` | Failures before circuit opens |
 | Circuit breaker recovery timeout | 60s | `core/retry.py` | Seconds before half-open attempt |
-| JWKS cache TTL | 300s (5 min) | `api/auth_simple.py` | Cloudflare Access JWKS cache duration |
 | Tool execution timeout | 30s default | `sandbox/app/routes.py` | Per-tool, configurable up to 300s |
 | Max SSE connections | 50 | `api/mcp_gateway.py` | Concurrent MCP SSE connections |
 | Sandbox memory limit | 256MB | `sandbox/app/executor.py` | RLIMIT_AS per process |
 | Sandbox CPU limit | 60s | `sandbox/app/executor.py` | RLIMIT_CPU (cumulative per worker) |
-| Sandbox FD limit | 64 | `sandbox/app/executor.py` | RLIMIT_NOFILE per process |
+| Sandbox FD limit | 256 | `sandbox/app/executor.py` | RLIMIT_NOFILE per process |
 | Code size limit | 100KB | `sandbox/app/routes.py` | Max python_code field size |
 | Stdout capture limit | 10KB | `sandbox/app/routes.py` | Max stdout returned in response |
 | SizeLimitedStringIO cap | 1MB | `sandbox/app/executor.py` | Max stdout buffer in memory |

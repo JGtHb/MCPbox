@@ -88,7 +88,7 @@ MCPbox maintains **1,300+ test functions** across backend, sandbox, frontend, an
 
 | Module | Unit Tests | Integration Tests | E2E Tests | Estimated Coverage | Critical Gaps |
 |--------|-----------|-------------------|-----------|-------------------|---------------|
-| `index.ts` | 85 tests | - | - | 85% | - |
+| `index.ts` | 72 tests | - | - | 85% | - |
 | `access-handler.ts` | tested via index | - | - | 70% | Some OIDC edge cases |
 
 ---

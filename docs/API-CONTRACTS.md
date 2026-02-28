@@ -93,8 +93,21 @@
 
 - **Interface**: cloudflared daemon fetches tunnel token from backend's internal API
 - **Auth**: `Authorization: Bearer <SANDBOX_API_KEY>`
-- **Endpoint**: `GET /internal/tunnel-token`
+- **Endpoint**: `GET /internal/active-tunnel-token`
 - **Output**: `{ token: string }` (encrypted tunnel token, decrypted by backend)
+
+### Deploy Script → Backend (HTTP)
+
+- **Interface**: Deploy script fetches Worker configuration from backend's internal API
+- **Auth**: `Authorization: Bearer <SANDBOX_API_KEY>`
+
+#### GET /internal/worker-deploy-config
+- **Purpose**: Provide VPC service ID and other config needed for Worker deployment
+- **Output**: `{ vpc_service_id, ... }`
+
+#### GET /internal/active-service-token
+- **Purpose**: Provide the current service token for Worker secret sync
+- **Output**: `{ token: string }`
 
 ---
 
@@ -109,14 +122,14 @@ All list endpoints return paginated responses: `{ items: T[], total: number, pag
 #### POST /auth/setup
 - **Purpose**: Initial admin user creation (one-time)
 - **Auth**: None (only works when no admin user exists)
-- **Input**: `{ email: string, password: string }`
+- **Input**: `{ username: string, password: string }`
 - **Output**: `{ access_token, refresh_token, token_type: "bearer" }`
 - **Error cases**: 400 (admin already exists), 422 (validation error)
 
 #### POST /auth/login
 - **Purpose**: Admin login
 - **Auth**: None
-- **Input**: `{ email: string, password: string }`
+- **Input**: `{ username: string, password: string }`
 - **Output**: `{ access_token, refresh_token, token_type: "bearer" }`
 - **Error cases**: 401 (invalid credentials), 429 (rate limited: 5/min)
 
@@ -308,7 +321,7 @@ All list endpoints return paginated responses: `{ items: T[], total: number, pag
   - `notifications/initialized` — Client ready notification (always allowed)
   - `tools/list` — List all approved tools from running servers (requires verified email in remote mode)
   - `tools/call` — Execute a tool (requires verified email in remote mode)
-- **Error cases**: 401 (invalid service token), 403 (email required), 404 (unknown tool), 408 (execution timeout)
+- **Error cases**: 403 (invalid service token or email required), 404 (unknown tool), 408 (execution timeout)
 
 #### GET /mcp
 - **Purpose**: SSE stream for server-to-client notifications
@@ -321,12 +334,22 @@ All list endpoints return paginated responses: `{ items: T[], total: number, pag
 - **Auth**: None (but restricted to localhost in MCP-only mode to prevent service discovery through tunnel)
 - **Output**: `{ status: "healthy", service: "mcpbox-mcp-gateway" }`
 
-### Internal API (`/internal/*` — sandbox/cloudflared access only)
+### Internal API (`/internal/*` — service-to-service only)
 
-#### GET /internal/tunnel-token
+#### GET /internal/active-tunnel-token
 - **Purpose**: Provide tunnel token to cloudflared daemon
 - **Auth**: `Authorization: Bearer <SANDBOX_API_KEY>`
 - **Output**: `{ token: string }` (decrypted tunnel token)
+
+#### GET /internal/active-service-token
+- **Purpose**: Provide current service token for Worker secret sync
+- **Auth**: `Authorization: Bearer <SANDBOX_API_KEY>`
+- **Output**: `{ token: string }`
+
+#### GET /internal/worker-deploy-config
+- **Purpose**: Provide VPC service ID and other config for Worker deployment
+- **Auth**: `Authorization: Bearer <SANDBOX_API_KEY>`
+- **Output**: `{ vpc_service_id, ... }`
 
 #### POST /internal/tool-executed
 - **Purpose**: Record tool execution log from sandbox

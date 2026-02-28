@@ -42,7 +42,7 @@
 - **Context**: LLMs creating tools is powerful but dangerous. Unrestricted tool creation could lead to malicious or buggy tools being immediately callable.
 - **Decision**: All tools start as `draft`. LLM must explicitly request publish (`mcpbox_request_publish`). Admin reviews and approves/rejects in UI. Same pattern for module whitelisting and network access requests.
 - **Rationale**: LLMs should not self-approve — clear privilege separation. Admin can review code, module requests, and network access before any tool becomes active. Aligns with "human-in-the-loop" design principle.
-- **Consequences**: Slower tool iteration (requires admin action). Multi-layer filtering needed (registration gate, listing gate, recovery gate). TOCTOU risk if code changes after approval (see [SECURITY.md](SECURITY.md#sec-001)).
+- **Consequences**: Slower tool iteration (requires admin action). Multi-layer filtering needed (registration gate, listing gate, recovery gate). ~~TOCTOU risk if code changes after approval.~~ **Fixed**: code changes reset approval to `pending_review`; rollback also resets approval.
 - **Affected modules**: `backend/app/api/approvals.py`, `backend/app/services/approval.py`, `backend/app/services/tool.py`, `frontend/src/pages/Approvals.tsx`
 
 ## ADR-006: AES-256-GCM for Secret Encryption
@@ -51,7 +51,7 @@
 - **Context**: Server secrets (API keys, tokens) need encryption at rest. Options: database-level encryption, application-level encryption, or external secret manager.
 - **Decision**: Application-level AES-256-GCM encryption via Python `cryptography` library. Per-value random 12-byte IV. 64-character hex encryption key from environment variable.
 - **Rationale**: State-of-the-art authenticated encryption. No external dependencies (no Vault/KMS). Per-value IV prevents ciphertext analysis.
-- **Consequences**: Encryption key is single point of failure. Key must be backed up securely. Missing AAD means ciphertext swapping between columns is theoretically possible (see [SECURITY.md](SECURITY.md#sec-005)). All encryption/decryption happens in application layer.
+- **Consequences**: Encryption key is single point of failure. Key must be backed up securely. ~~Missing AAD means ciphertext swapping between columns is theoretically possible.~~ **Fixed**: AAD context binding (`server_secret:{server_id}:{key_name}`) prevents ciphertext swapping. All encryption/decryption happens in application layer.
 - **Affected modules**: `backend/app/services/crypto.py`, `backend/app/models/server_secret.py`
 
 ## ADR-007: Python Backend (Not Rust/Go Gateway)
@@ -114,7 +114,7 @@
 - **Context**: Tool code changes need tracking for audit trail and recovery. Options: git-based versioning, database-stored versions, or external VCS.
 - **Decision**: Store versions in `tool_versions` table with full code snapshots. Rollback via `mcpbox_rollback_tool` restores code from version record.
 - **Rationale**: Self-contained — no external git dependency. Simple implementation. Full code available for each version without git operations.
-- **Consequences**: Database storage grows with version count (no automatic pruning). Full code duplication per version (not diffs). Rollback preserves approval status — security concern (see [SECURITY.md](SECURITY.md#sec-002)).
+- **Consequences**: Database storage grows with version count (no automatic pruning). Full code duplication per version (not diffs). ~~Rollback preserves approval status — security concern.~~ **Fixed**: rollback now resets approval status to `pending_review`.
 - **Affected modules**: `backend/app/models/tool_version.py`, `backend/app/services/tool.py`
 
 ## ADR-014: Application-Level Sandbox Security (Not Kernel-Level)
