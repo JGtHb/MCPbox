@@ -11,9 +11,11 @@ This guide walks through the full lifecycle of an MCPBox tool — from asking yo
 ## The Tool Lifecycle
 
 ```
-LLM creates tool (draft) → LLM tests it → LLM requests approval →
-Admin approves → LLM starts server → Tool is live
+LLM creates tool (draft) → LLM requests approval →
+Admin approves → LLM tests it → LLM starts server → Tool is live
 ```
+
+By default, tools must be approved before they can be tested. This ensures the admin controls what code runs in the sandbox. If you prefer to let the LLM test tools before approval, change the **Tool Approval Mode** to `auto_approve` in [Settings](http://localhost:3000).
 
 ## Step-by-Step Example
 
@@ -53,15 +55,7 @@ async def main() -> dict:
 
 The tool is created in **draft** status — it can't be used yet.
 
-### 3. Test the Code
-
-```
-mcpbox_test_code(tool_id="<uuid>")
-```
-
-This runs the code in the sandbox and returns the result. The LLM can iterate on the code if the test fails.
-
-### 4. Request Approval
+### 3. Request Approval
 
 ```
 mcpbox_request_publish(
@@ -72,7 +66,7 @@ mcpbox_request_publish(
 
 The tool moves to **pending_review** status.
 
-### 5. Admin Approves
+### 4. Admin Approves
 
 Open the MCPBox admin UI at [http://localhost:3000](http://localhost:3000) and go to the **Approvals** page. You'll see the pending tool with:
 
@@ -84,6 +78,14 @@ Review the code and click **Approve** (or **Reject** with a reason).
 
 ![Approvals Page](../images/approvals-tools.png)
 *The Approvals page showing pending, needs-submission, and approved tools.*
+
+### 5. Test the Code
+
+```
+mcpbox_test_code(tool_id="<uuid>")
+```
+
+Now that the tool is approved, the LLM can test it in the sandbox. This runs the code and returns the result. If the test fails, the LLM can update the code — but note that code changes reset the approval status back to **pending_review**, requiring another approval before testing again.
 
 ### 6. Start the Server
 
@@ -116,9 +118,9 @@ Every tool is an `async def main()` function with these globals:
 
 Parameters of `main()` become the tool's input schema automatically. Return values become the tool's output.
 
-Additional Python modules can be imported if they're on the [allowed list]({% link reference/mcp-tools.md %}#module-whitelist). Need a module that's not allowed? The LLM can request it with `mcpbox_request_module`, and you approve it in the admin UI.
+Additional Python modules can be imported if they're on the [allowed list]({{ site.baseurl }}/reference/mcp-tools.html#module-whitelist). Need a module that's not allowed? The LLM can request it with `mcpbox_request_module`, and you approve it in the admin UI.
 
 ## Next Steps
 
-- [Admin Approval Workflow]({% link guides/approval-workflow.md %}) — Learn more about the review process
-- [Server Secrets]({% link guides/server-secrets.md %}) — Give tools access to API keys
+- [Admin Approval Workflow]({{ site.baseurl }}/guides/approval-workflow.html) — Learn more about the review process
+- [Server Secrets]({{ site.baseurl }}/guides/server-secrets.html) — Give tools access to API keys

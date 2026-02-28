@@ -72,14 +72,6 @@ The wizard automatically creates a Cloudflare Access for SaaS application and co
 
 Setup is complete. The wizard shows your Worker URL.
 
-## Start the Tunnel
-
-After the wizard finishes, start the tunnel container:
-
-```bash
-docker compose --profile remote up -d cloudflared
-```
-
 ## Connect Your MCP Client
 
 Add the Worker URL to your MCP client:
@@ -96,8 +88,6 @@ Add the Worker URL to your MCP client:
 
 The first time you connect, you'll be redirected to Cloudflare Access for authentication.
 
-{: .note }
-If you use a custom domain in Cloudflare, the URL will be whatever you configured in the Worker's routes.
 
 ## Security Model
 

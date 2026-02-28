@@ -88,8 +88,7 @@ Tools are created in **draft** status and must be approved by an admin before th
 1. LLM creates tool with mcpbox_create_tool
    -> Tool is in "draft" status (not visible to other users)
 
-2. LLM tests and validates the tool
-   -> mcpbox_test_code, mcpbox_validate_code
+2. LLM validates code structure with mcpbox_validate_code
 
 3. LLM requests additional modules/network access if needed
    -> mcpbox_request_module, mcpbox_request_network_access
@@ -100,9 +99,12 @@ Tools are created in **draft** status and must be approved by an admin before th
 5. Admin reviews in UI at /approvals
    -> Approves or rejects the tool
 
-6. If approved: Tool becomes available in tools/list
+6. If approved: LLM can test with mcpbox_test_code, then
+   start the server to make the tool available in tools/list
    If rejected: LLM can revise and re-submit
 ```
+
+By default, `mcpbox_test_code` is blocked until the admin approves the tool. This ensures the admin controls what code executes in the sandbox. The admin can change this to `auto_approve` mode in Settings if they prefer test-first workflows.
 
 ## Usage Examples
 
@@ -167,19 +169,13 @@ Tools are created in **draft** status and must be approved by an admin before th
    mcpbox_request_publish(tool_id="<uuid>", notes="Simple hash utility")
 ```
 
-### Testing with Server's Module Configuration
+### Testing a Tool
 
 ```
-# Test Python code using the server's specific module whitelist
+# Test a saved tool by running it in the sandbox (requires admin approval first)
 mcpbox_test_code(
-  code='''
-async def main(data: str) -> dict:
-    import yaml  # This will fail if yaml is not whitelisted
-    parsed = yaml.safe_load(data)
-    return {"result": parsed}
-''',
-  arguments={"data": "key: value"},
-  server_id="<uuid>"  # Optional: test with this server's allowed modules
+  tool_id="<uuid>",
+  arguments={"data": "key: value"}
 )
 ```
 

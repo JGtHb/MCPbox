@@ -20,13 +20,13 @@ MCPBox lets AI create, test, and manage its own MCP tools — write Python code,
 ```
 1. mcpbox_create_server   → "news" server created
 2. mcpbox_create_tool     → claude_status tool (Python: fetch Anthropic status page)
-3. mcpbox_test_code       → test passes, returns JSON
-4. mcpbox_request_publish → submitted for admin approval
+3. mcpbox_request_publish → submitted for admin approval
 ```
 
 > **Admin** approves the tool in the web UI.
 
 ```
+4. mcpbox_test_code       → test passes, returns JSON
 5. mcpbox_start_server    → server is live
 6. claude_status          → calls the tool it just built
 ```
@@ -86,5 +86,5 @@ Two modes: **Local** (no auth, MCP client connects to `localhost:8000/mcp`) and 
 
 ---
 
-[Get Started]({% link getting-started/installation.md %}){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
+[Get Started]({{ site.baseurl }}/getting-started/installation.html){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
 [View on GitHub](https://github.com/JGtHb/MCPbox){: .btn .fs-5 .mb-4 .mb-md-0 }

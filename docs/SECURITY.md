@@ -79,7 +79,7 @@ MCPbox executes LLM-generated Python code in a sandboxed environment. Security i
 |---------|---------|-------------|-------|
 | `react-router-dom` | `^6.21.0` | v7 | v7 consolidates under `react-router`; non-breaking upgrade path via future flags |
 | `tailwindcss` | `^3.4.1` | v4 | CSS-first config paradigm change; plan as dedicated migration |
-| `eslint` | `^9.39.2` | v10 | v9 still receiving maintenance patches; optional upgrade |
+| `eslint` | `^9.0.0` | v10 | Pinned to v9 — `eslint-plugin-react-hooks` doesn't support v10 yet |
 
 ### Python Dependencies
 

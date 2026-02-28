@@ -48,7 +48,7 @@ MCPbox uses a **hybrid architecture** - local-first with optional remote access 
 - The tunnel has **no public hostname** - it's only accessible via Cloudflare Worker through Workers VPC
 - The Worker enforces **OAuth 2.1 authentication** via `@cloudflare/workers-oauth-provider` -- all /mcp requests require a valid OAuth token
 - User identity is verified via **OIDC upstream** (Cloudflare Access for SaaS) -- email comes from a verified id_token at authorization time
-- Requests without a verified email (e.g., Cloudflare sync) are **sync-only** (can list tools, but cannot execute them)
+- Requests without a verified email (e.g., Cloudflare sync) can only `initialize` and send notifications — tool listing and execution require a verified email
 - MCPbox validates the service token as defense-in-depth
 - Unauthenticated requests to the Worker are rejected with 401
 
@@ -198,19 +198,17 @@ Tools are created programmatically by external LLMs via `mcpbox_*` MCP tools:
 |  2. LLM creates tool with mcpbox_create_tool (draft status)    |
 |     +-> Python code with async def main() entry point           |
 |                                                                  |
-|  3. LLM tests code with mcpbox_test_code                       |
-|     +-> Validates execution in sandbox without saving           |
-|                                                                  |
-|  4. LLM validates code with mcpbox_validate_code               |
+|  3. LLM validates code with mcpbox_validate_code               |
 |     +-> Checks syntax, module usage, security constraints       |
 |                                                                  |
-|  5. LLM requests publish with mcpbox_request_publish            |
+|  4. LLM requests publish with mcpbox_request_publish            |
 |     +-> Tool moves to pending_review status                     |
 |                                                                  |
-|  6. Admin reviews in UI at /approvals                           |
+|  5. Admin reviews in UI at /approvals                           |
 |     +-> Approves or rejects with reason                         |
 |                                                                  |
-|  7. If approved, tool becomes available in tools/list           |
+|  6. If approved, LLM can test with mcpbox_test_code             |
+|     +-> Runs code in sandbox, returns result                    |
 |     If rejected, LLM can revise and re-submit                   |
 |                                                                  |
 +-----------------------------------------------------------------+
@@ -453,7 +451,7 @@ Local MCP Client                          Remote MCP Client
 
 ### Tool Aggregation
 
-The gateway queries all enabled servers and merges their tool lists. Tool names are prefixed with the server name to avoid collisions (e.g., `github.create_issue`, `docker.list_containers`).
+The gateway queries all enabled servers and merges their tool lists. Tool names are prefixed with the server name using double underscores to avoid collisions (e.g., `github__create_issue`, `docker__list_containers`).
 
 ---
 
@@ -651,7 +649,7 @@ MCPbox uses a **hybrid authentication model**:
 | Request Source | Auth | Allowed Operations |
 |---|---|---|
 | User via OIDC | OAuth + OIDC-verified email (in token props) | All (list + execute) |
-| Cloudflare sync | OAuth only (no user email) | Sync only (list, initialize) |
+| Cloudflare sync | OAuth only (no user email) | Sync only (initialize, notifications) |
 | Unauthenticated | Rejected 401 | None |
 
 User identity comes from OIDC id_token verified at authorization time by the Worker. The verified email is stored in encrypted OAuth token props and set as `X-MCPbox-User-Email` on proxied requests. The gateway trusts this header when a valid service token is present. The `auth_method` is always `oidc` for remote requests.
