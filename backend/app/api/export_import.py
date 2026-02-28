@@ -15,6 +15,8 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import get_db, settings
+from app.models.module_request import ModuleRequest
+from app.models.network_access_request import NetworkAccessRequest
 from app.schemas.server import ServerCreate
 from app.schemas.tool import ToolCreate
 from app.services.server import ServerService
@@ -77,6 +79,29 @@ def get_tool_service(db: AsyncSession = Depends(get_db)) -> ToolService:
 
 
 # Export schemas
+class ExportedModuleRequest(BaseModel):
+    """Exported module request data."""
+
+    module_name: str
+    justification: str
+    status: str  # pending, approved, rejected
+    requested_by: str | None = None
+    reviewed_by: str | None = None
+    rejection_reason: str | None = None
+
+
+class ExportedNetworkAccessRequest(BaseModel):
+    """Exported network access request data."""
+
+    host: str
+    port: int | None = None
+    justification: str
+    status: str  # pending, approved, rejected
+    requested_by: str | None = None
+    reviewed_by: str | None = None
+    rejection_reason: str | None = None
+
+
 class ExportedTool(BaseModel):
     """Exported tool data."""
 
@@ -86,6 +111,8 @@ class ExportedTool(BaseModel):
     timeout_ms: int | None
     python_code: str | None
     input_schema: dict | None
+    module_requests: list[ExportedModuleRequest] = []
+    network_access_requests: list[ExportedNetworkAccessRequest] = []
 
 
 class ExportedServer(BaseModel):
@@ -101,7 +128,7 @@ class ExportedServer(BaseModel):
 class ExportResponse(BaseModel):
     """Full export response."""
 
-    version: str = "1.0"
+    version: str = "1.1"
     exported_at: str
     servers: list[ExportedServer]
     signature: str | None = None  # HMAC signature for integrity verification
@@ -131,8 +158,45 @@ class ImportResult(BaseModel):
     success: bool
     servers_created: int
     tools_created: int
+    module_requests_created: int = 0
+    network_access_requests_created: int = 0
     errors: list[str]
     warnings: list[str] = []
+
+
+def _export_tool(tool) -> ExportedTool:
+    """Build an ExportedTool from a Tool ORM object."""
+    return ExportedTool(
+        name=tool.name,
+        description=tool.description,
+        enabled=tool.enabled,
+        timeout_ms=tool.timeout_ms,
+        python_code=tool.python_code,
+        input_schema=tool.input_schema,
+        module_requests=[
+            ExportedModuleRequest(
+                module_name=mr.module_name,
+                justification=mr.justification,
+                status=mr.status,
+                requested_by=mr.requested_by,
+                reviewed_by=mr.reviewed_by,
+                rejection_reason=mr.rejection_reason,
+            )
+            for mr in tool.module_requests
+        ],
+        network_access_requests=[
+            ExportedNetworkAccessRequest(
+                host=nar.host,
+                port=nar.port,
+                justification=nar.justification,
+                status=nar.status,
+                requested_by=nar.requested_by,
+                reviewed_by=nar.reviewed_by,
+                rejection_reason=nar.rejection_reason,
+            )
+            for nar in tool.network_access_requests
+        ],
+    )
 
 
 @router.get("/servers", response_model=ExportResponse)
@@ -150,16 +214,7 @@ async def export_all_servers(
 
     for server in servers_list:
         exported_tools = [
-            ExportedTool(
-                name=tool.name,
-                description=tool.description,
-                enabled=tool.enabled,
-                timeout_ms=tool.timeout_ms,
-                python_code=tool.python_code,
-                input_schema=tool.input_schema,
-            )
-            for tool in server.tools
-            if tool.tool_type == "python_code"
+            _export_tool(tool) for tool in server.tools if tool.tool_type == "python_code"
         ]
 
         exported_servers.append(
@@ -175,7 +230,7 @@ async def export_all_servers(
     # Build data for signature - exclude exported_at to ensure roundtrip works
     # (import reconstructs data without exported_at for verification)
     signature_data = {
-        "version": "1.0",
+        "version": "1.1",
         "servers": [s.model_dump() for s in exported_servers],
     }
 
@@ -186,7 +241,7 @@ async def export_all_servers(
     exported_at = datetime.now(UTC).isoformat()
 
     return ExportResponse(
-        version="1.0",
+        version="1.1",
         exported_at=exported_at,
         servers=exported_servers,
         signature=signature,
@@ -208,16 +263,7 @@ async def export_server(
 
     # server.tools is already eager-loaded by server_service.get()
     exported_tools = [
-        ExportedTool(
-            name=tool.name,
-            description=tool.description,
-            enabled=tool.enabled,
-            timeout_ms=tool.timeout_ms,
-            python_code=tool.python_code,
-            input_schema=tool.input_schema,
-        )
-        for tool in server.tools
-        if tool.tool_type == "python_code"
+        _export_tool(tool) for tool in server.tools if tool.tool_type == "python_code"
     ]
 
     return ExportedServer(
@@ -253,19 +299,30 @@ async def import_servers(
     # Reconstruct the same data structure that was signed during export.
     # Must include all ExportedServer fields (name, description, tools,
     # allowed_hosts, default_timeout_ms) to match the export signature.
+    # v1.0 exports were signed without module/network request fields,
+    # so we strip them for backward-compatible signature verification.
+    is_v1_0 = data.version == "1.0"
     import_data = {
         "version": data.version,
-        "servers": [
+        "servers": [],
+    }
+    for s in data.servers:
+        tools_list = []
+        for t in s.tools:
+            tool_dict = t.model_dump()
+            if is_v1_0:
+                tool_dict.pop("module_requests", None)
+                tool_dict.pop("network_access_requests", None)
+            tools_list.append(tool_dict)
+        import_data["servers"].append(
             {
                 "name": s.name,
                 "description": s.description,
-                "tools": [t.model_dump() for t in s.tools],
+                "tools": tools_list,
                 "allowed_hosts": s.allowed_hosts,
                 "default_timeout_ms": s.default_timeout_ms,
             }
-            for s in data.servers
-        ],
-    }
+        )
 
     # SECURITY (F-07): Reject imports with invalid or missing signatures.
     # This prevents social engineering attacks where a crafted export with
@@ -291,6 +348,8 @@ async def import_servers(
         )
     servers_created = 0
     tools_created = 0
+    module_requests_created = 0
+    network_access_requests_created = 0
 
     for server_data in data.servers:
         # Use a savepoint for each server so we can rollback on failure
@@ -340,6 +399,39 @@ async def import_servers(
                     tool.approval_requested_at = datetime.now(UTC)
                     server_tools_created += 1
 
+                    # Create module requests from export data
+                    for mr_data in tool_data.module_requests:
+                        mr = ModuleRequest(
+                            tool_id=tool.id,
+                            module_name=mr_data.module_name,
+                            justification=mr_data.justification,
+                            status=mr_data.status,
+                            requested_by="import",
+                            reviewed_by=mr_data.reviewed_by,
+                            rejection_reason=mr_data.rejection_reason,
+                        )
+                        if mr_data.status != "pending":
+                            mr.reviewed_at = datetime.now(UTC)
+                        db.add(mr)
+                        module_requests_created += 1
+
+                    # Create network access requests from export data
+                    for nar_data in tool_data.network_access_requests:
+                        nar = NetworkAccessRequest(
+                            tool_id=tool.id,
+                            host=nar_data.host,
+                            port=nar_data.port,
+                            justification=nar_data.justification,
+                            status=nar_data.status,
+                            requested_by="import",
+                            reviewed_by=nar_data.reviewed_by,
+                            rejection_reason=nar_data.rejection_reason,
+                        )
+                        if nar_data.status != "pending":
+                            nar.reviewed_at = datetime.now(UTC)
+                        db.add(nar)
+                        network_access_requests_created += 1
+
                 # Only count as success if we get here without exception
                 servers_created += 1
                 tools_created += server_tools_created
@@ -357,6 +449,8 @@ async def import_servers(
         success=len(errors) == 0,
         servers_created=servers_created,
         tools_created=tools_created,
+        module_requests_created=module_requests_created,
+        network_access_requests_created=network_access_requests_created,
         errors=errors,
         warnings=warnings,
     )

@@ -15,10 +15,13 @@ def _normalize_import_data(data: dict) -> dict:
     """Normalize import data to match what the API expects for signature verification.
 
     The API reconstructs the data structure for verification, so we need to ensure
-    our test data matches that exact structure.
+    our test data matches that exact structure. Version-aware: v1.0 exports were
+    signed without module/network request fields.
     """
+    version = data.get("version", "1.0")
+    is_v1_0 = version == "1.0"
     normalized = {
-        "version": data.get("version", "1.0"),
+        "version": version,
         "servers": [],
     }
 
@@ -41,6 +44,10 @@ def _normalize_import_data(data: dict) -> dict:
                 "python_code": tool.get("python_code"),
                 "input_schema": tool.get("input_schema"),
             }
+            # v1.0 exports were signed without request fields
+            if not is_v1_0:
+                normalized_tool["module_requests"] = tool.get("module_requests", [])
+                normalized_tool["network_access_requests"] = tool.get("network_access_requests", [])
             normalized_server["tools"].append(normalized_tool)
 
         normalized["servers"].append(normalized_server)
@@ -744,3 +751,438 @@ class TestDownloadExport:
 
         data = response.json()
         assert data["servers"] == []
+
+
+class TestExportWithRequests:
+    """Tests for export including module and network access requests."""
+
+    async def test_export_includes_module_requests(
+        self, async_client, db_session, server_factory, tool_factory, admin_headers
+    ):
+        """Test that export includes module requests for tools."""
+        from app.models.module_request import ModuleRequest
+
+        server = await server_factory(name="Module Request Server")
+        tool = await tool_factory(server=server, name="tool_with_modules")
+
+        mr = ModuleRequest(
+            tool_id=tool.id,
+            module_name="pandas",
+            justification="Data processing",
+            status="pending",
+        )
+        db_session.add(mr)
+        await db_session.flush()
+
+        response = await async_client.get("/api/export/servers", headers=admin_headers)
+        assert response.status_code == 200
+        data = response.json()
+
+        exported_tool = data["servers"][0]["tools"][0]
+        assert len(exported_tool["module_requests"]) == 1
+        assert exported_tool["module_requests"][0]["module_name"] == "pandas"
+        assert exported_tool["module_requests"][0]["status"] == "pending"
+
+    async def test_export_includes_network_access_requests(
+        self, async_client, db_session, server_factory, tool_factory, admin_headers
+    ):
+        """Test that export includes network access requests for tools."""
+        from app.models.network_access_request import NetworkAccessRequest
+
+        server = await server_factory(name="Network Request Server")
+        tool = await tool_factory(server=server, name="tool_with_network")
+
+        nar = NetworkAccessRequest(
+            tool_id=tool.id,
+            host="api.example.com",
+            port=443,
+            justification="API calls",
+            status="approved",
+            reviewed_by="admin@test.com",
+        )
+        db_session.add(nar)
+        await db_session.flush()
+
+        response = await async_client.get("/api/export/servers", headers=admin_headers)
+        assert response.status_code == 200
+        data = response.json()
+
+        exported_tool = data["servers"][0]["tools"][0]
+        assert len(exported_tool["network_access_requests"]) == 1
+        assert exported_tool["network_access_requests"][0]["host"] == "api.example.com"
+        assert exported_tool["network_access_requests"][0]["port"] == 443
+        assert exported_tool["network_access_requests"][0]["status"] == "approved"
+
+    async def test_export_single_server_includes_requests(
+        self, async_client, db_session, server_factory, tool_factory, admin_headers
+    ):
+        """Test that single-server export includes requests."""
+        from app.models.module_request import ModuleRequest
+
+        server = await server_factory(name="Single Export Server")
+        tool = await tool_factory(server=server, name="single_tool")
+
+        mr = ModuleRequest(
+            tool_id=tool.id,
+            module_name="requests",
+            justification="HTTP calls",
+            status="approved",
+            reviewed_by="admin@test.com",
+        )
+        db_session.add(mr)
+        await db_session.flush()
+
+        response = await async_client.get(f"/api/export/servers/{server.id}", headers=admin_headers)
+        assert response.status_code == 200
+        data = response.json()
+
+        assert len(data["tools"][0]["module_requests"]) == 1
+
+    async def test_export_tool_without_requests_has_empty_lists(
+        self, async_client, server_factory, tool_factory, admin_headers
+    ):
+        """Test that tools without requests export with empty lists."""
+        server = await server_factory(name="No Requests Server")
+        await tool_factory(server=server, name="clean_tool")
+
+        response = await async_client.get("/api/export/servers", headers=admin_headers)
+        assert response.status_code == 200
+        data = response.json()
+
+        exported_tool = data["servers"][0]["tools"][0]
+        assert exported_tool["module_requests"] == []
+        assert exported_tool["network_access_requests"] == []
+
+
+class TestImportWithRequests:
+    """Tests for import with module and network access requests."""
+
+    async def test_import_creates_module_requests(self, async_client, admin_headers):
+        """Test that import creates ModuleRequest database records."""
+        import_data = _sign_import_data(
+            {
+                "version": "1.1",
+                "servers": [
+                    {
+                        "name": "Import Module Server",
+                        "description": "Has module requests",
+                        "tools": [
+                            {
+                                "name": "tool_with_mr",
+                                "description": "Tool needing pandas",
+                                "enabled": True,
+                                "timeout_ms": 5000,
+                                "python_code": 'async def main() -> str:\n    return "ok"',
+                                "input_schema": None,
+                                "module_requests": [
+                                    {
+                                        "module_name": "pandas",
+                                        "justification": "Data processing",
+                                        "status": "pending",
+                                        "requested_by": None,
+                                        "reviewed_by": None,
+                                        "rejection_reason": None,
+                                    }
+                                ],
+                                "network_access_requests": [],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        response = await async_client.post(
+            "/api/export/import", json=import_data, headers=admin_headers
+        )
+        assert response.status_code == 200
+        result = response.json()
+        assert result["success"] is True
+        assert result["module_requests_created"] == 1
+
+        # Verify it shows on the approvals page
+        approval_response = await async_client.get(
+            "/api/approvals/modules?status=pending", headers=admin_headers
+        )
+        assert approval_response.status_code == 200
+        items = approval_response.json()["items"]
+        module_names = [item["module_name"] for item in items]
+        assert "pandas" in module_names
+
+    async def test_import_creates_network_access_requests(self, async_client, admin_headers):
+        """Test that import creates NetworkAccessRequest database records."""
+        import_data = _sign_import_data(
+            {
+                "version": "1.1",
+                "servers": [
+                    {
+                        "name": "Import Network Server",
+                        "description": "Has network requests",
+                        "tools": [
+                            {
+                                "name": "tool_with_nar",
+                                "description": "Tool needing network",
+                                "enabled": True,
+                                "timeout_ms": 5000,
+                                "python_code": 'async def main() -> str:\n    return "ok"',
+                                "input_schema": None,
+                                "module_requests": [],
+                                "network_access_requests": [
+                                    {
+                                        "host": "api.example.com",
+                                        "port": 443,
+                                        "justification": "API calls",
+                                        "status": "pending",
+                                        "requested_by": None,
+                                        "reviewed_by": None,
+                                        "rejection_reason": None,
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        response = await async_client.post(
+            "/api/export/import", json=import_data, headers=admin_headers
+        )
+        assert response.status_code == 200
+        result = response.json()
+        assert result["success"] is True
+        assert result["network_access_requests_created"] == 1
+
+        # Verify it shows on the approvals page
+        approval_response = await async_client.get(
+            "/api/approvals/network?status=pending", headers=admin_headers
+        )
+        assert approval_response.status_code == 200
+        items = approval_response.json()["items"]
+        hosts = [item["host"] for item in items]
+        assert "api.example.com" in hosts
+
+    async def test_import_preserves_approved_status(self, async_client, admin_headers):
+        """Test that imported requests preserve their original approval status."""
+        import_data = _sign_import_data(
+            {
+                "version": "1.1",
+                "servers": [
+                    {
+                        "name": "Approved Requests Server",
+                        "tools": [
+                            {
+                                "name": "approved_tool",
+                                "description": "Tool with approved requests",
+                                "enabled": True,
+                                "timeout_ms": None,
+                                "python_code": 'async def main() -> str:\n    return "ok"',
+                                "input_schema": None,
+                                "module_requests": [
+                                    {
+                                        "module_name": "numpy",
+                                        "justification": "Math",
+                                        "status": "approved",
+                                        "requested_by": "llm@example.com",
+                                        "reviewed_by": "admin@example.com",
+                                        "rejection_reason": None,
+                                    }
+                                ],
+                                "network_access_requests": [
+                                    {
+                                        "host": "cdn.example.com",
+                                        "port": None,
+                                        "justification": "CDN access",
+                                        "status": "approved",
+                                        "requested_by": "llm@example.com",
+                                        "reviewed_by": "admin@example.com",
+                                        "rejection_reason": None,
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        response = await async_client.post(
+            "/api/export/import", json=import_data, headers=admin_headers
+        )
+        assert response.status_code == 200
+        result = response.json()
+        assert result["success"] is True
+
+        # Verify approved module request shows in approved list
+        approval_response = await async_client.get(
+            "/api/approvals/modules?status=approved", headers=admin_headers
+        )
+        assert approval_response.status_code == 200
+        items = approval_response.json()["items"]
+        assert any(item["module_name"] == "numpy" for item in items)
+
+        # Verify approved network request shows in approved list
+        network_response = await async_client.get(
+            "/api/approvals/network?status=approved", headers=admin_headers
+        )
+        assert network_response.status_code == 200
+        items = network_response.json()["items"]
+        assert any(item["host"] == "cdn.example.com" for item in items)
+
+    async def test_import_backward_compatible_v10(self, async_client, admin_headers):
+        """Test that v1.0 exports (without request fields) still import correctly."""
+        import_data = _sign_import_data(
+            {
+                "version": "1.0",
+                "servers": [
+                    {
+                        "name": "Legacy Server",
+                        "description": "From v1.0 export",
+                        "tools": [
+                            {
+                                "name": "legacy_tool",
+                                "description": "Old tool",
+                                "enabled": True,
+                                "timeout_ms": 5000,
+                                "python_code": 'async def main() -> str:\n    return "ok"',
+                                "input_schema": None,
+                                # Note: no module_requests or network_access_requests
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        response = await async_client.post(
+            "/api/export/import", json=import_data, headers=admin_headers
+        )
+        assert response.status_code == 200
+        result = response.json()
+        assert result["success"] is True
+        assert result["servers_created"] == 1
+        assert result["tools_created"] == 1
+        assert result["module_requests_created"] == 0
+        assert result["network_access_requests_created"] == 0
+
+    async def test_roundtrip_with_requests(
+        self, async_client, db_session, server_factory, tool_factory, admin_headers
+    ):
+        """Test full roundtrip: export with requests, import, verify on approvals page."""
+        from app.models.module_request import ModuleRequest
+        from app.models.network_access_request import NetworkAccessRequest
+
+        server = await server_factory(name="Roundtrip Requests")
+        tool = await tool_factory(server=server, name="roundtrip_tool")
+
+        mr = ModuleRequest(
+            tool_id=tool.id,
+            module_name="scipy",
+            justification="Scientific computing",
+            status="pending",
+        )
+        nar = NetworkAccessRequest(
+            tool_id=tool.id,
+            host="data.example.com",
+            port=8080,
+            justification="Data API",
+            status="pending",
+        )
+        db_session.add(mr)
+        db_session.add(nar)
+        await db_session.flush()
+
+        # Export
+        export_response = await async_client.get("/api/export/servers", headers=admin_headers)
+        assert export_response.status_code == 200
+        export_data = export_response.json()
+
+        # Verify export has requests
+        exported_tool = export_data["servers"][0]["tools"][0]
+        assert len(exported_tool["module_requests"]) == 1
+        assert len(exported_tool["network_access_requests"]) == 1
+
+        # Delete original
+        await async_client.delete(f"/api/servers/{server.id}", headers=admin_headers)
+
+        # Import
+        import_response = await async_client.post(
+            "/api/export/import", json=export_data, headers=admin_headers
+        )
+        assert import_response.status_code == 200
+        result = import_response.json()
+        assert result["success"] is True
+        assert result["module_requests_created"] == 1
+        assert result["network_access_requests_created"] == 1
+
+        # Verify on approvals stats
+        stats_response = await async_client.get("/api/approvals/stats", headers=admin_headers)
+        assert stats_response.status_code == 200
+        stats = stats_response.json()
+        assert stats["pending_module_requests"] >= 1
+        assert stats["pending_network_requests"] >= 1
+
+    async def test_import_multiple_requests_per_tool(self, async_client, admin_headers):
+        """Test importing a tool with multiple module and network requests."""
+        import_data = _sign_import_data(
+            {
+                "version": "1.1",
+                "servers": [
+                    {
+                        "name": "Multi Request Server",
+                        "tools": [
+                            {
+                                "name": "multi_tool",
+                                "description": "Many requests",
+                                "enabled": True,
+                                "timeout_ms": None,
+                                "python_code": 'async def main() -> str:\n    return "ok"',
+                                "input_schema": None,
+                                "module_requests": [
+                                    {
+                                        "module_name": "pandas",
+                                        "justification": "Data",
+                                        "status": "approved",
+                                        "requested_by": None,
+                                        "reviewed_by": "admin",
+                                        "rejection_reason": None,
+                                    },
+                                    {
+                                        "module_name": "numpy",
+                                        "justification": "Math",
+                                        "status": "pending",
+                                        "requested_by": None,
+                                        "reviewed_by": None,
+                                        "rejection_reason": None,
+                                    },
+                                ],
+                                "network_access_requests": [
+                                    {
+                                        "host": "api.one.com",
+                                        "port": 443,
+                                        "justification": "API 1",
+                                        "status": "approved",
+                                        "requested_by": None,
+                                        "reviewed_by": "admin",
+                                        "rejection_reason": None,
+                                    },
+                                    {
+                                        "host": "api.two.com",
+                                        "port": None,
+                                        "justification": "API 2",
+                                        "status": "rejected",
+                                        "requested_by": None,
+                                        "reviewed_by": "admin",
+                                        "rejection_reason": "Denied",
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        response = await async_client.post(
+            "/api/export/import", json=import_data, headers=admin_headers
+        )
+        assert response.status_code == 200
+        result = response.json()
+        assert result["success"] is True
+        assert result["module_requests_created"] == 2
+        assert result["network_access_requests_created"] == 2

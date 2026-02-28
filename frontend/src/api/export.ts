@@ -2,6 +2,25 @@ import { useMutation } from '@tanstack/react-query'
 import { api } from './client'
 
 // Types
+export interface ExportedModuleRequest {
+  module_name: string
+  justification: string
+  status: string
+  requested_by: string | null
+  reviewed_by: string | null
+  rejection_reason: string | null
+}
+
+export interface ExportedNetworkAccessRequest {
+  host: string
+  port: number | null
+  justification: string
+  status: string
+  requested_by: string | null
+  reviewed_by: string | null
+  rejection_reason: string | null
+}
+
 export interface ExportedTool {
   name: string
   description: string | null
@@ -9,6 +28,8 @@ export interface ExportedTool {
   timeout_ms: number | null
   python_code: string | null
   input_schema: Record<string, unknown> | null
+  module_requests?: ExportedModuleRequest[]
+  network_access_requests?: ExportedNetworkAccessRequest[]
 }
 
 export interface ExportedServer {
@@ -32,6 +53,8 @@ export interface ImportResult {
   success: boolean
   servers_created: number
   tools_created: number
+  module_requests_created: number
+  network_access_requests_created: number
   errors: string[]
   warnings: string[]
 }

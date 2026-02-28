@@ -32,11 +32,12 @@ class ServerService:
         return result
 
     async def get(self, server_id: UUID) -> Server | None:
-        """Get a server by ID with tools."""
+        """Get a server by ID with tools and their requests."""
         result = await self.db.execute(
             select(Server)
             .options(
-                selectinload(Server.tools),
+                selectinload(Server.tools).selectinload(Tool.module_requests),
+                selectinload(Server.tools).selectinload(Tool.network_access_requests),
             )
             .where(Server.id == server_id)
         )
@@ -80,14 +81,18 @@ class ServerService:
         return servers, total
 
     async def list_with_tools(self) -> builtins.list[Server]:
-        """List all servers with their tools eagerly loaded.
+        """List all servers with their tools and requests eagerly loaded.
 
         Use this when you need to access server.tools to avoid N+1 queries.
+        Also loads tool module_requests and network_access_requests for export.
         """
         # Use secondary sort by id for deterministic ordering when timestamps are identical
         result = await self.db.execute(
             select(Server)
-            .options(selectinload(Server.tools))
+            .options(
+                selectinload(Server.tools).selectinload(Tool.module_requests),
+                selectinload(Server.tools).selectinload(Tool.network_access_requests),
+            )
             .order_by(Server.created_at.desc(), Server.id.desc())
         )
         return list(result.scalars().all())
