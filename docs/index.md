@@ -86,5 +86,5 @@ Two modes: **Local** (no auth, MCP client connects to `localhost:8000/mcp`) and 
 
 ---
 
-[Get Started]({% link getting-started/installation.md %}){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
+[Get Started]({{ site.baseurl }}/getting-started/installation.html){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
 [View on GitHub](https://github.com/JGtHb/MCPbox){: .btn .fs-5 .mb-4 .mb-md-0 }
