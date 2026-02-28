@@ -57,6 +57,7 @@ async def sync_allowed_hosts(server_id: UUID, db: AsyncSession) -> list[str]:
     server = server_result.scalar_one_or_none()
     if server:
         server.allowed_hosts = hosts
+        await db.flush()
 
     return hosts
 

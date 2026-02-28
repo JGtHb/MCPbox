@@ -3,10 +3,13 @@
 Tests the manual host whitelisting feature (POST/DELETE /api/servers/{id}/allowed-hosts).
 """
 
+from datetime import UTC, datetime
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.network_access_request import NetworkAccessRequest
 from app.models.server import Server
 
 
@@ -26,7 +29,12 @@ async def host_server(db_session: AsyncSession) -> Server:
 
 @pytest.fixture
 async def server_with_hosts(db_session: AsyncSession) -> Server:
-    """Create a test server that already has allowed hosts."""
+    """Create a test server with allowed hosts backed by admin NAR records.
+
+    Creates both the Server with allowed_hosts cache and the corresponding
+    NetworkAccessRequest records (single source of truth).
+    """
+    now = datetime.now(UTC)
     server = Server(
         name="Server With Hosts",
         description="Server with existing hosts",
@@ -34,6 +42,23 @@ async def server_with_hosts(db_session: AsyncSession) -> Server:
         allowed_hosts=["api.github.com", "api.stripe.com"],
     )
     db_session.add(server)
+    await db_session.flush()
+
+    # Create admin-originated NAR records (single source of truth)
+    for host in ["api.github.com", "api.stripe.com"]:
+        nar = NetworkAccessRequest(
+            server_id=server.id,
+            tool_id=None,
+            host=host,
+            port=None,
+            justification="Manually added by admin",
+            requested_by="admin",
+            status="approved",
+            reviewed_at=now,
+            reviewed_by="admin",
+        )
+        db_session.add(nar)
+
     await db_session.flush()
     await db_session.refresh(server)
     return server
@@ -154,7 +179,8 @@ async def test_remove_last_host_results_in_empty_list(
     db_session: AsyncSession,
 ):
     """Test that removing the last host results in an empty allowlist."""
-    # Create a server with a single host
+    now = datetime.now(UTC)
+    # Create a server with a single host (backed by admin NAR record)
     server = Server(
         name="Single Host Server",
         description="Server with one host",
@@ -162,6 +188,20 @@ async def test_remove_last_host_results_in_empty_list(
         allowed_hosts=["only-host.example.com"],
     )
     db_session.add(server)
+    await db_session.flush()
+
+    nar = NetworkAccessRequest(
+        server_id=server.id,
+        tool_id=None,
+        host="only-host.example.com",
+        port=None,
+        justification="Manually added by admin",
+        requested_by="admin",
+        status="approved",
+        reviewed_at=now,
+        reviewed_by="admin",
+    )
+    db_session.add(nar)
     await db_session.flush()
     await db_session.refresh(server)
 

@@ -213,14 +213,10 @@ def _export_tool(tool: "Tool") -> ExportedTool:
     )
 
 
-@router.get("/servers", response_model=ExportResponse)
-async def export_all_servers(
-    server_service: ServerService = Depends(get_server_service),
-    db: AsyncSession = Depends(get_db),
-) -> ExportResponse:
-    """Export all servers and their tools.
+async def _build_export(server_service: ServerService, db: AsyncSession) -> ExportResponse:
+    """Build an export of all servers, tools, and admin-originated approval records.
 
-    Returns a JSON export that can be used for backup or migration.
+    Shared logic used by both the export endpoint and the download endpoint.
     NOTE: Credentials are NOT included in the export for security.
     """
     # Use list_with_tools to avoid N+1 queries (fetches all servers + tools in 2 queries)
@@ -298,6 +294,15 @@ async def export_all_servers(
         admin_module_requests=admin_module_requests,
         signature=signature,
     )
+
+
+@router.get("/servers", response_model=ExportResponse)
+async def export_all_servers(
+    server_service: ServerService = Depends(get_server_service),
+    db: AsyncSession = Depends(get_db),
+) -> ExportResponse:
+    """Export all servers and their tools."""
+    return await _build_export(server_service, db)
 
 
 @router.get("/servers/{server_id}", response_model=ExportedServer)
@@ -610,9 +615,10 @@ async def import_servers(
 @router.get("/download/servers")
 async def download_export(
     server_service: ServerService = Depends(get_server_service),
+    db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Download all servers as a JSON file."""
-    export = await export_all_servers(server_service)
+    export = await _build_export(server_service, db)
 
     return JSONResponse(
         content=export.model_dump(mode="json"),

@@ -541,6 +541,10 @@ def mock_sandbox_client():
         )
         client_instance.unregister_server.return_value = {"success": True}
         client_instance.list_tools.return_value = []
+        client_instance.install_package = AsyncMock(
+            return_value={"status": "installed", "package_name": "test", "version": "1.0"}
+        )
+        client_instance.sync_packages = AsyncMock(return_value={"synced": 0, "errors": []})
         mock_orig.get_instance.return_value = client_instance
         mock_approvals.get_instance.return_value = client_instance
         yield client_instance
