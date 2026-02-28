@@ -788,6 +788,10 @@ id = "{kv_namespace_id}"
                         "Pre-installed node_modules not found at %s, falling back to npm install",
                         preinstalled_nm,
                     )
+                    # Copy lockfile for deterministic installs if available
+                    lock_src = "/app/worker/package-lock.json"
+                    if os.path.exists(lock_src):
+                        shutil.copy2(lock_src, os.path.join(tmpdir, "package-lock.json"))
                     npm_result = subprocess.run(
                         ["npm", "install", "--omit=dev"],
                         cwd=tmpdir,
@@ -1164,11 +1168,16 @@ compatibility_flags = ["{settings.cf_worker_compatibility_flags}"]
 
             # Only pass required environment variables to wrangler subprocess
             # (avoid leaking DATABASE_URL, MCPBOX_ENCRYPTION_KEY, etc.)
+            wrangler_config_dir = os.path.join(tmpdir, ".config")
+            os.makedirs(wrangler_config_dir, exist_ok=True)
             env = {
                 "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
                 "HOME": os.environ.get("HOME", "/root"),
                 "CLOUDFLARE_API_TOKEN": api_token,
                 "CLOUDFLARE_ACCOUNT_ID": account_id,
+                # Redirect wrangler's config/log directory into the tmpdir
+                # so it doesn't fail trying to create $HOME/.config.
+                "XDG_CONFIG_HOME": wrangler_config_dir,
             }
 
             # Sync all Worker secrets from DB values

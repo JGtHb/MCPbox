@@ -2,7 +2,7 @@
 
 import json
 import os
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 from uuid import uuid4
 
 import pytest
@@ -389,6 +389,390 @@ async def test_deploy_worker_success(
     assert data["success"] is True
     assert data["worker_name"] == "mcpbox-proxy"
     assert "workers.dev" in data["worker_url"]
+
+
+# --- Deploy Worker Environment Tests (Unit) ---
+#
+# These unit tests directly call the service methods (no DB/Docker needed)
+# to verify subprocess environment correctness.
+
+
+@pytest.mark.asyncio
+async def test_sync_worker_secrets_env_unit():
+    """Unit test: _sync_worker_secrets sets XDG_CONFIG_HOME in subprocess env.
+
+    This test doesn't need a database — it directly instantiates the service
+    with a mock session and calls the method with explicit parameters.
+    """
+    from app.services.cloudflare import CloudflareService
+
+    service = CloudflareService(db=Mock())
+
+    captured_envs = []
+
+    def mock_subprocess_run(*args, **kwargs):
+        captured_envs.append(kwargs.get("env", {}))
+        result = Mock()
+        result.returncode = 0
+        result.stdout = "Success"
+        result.stderr = ""
+        return result
+
+    with patch("app.services.cloudflare.subprocess.run", side_effect=mock_subprocess_run):
+        await service._sync_worker_secrets(
+            api_token="fake-token",
+            account_id="fake-account",
+            worker_name="test-worker",
+            service_token="fake-service-token",
+        )
+
+    assert len(captured_envs) == 1, f"Expected 1 subprocess call, got {len(captured_envs)}"
+    env = captured_envs[0]
+    assert "XDG_CONFIG_HOME" in env, (
+        "Missing XDG_CONFIG_HOME — wrangler will fail trying to mkdir $HOME/.config"
+    )
+    assert "/.config" in env["XDG_CONFIG_HOME"]
+    assert "/home/" not in env["XDG_CONFIG_HOME"], (
+        "XDG_CONFIG_HOME should point inside tmpdir, not the user home directory"
+    )
+    # Must not leak sensitive env vars from the parent process
+    assert "DATABASE_URL" not in env
+    assert "MCPBOX_ENCRYPTION_KEY" not in env
+
+
+@pytest.mark.asyncio
+async def test_sync_worker_secrets_multiple_secrets_all_have_xdg():
+    """Unit test: every wrangler secret put call has XDG_CONFIG_HOME."""
+    from app.services.cloudflare import CloudflareService
+
+    service = CloudflareService(db=Mock())
+
+    captured_envs = []
+
+    def mock_subprocess_run(*args, **kwargs):
+        captured_envs.append(kwargs.get("env", {}))
+        result = Mock()
+        result.returncode = 0
+        result.stdout = "Success"
+        result.stderr = ""
+        return result
+
+    with patch("app.services.cloudflare.subprocess.run", side_effect=mock_subprocess_run):
+        await service._sync_worker_secrets(
+            api_token="fake-token",
+            account_id="fake-account",
+            worker_name="test-worker",
+            service_token="svc-token",
+            access_client_id="client-id",
+            access_client_secret="client-secret",
+            access_token_url="https://example.com/token",
+            access_authorization_url="https://example.com/auth",
+            access_jwks_url="https://example.com/jwks",
+            cookie_encryption_key="cookie-key",
+        )
+
+    # Should have 7 subprocess calls (one per secret)
+    assert len(captured_envs) == 7, f"Expected 7 secret put calls, got {len(captured_envs)}"
+    for i, env in enumerate(captured_envs):
+        assert "XDG_CONFIG_HOME" in env, f"Call {i} missing XDG_CONFIG_HOME"
+
+
+# --- Deploy Worker Environment Tests (Integration) ---
+
+
+@pytest.mark.asyncio
+async def test_deploy_worker_subprocess_env_has_xdg_config_home(
+    async_client, admin_headers, cloudflare_config_factory, mock_cloudflare_api
+):
+    """Wrangler needs XDG_CONFIG_HOME set to a writable directory.
+
+    Without it, wrangler tries to create $HOME/.config/.wrangler/logs/
+    which fails in containers where $HOME/.config doesn't exist.
+    """
+    config = await cloudflare_config_factory(
+        tunnel_id="tunnel123",
+        vpc_service_id="vpc123",
+        completed_step=3,
+    )
+
+    def mock_request(method, url, **kwargs):
+        response = Mock()
+        if "workers/subdomain" in url:
+            response.json.return_value = {
+                "success": True,
+                "result": {"subdomain": "test"},
+            }
+        else:
+            response.json.return_value = {"success": True, "result": {}}
+        return response
+
+    mock_cloudflare_api.request.side_effect = mock_request
+
+    # Capture env dicts passed to all subprocess.run calls
+    captured_envs = []
+
+    def mock_subprocess_run(*args, **kwargs):
+        captured_envs.append(kwargs.get("env", {}))
+        result = Mock()
+        result.returncode = 0
+        result.stderr = ""
+        cmd = args[0] if args else kwargs.get("args", [])
+        if "kv" in cmd and "create" in cmd:
+            result.stdout = 'id = "kv-namespace-123"'
+        else:
+            result.stdout = "Deployed successfully"
+        return result
+
+    _real_isdir = os.path.isdir
+    _real_listdir = os.listdir
+    _real_exists = os.path.exists
+    _real_open = open
+
+    def mock_isdir(path):
+        if "/app/worker/src" in str(path):
+            return True
+        if str(path) == "/app/worker/node_modules":
+            return True
+        return _real_isdir(path)
+
+    def mock_listdir(path):
+        if "/app/worker/src" in str(path):
+            return ["index.ts", "utils.ts"]
+        return _real_listdir(path)
+
+    def mock_exists(path):
+        if "/app/worker/" in str(path):
+            return True
+        return _real_exists(path)
+
+    def mock_open_fn(path, *args, **kwargs):
+        if "/app/worker/" in str(path):
+            from io import StringIO
+
+            if "package.json" in str(path):
+                return StringIO('{"name":"mcpbox-proxy","dependencies":{}}')
+            return StringIO("// mock ts source")
+        return _real_open(path, *args, **kwargs)
+
+    with (
+        patch("app.services.cloudflare.subprocess.run", side_effect=mock_subprocess_run),
+        patch("app.services.cloudflare.shutil.copytree"),
+        patch("os.path.isdir", side_effect=mock_isdir),
+        patch("os.path.exists", side_effect=mock_exists),
+        patch("os.listdir", side_effect=mock_listdir),
+        patch("builtins.open", side_effect=mock_open_fn),
+    ):
+        response = await async_client.post(
+            "/api/cloudflare/worker",
+            json={"config_id": str(config.id), "name": "mcpbox-proxy"},
+            headers=admin_headers,
+        )
+
+    assert response.status_code == 200
+
+    # Every subprocess call (kv create, deploy, secret put) must have
+    # XDG_CONFIG_HOME and npm_config_cache to avoid filesystem errors.
+    assert len(captured_envs) >= 2, (
+        f"Expected at least 2 subprocess calls, got {len(captured_envs)}"
+    )
+    for i, env in enumerate(captured_envs):
+        assert "XDG_CONFIG_HOME" in env, (
+            f"subprocess call {i} missing XDG_CONFIG_HOME — wrangler will fail "
+            f"trying to mkdir $HOME/.config"
+        )
+        assert "npm_config_cache" in env, (
+            f"subprocess call {i} missing npm_config_cache — npm will fail "
+            f"on read-only home directories"
+        )
+        # XDG_CONFIG_HOME should point to a .config dir inside a tmpdir, not $HOME
+        assert "/.config" in env["XDG_CONFIG_HOME"]
+        assert "/home/" not in env["XDG_CONFIG_HOME"], (
+            "XDG_CONFIG_HOME should point to tmpdir, not the user's home directory"
+        )
+        # Must not leak sensitive env vars
+        assert "DATABASE_URL" not in env
+        assert "MCPBOX_ENCRYPTION_KEY" not in env
+
+
+@pytest.mark.asyncio
+async def test_deploy_worker_npm_fallback_copies_lockfile(
+    async_client, admin_headers, cloudflare_config_factory, mock_cloudflare_api
+):
+    """When pre-installed node_modules are missing, the npm fallback should
+    copy package-lock.json for deterministic installs."""
+    config = await cloudflare_config_factory(
+        tunnel_id="tunnel123",
+        vpc_service_id="vpc123",
+        completed_step=3,
+    )
+
+    def mock_request(method, url, **kwargs):
+        response = Mock()
+        if "workers/subdomain" in url:
+            response.json.return_value = {
+                "success": True,
+                "result": {"subdomain": "test"},
+            }
+        else:
+            response.json.return_value = {"success": True, "result": {}}
+        return response
+
+    mock_cloudflare_api.request.side_effect = mock_request
+
+    def mock_subprocess_run(*args, **kwargs):
+        result = Mock()
+        result.returncode = 0
+        result.stderr = ""
+        cmd = args[0] if args else kwargs.get("args", [])
+        if "kv" in cmd and "create" in cmd:
+            result.stdout = 'id = "kv-namespace-123"'
+        else:
+            result.stdout = "Deployed successfully"
+        return result
+
+    _real_isdir = os.path.isdir
+    _real_listdir = os.listdir
+    _real_exists = os.path.exists
+    _real_open = open
+
+    def mock_isdir(path):
+        if "/app/worker/src" in str(path):
+            return True
+        # Simulate missing pre-installed node_modules to trigger fallback
+        if str(path) == "/app/worker/node_modules":
+            return False
+        return _real_isdir(path)
+
+    def mock_listdir(path):
+        if "/app/worker/src" in str(path):
+            return ["index.ts"]
+        return _real_listdir(path)
+
+    def mock_exists(path):
+        if "/app/worker/" in str(path):
+            return True
+        return _real_exists(path)
+
+    def mock_open_fn(path, *args, **kwargs):
+        if "/app/worker/" in str(path):
+            from io import StringIO
+
+            if "package.json" in str(path):
+                return StringIO('{"name":"mcpbox-proxy","dependencies":{}}')
+            return StringIO("// mock ts source")
+        return _real_open(path, *args, **kwargs)
+
+    copy2_calls = []
+
+    with (
+        patch("app.services.cloudflare.subprocess.run", side_effect=mock_subprocess_run),
+        patch(
+            "app.services.cloudflare.shutil.copy2",
+            side_effect=lambda *a, **kw: copy2_calls.append(a),
+        ),
+        patch("os.path.isdir", side_effect=mock_isdir),
+        patch("os.path.exists", side_effect=mock_exists),
+        patch("os.listdir", side_effect=mock_listdir),
+        patch("builtins.open", side_effect=mock_open_fn),
+    ):
+        response = await async_client.post(
+            "/api/cloudflare/worker",
+            json={"config_id": str(config.id), "name": "mcpbox-proxy"},
+            headers=admin_headers,
+        )
+
+    assert response.status_code == 200
+
+    # Should have called shutil.copy2 to copy package-lock.json
+    lockfile_copies = [c for c in copy2_calls if "package-lock.json" in str(c[0])]
+    assert len(lockfile_copies) == 1, (
+        f"Expected 1 lockfile copy, got {len(lockfile_copies)}. All copy2 calls: {copy2_calls}"
+    )
+    assert lockfile_copies[0][0] == "/app/worker/package-lock.json"
+
+
+# --- Deploy Worker: _sync_worker_secrets Environment Tests ---
+
+
+@pytest.mark.asyncio
+async def test_sync_worker_secrets_env_has_xdg_config_home(
+    async_client, admin_headers, cloudflare_config_factory
+):
+    """_sync_worker_secrets (called by configure_worker_jwt) must also set
+    XDG_CONFIG_HOME so wrangler secret put doesn't fail."""
+    config = await cloudflare_config_factory(
+        worker_name="mcpbox-proxy",
+        worker_url="https://mcpbox-proxy.test.workers.dev",
+        team_domain="myteam.cloudflareaccess.com",
+        completed_step=4,
+    )
+
+    captured_envs = []
+
+    def mock_subprocess_run(*args, **kwargs):
+        captured_envs.append(kwargs.get("env", {}))
+        result = Mock()
+        result.returncode = 0
+        result.stdout = "Secret set successfully"
+        result.stderr = ""
+        return result
+
+    def mock_request(method, url, **kwargs):
+        response = Mock()
+        response.is_success = True
+        if "/access/apps" in url and method == "POST":
+            response.content = b'{"success": true}'
+            response.json.return_value = {
+                "success": True,
+                "result": {
+                    "id": "saas-app-id-123",
+                    "saas_app": {
+                        "client_id": "oidc-client-id",
+                        "client_secret": "oidc-client-secret",
+                    },
+                },
+            }
+        elif "/access/apps" in url and "/policies" in url:
+            response.content = b'{"success": true}'
+            response.json.return_value = {"success": True, "result": {"id": "policy-123"}}
+        else:
+            response.content = b'{"success": true}'
+            response.json.return_value = {"success": True, "result": {}}
+        return response
+
+    with (
+        patch("app.services.cloudflare.subprocess.run", side_effect=mock_subprocess_run),
+        patch("app.services.cloudflare.httpx.AsyncClient") as mock_client,
+    ):
+        mock_instance = Mock()
+        mock_instance.request = AsyncMock(side_effect=mock_request)
+        mock_instance.post = AsyncMock(side_effect=Exception("Connection failed"))
+        mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        response = await async_client.post(
+            "/api/cloudflare/worker-jwt-config",
+            json={"config_id": str(config.id)},
+            headers=admin_headers,
+        )
+
+    assert response.status_code == 200
+
+    # _sync_worker_secrets runs wrangler secret put for each secret.
+    # Each call must have XDG_CONFIG_HOME set.
+    assert len(captured_envs) >= 1, "Expected at least 1 wrangler secret put call"
+    for i, env in enumerate(captured_envs):
+        assert "XDG_CONFIG_HOME" in env, (
+            f"wrangler secret put call {i} missing XDG_CONFIG_HOME — "
+            f"will fail trying to mkdir $HOME/.config"
+        )
+        assert "/.config" in env["XDG_CONFIG_HOME"]
+        assert "/home/" not in env["XDG_CONFIG_HOME"], (
+            "XDG_CONFIG_HOME should point to tmpdir, not the user's home directory"
+        )
+        # Must not leak sensitive env vars
+        assert "DATABASE_URL" not in env
+        assert "MCPBOX_ENCRYPTION_KEY" not in env
 
 
 # --- Configure JWT Tests ---

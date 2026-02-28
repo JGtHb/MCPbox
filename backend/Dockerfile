@@ -60,11 +60,13 @@ COPY --chown=mcpbox:mcpbox backend/entrypoint.sh /app/
 # the Worker to Cloudflare. Without them, deployment fails.
 COPY --chown=mcpbox:mcpbox worker/src/ /app/worker/src/
 COPY --chown=mcpbox:mcpbox worker/package.json /app/worker/package.json
+COPY --chown=mcpbox:mcpbox worker/package-lock.json /app/worker/package-lock.json
 
 # Pre-install worker production dependencies at build time so deploy_worker()
 # can copy them instead of running `npm install` in the space-constrained
-# /tmp tmpfs at runtime.  --omit=dev skips test/build deps (vitest, etc.).
-RUN cd /app/worker && npm install --omit=dev --ignore-scripts && chown -R mcpbox:mcpbox node_modules
+# /tmp tmpfs at runtime.  npm ci uses the lockfile for deterministic installs;
+# --omit=dev skips test/build deps (vitest, etc.).
+RUN cd /app/worker && npm ci --omit=dev --ignore-scripts && chown -R mcpbox:mcpbox node_modules
 
 # Switch to non-root user
 USER mcpbox
