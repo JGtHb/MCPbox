@@ -1,6 +1,6 @@
 {
   "name": "mcpbox-proxy",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "Cloudflare Worker proxy for MCPbox MCP gateway",
   "main": "src/index.ts",
   "scripts": {

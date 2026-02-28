@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../../contexts'
+import { useHealth } from '../../api/health'
 
 interface NavItem {
   to: string
@@ -27,6 +28,7 @@ interface SidebarProps {
 
 export function Sidebar({ isDark, theme, setTheme, onClose }: SidebarProps) {
   const { logout } = useAuth()
+  const { data: health } = useHealth()
   return (
     <aside className="w-64 h-full bg-overlay text-on-base flex flex-col">
       {/* Logo with close button on mobile */}
@@ -128,7 +130,7 @@ export function Sidebar({ isDark, theme, setTheme, onClose }: SidebarProps) {
 
       {/* Footer */}
       <div className="p-4 border-t border-hl-med text-xs text-muted">
-        <p>v0.1.0 • Development</p>
+        <p>v{health?.version ?? '...'}</p>
       </div>
     </aside>
   )
