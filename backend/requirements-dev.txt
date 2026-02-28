@@ -10,7 +10,7 @@ aiosqlite==0.22.1  # For in-memory test database
 testcontainers[postgres]==4.14.1
 
 # Code quality
-ruff==0.15.3
+ruff==0.15.4
 mypy==1.19.1
 
 # Type stubs
