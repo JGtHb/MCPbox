@@ -97,6 +97,20 @@ Two modes: **Local** (no auth, local MCP client → localhost:8000/mcp) and **Re
 - **Releases** — open a PR from `develop → main`, merge it, then tag `vX.Y.Z`. Pushing a `v*` tag triggers `.github/workflows/release.yml`, which creates a GitHub Release with auto-generated notes.
 - End users install from `main` (stable). Contributors work on `develop`.
 
+### Version Bump Checklist
+
+Before a release, bump the version in **all 5 locations** (the sidebar reads from the backend dynamically):
+
+```
+backend/pyproject.toml          → version = "X.Y.Z"
+backend/app/core/config.py      → app_version: str = "X.Y.Z"
+frontend/package.json            → "version": "X.Y.Z"
+worker/package.json              → "version": "X.Y.Z"
+sandbox/pyproject.toml           → version = "X.Y.Z"
+```
+
+Then regenerate lock files: `cd frontend && npm install --package-lock-only && cd ../worker && npm install --package-lock-only`
+
 ## Workflow Rules
 
 - After implementing a new feature → update `docs/FEATURES.md`

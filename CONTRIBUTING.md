@@ -109,10 +109,14 @@ Always use Alembic migrations. Auto table creation is disabled.
 
 Releases are cut from `develop` → `main` via PR:
 
-1. Open a PR from `develop` → `main` (never push directly)
-2. Merge the PR
-3. Tag: `git tag v0.X.0 && git push origin v0.X.0`
-4. GitHub Actions creates a release with auto-generated notes
+1. Bump version in all 5 locations (PR to `develop`):
+   - `backend/pyproject.toml`, `backend/app/core/config.py`
+   - `frontend/package.json`, `worker/package.json`, `sandbox/pyproject.toml`
+   - Regenerate lock files: `cd frontend && npm install --package-lock-only && cd ../worker && npm install --package-lock-only`
+2. Open a PR from `develop` → `main` (never push directly)
+3. Merge the PR
+4. Tag: `git tag v0.X.0 && git push origin v0.X.0`
+5. GitHub Actions creates a release with auto-generated notes
 
 ## Security
 
