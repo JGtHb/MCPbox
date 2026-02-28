@@ -457,7 +457,9 @@ The gateway queries all enabled servers and merges their tool lists. Tool names 
 
 ## Database Schema
 
-MCPbox uses PostgreSQL with SQLAlchemy async ORM. Key tables:
+MCPbox uses PostgreSQL with SQLAlchemy async ORM. For detailed column definitions, entity relationships, and design patterns, see [DATA-MODEL.md](DATA-MODEL.md).
+
+Key tables:
 
 ### Core Tables
 
