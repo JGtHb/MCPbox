@@ -39,8 +39,8 @@ Once you [connect an MCP client]({{ site.baseurl }}/getting-started/connecting-c
 
 1. Create servers to organize tools
 2. Write Python code that becomes a permanent tool
-3. Test the code in the sandbox
-4. Submit it for your approval
+3. Submit it for your approval
+4. Test the code in the sandbox (after you approve)
 5. Start the server so the tool is available
 
 You stay in control — nothing runs until you approve it in the Approvals page.
