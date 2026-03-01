@@ -130,4 +130,5 @@ class ServerSecretService:
                 ServerSecret.key_name == key_name,
             )
         )
-        return result.scalar_one_or_none()
+        secret: ServerSecret | None = result.scalar_one_or_none()
+        return secret

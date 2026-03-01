@@ -321,7 +321,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         When TRUSTED_PROXY_IPS is configured, only trust the header
         if the direct connection comes from a trusted proxy.
         """
-        direct_ip = request.client.host if request.client else None
+        direct_ip: str | None = request.client.host if request.client else None
 
         # Check for forwarded headers (proxy scenarios)
         # SECURITY: Only trust X-Forwarded-For/X-Real-IP if TRUSTED_PROXY_IPS is configured
@@ -332,7 +332,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             # Only trust X-Forwarded-For if trusted proxies are configured AND
             # the direct connection is from a trusted proxy
             if TRUSTED_PROXY_IPS and direct_ip and direct_ip in TRUSTED_PROXY_IPS:
-                client_ip = forwarded.split(",")[0].strip()
+                client_ip: str = forwarded.split(",")[0].strip()
                 if _is_valid_ip(client_ip):
                     return client_ip
                 else:
@@ -343,7 +343,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             else:
                 logger.debug(f"Ignoring X-Forwarded-For from untrusted source: {direct_ip}")
 
-        real_ip = request.headers.get("X-Real-IP")
+        real_ip: str | None = request.headers.get("X-Real-IP")
         if real_ip:
             # Same security check for X-Real-IP
             if TRUSTED_PROXY_IPS and direct_ip and direct_ip in TRUSTED_PROXY_IPS:

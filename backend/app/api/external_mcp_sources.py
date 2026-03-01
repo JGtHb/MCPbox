@@ -116,7 +116,7 @@ def _source_to_response(source: Any) -> dict[str, Any]:
     """Convert a source model to a response dict with computed fields."""
     from app.schemas.external_mcp_source import ExternalMCPSourceResponse
 
-    data = ExternalMCPSourceResponse.model_validate(source).model_dump()
+    data: dict[str, Any] = ExternalMCPSourceResponse.model_validate(source).model_dump()
     data["oauth_authenticated"] = source.oauth_tokens_encrypted is not None
     return data
 

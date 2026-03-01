@@ -67,7 +67,8 @@ class InvalidTokenError(TokenError):
 
 def hash_password(password: str) -> str:
     """Hash a password using Argon2id."""
-    return ph.hash(password)
+    hashed: str = ph.hash(password)
+    return hashed
 
 
 def verify_password(password: str, password_hash: str) -> bool:
@@ -128,7 +129,8 @@ def decode_token(token: str) -> dict[str, Any]:
             settings.effective_jwt_secret_key,
             algorithms=[settings.jwt_algorithm],
         )
-        return payload
+        decoded: dict[str, Any] = payload
+        return decoded
     except jwt.ExpiredSignatureError as e:
         raise TokenExpiredError("Token has expired") from e
     except PyJWTError as e:
@@ -166,12 +168,14 @@ class AuthService:
     async def get_user_by_username(self, username: str) -> AdminUser | None:
         """Get user by username."""
         result = await self.session.execute(select(AdminUser).where(AdminUser.username == username))
-        return result.scalar_one_or_none()
+        user: AdminUser | None = result.scalar_one_or_none()
+        return user
 
     async def get_user_by_id(self, user_id: UUID) -> AdminUser | None:
         """Get user by ID."""
         result = await self.session.execute(select(AdminUser).where(AdminUser.id == user_id))
-        return result.scalar_one_or_none()
+        user: AdminUser | None = result.scalar_one_or_none()
+        return user
 
     async def create_admin_user(self, username: str, password: str) -> AdminUser:
         """Create a new admin user."""

@@ -492,7 +492,7 @@ class ActivityLoggerService:
         result = await db.execute(delete(ActivityLog).where(ActivityLog.created_at < cutoff))
         await db.commit()
 
-        deleted_count: int = result.rowcount  # type: ignore[attr-defined]
+        deleted_count: int = result.rowcount
         if deleted_count > 0:
             logger.info(f"Cleaned up {deleted_count} logs older than {retention_days} days")
 

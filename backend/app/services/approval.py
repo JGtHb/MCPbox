@@ -119,7 +119,7 @@ class ApprovalService:
         """
         stmt = select(Tool).where(Tool.id == tool_id)
         result = await self.db.execute(stmt)
-        tool = result.scalar_one_or_none()
+        tool: Tool | None = result.scalar_one_or_none()
 
         if not tool:
             raise ValueError(f"Tool {tool_id} not found")
@@ -183,7 +183,7 @@ class ApprovalService:
         # Eagerly load server relationship for post-approval refresh
         stmt = select(Tool).where(Tool.id == tool_id).options(selectinload(Tool.server))
         result = await self.db.execute(stmt)
-        tool = result.scalar_one_or_none()
+        tool: Tool | None = result.scalar_one_or_none()
 
         if not tool:
             raise ValueError(f"Tool {tool_id} not found")
@@ -226,7 +226,7 @@ class ApprovalService:
         """
         stmt = select(Tool).where(Tool.id == tool_id)
         result = await self.db.execute(stmt)
-        tool = result.scalar_one_or_none()
+        tool: Tool | None = result.scalar_one_or_none()
 
         if not tool:
             raise ValueError(f"Tool {tool_id} not found")
@@ -474,7 +474,7 @@ class ApprovalService:
             .where(ModuleRequest.id == request_id)
         )
         result = await self.db.execute(stmt)
-        request = result.scalar_one_or_none()
+        request: ModuleRequest | None = result.scalar_one_or_none()
 
         if not request:
             raise ValueError(f"Module request {request_id} not found")
@@ -542,7 +542,7 @@ class ApprovalService:
         """
         stmt = select(ModuleRequest).where(ModuleRequest.id == request_id)
         result = await self.db.execute(stmt)
-        request = result.scalar_one_or_none()
+        request: ModuleRequest | None = result.scalar_one_or_none()
 
         if not request:
             raise ValueError(f"Module request {request_id} not found")
@@ -791,7 +791,7 @@ class ApprovalService:
             .where(NetworkAccessRequest.id == request_id)
         )
         result = await self.db.execute(stmt)
-        request = result.scalar_one_or_none()
+        request: NetworkAccessRequest | None = result.scalar_one_or_none()
 
         if not request:
             raise ValueError(f"Network access request {request_id} not found")
@@ -836,7 +836,7 @@ class ApprovalService:
         """
         stmt = select(NetworkAccessRequest).where(NetworkAccessRequest.id == request_id)
         result = await self.db.execute(stmt)
-        request = result.scalar_one_or_none()
+        request: NetworkAccessRequest | None = result.scalar_one_or_none()
 
         if not request:
             raise ValueError(f"Network access request {request_id} not found")
@@ -1171,7 +1171,7 @@ class ApprovalService:
         """
         stmt = select(Tool).where(Tool.id == tool_id).options(selectinload(Tool.server))
         result = await self.db.execute(stmt)
-        tool = result.scalar_one_or_none()
+        tool: Tool | None = result.scalar_one_or_none()
 
         if not tool:
             raise ValueError(f"Tool {tool_id} not found")
@@ -1220,7 +1220,7 @@ class ApprovalService:
             .where(ModuleRequest.id == request_id)
         )
         result = await self.db.execute(stmt)
-        request = result.scalar_one_or_none()
+        request: ModuleRequest | None = result.scalar_one_or_none()
 
         if not request:
             raise ValueError(f"Module request {request_id} not found")
@@ -1273,7 +1273,7 @@ class ApprovalService:
             .where(NetworkAccessRequest.id == request_id)
         )
         result = await self.db.execute(stmt)
-        request = result.scalar_one_or_none()
+        request: NetworkAccessRequest | None = result.scalar_one_or_none()
 
         if not request:
             raise ValueError(f"Network access request {request_id} not found")

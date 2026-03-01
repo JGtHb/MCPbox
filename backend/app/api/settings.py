@@ -235,7 +235,8 @@ async def update_security_policy(
         LogRetentionService.get_instance().retention_days = int(updates["log_retention_days"])
 
     # Return the full current state
-    return await get_security_policy(setting_service=setting_service)
+    response: SecurityPolicyResponse = await get_security_policy(setting_service=setting_service)
+    return response
 
 
 # --- Module Configuration Endpoints ---

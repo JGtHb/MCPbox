@@ -57,7 +57,8 @@ class ExternalMCPSourceService:
         result = await self.db.execute(
             select(ExternalMCPSource).where(ExternalMCPSource.id == source_id)
         )
-        return result.scalar_one_or_none()
+        source: ExternalMCPSource | None = result.scalar_one_or_none()
+        return source
 
     async def list_by_server(self, server_id: UUID) -> list[ExternalMCPSource]:
         """List all external MCP sources for a server."""

@@ -166,7 +166,8 @@ class SandboxClient:
                     f"{self.sandbox_url}/health",
                     headers=self._get_headers(),
                 )
-                return response.status_code == 200
+                healthy: bool = response.status_code == 200
+                return healthy
 
             result: bool = await retry_async(
                 do_health_check,

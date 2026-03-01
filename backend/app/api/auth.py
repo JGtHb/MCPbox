@@ -66,10 +66,11 @@ async def is_token_blacklisted(db: AsyncSession, jti: str) -> bool:
 async def cleanup_expired_blacklist_entries(db: AsyncSession) -> int:
     """Remove expired entries from the token blacklist. Returns count removed."""
     now = datetime.now(tz=UTC)
-    result: CursorResult[Any] = await db.execute(  # type: ignore[assignment]
+    result: CursorResult[Any] = await db.execute(
         delete(TokenBlacklist).where(TokenBlacklist.expires_at < now)
     )
-    return result.rowcount
+    count: int = result.rowcount
+    return count
 
 
 def _check_login_rate_limit(client_ip: str) -> None:
@@ -337,4 +338,5 @@ async def get_current_user_info(
     current_user: Any = Depends(get_current_user),
 ) -> UserResponse:
     """Get the current user's information."""
-    return UserResponse.model_validate(current_user)
+    response: UserResponse = UserResponse.model_validate(current_user)
+    return response

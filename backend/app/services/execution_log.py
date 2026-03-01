@@ -252,7 +252,8 @@ class ExecutionLogService:
         result = await self.db.execute(
             select(ToolExecutionLog).where(ToolExecutionLog.id == log_id)
         )
-        return result.scalar_one_or_none()
+        log: ToolExecutionLog | None = result.scalar_one_or_none()
+        return log
 
     async def cleanup(self, max_per_tool: int = 100) -> int:
         """Trim old execution logs, keeping at most max_per_tool per tool.
@@ -290,7 +291,7 @@ class ExecutionLogService:
                 continue
 
             # Delete logs older than cutoff
-            del_result: CursorResult[Any] = await self.db.execute(  # type: ignore[assignment]
+            del_result: CursorResult[Any] = await self.db.execute(
                 delete(ToolExecutionLog).where(
                     ToolExecutionLog.tool_id == tool_id,
                     ToolExecutionLog.created_at <= cutoff_time,

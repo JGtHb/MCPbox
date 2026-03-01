@@ -421,7 +421,8 @@ async def take_module_request_action(
             if request.server_id:
                 await reregister_server(request.server_id, db)
 
-            return ModuleRequestResponse.model_validate(request)
+            resp: ModuleRequestResponse = ModuleRequestResponse.model_validate(request)
+            return resp
         else:
             if not action.reason:
                 raise HTTPException(
@@ -433,7 +434,8 @@ async def take_module_request_action(
                 rejected_by=admin_identity,
                 reason=action.reason,
             )
-            return ModuleRequestResponse.model_validate(request)
+            rejected: ModuleRequestResponse = ModuleRequestResponse.model_validate(request)
+            return rejected
     except ValueError as e:
         # Only expose safe error messages for known validation errors
         error_msg = str(e)
@@ -470,7 +472,8 @@ async def revoke_module_request(
         if request.server_id:
             await reregister_server(request.server_id, db)
 
-        return ModuleRequestResponse.model_validate(request)
+        resp: ModuleRequestResponse = ModuleRequestResponse.model_validate(request)
+        return resp
     except ValueError as e:
         error_msg = str(e)
         if "not found" in error_msg.lower() or "status" in error_msg.lower():
@@ -627,7 +630,10 @@ async def take_network_request_action(
             # Re-register server so approved hosts take effect immediately
             await reregister_server(request.server_id, db)
 
-            return NetworkAccessRequestResponse.model_validate(request)
+            resp: NetworkAccessRequestResponse = NetworkAccessRequestResponse.model_validate(
+                request
+            )
+            return resp
         else:
             if not action.reason:
                 raise HTTPException(
@@ -639,7 +645,10 @@ async def take_network_request_action(
                 rejected_by=admin_identity,
                 reason=action.reason,
             )
-            return NetworkAccessRequestResponse.model_validate(request)
+            rejected: NetworkAccessRequestResponse = NetworkAccessRequestResponse.model_validate(
+                request
+            )
+            return rejected
     except ValueError as e:
         # Only expose safe error messages for known validation errors
         error_msg = str(e)
@@ -675,7 +684,8 @@ async def revoke_network_access_request(
         # Re-register server so revoked hosts are removed immediately
         await reregister_server(request.server_id, db)
 
-        return NetworkAccessRequestResponse.model_validate(request)
+        resp: NetworkAccessRequestResponse = NetworkAccessRequestResponse.model_validate(request)
+        return resp
     except ValueError as e:
         error_msg = str(e)
         if "not found" in error_msg.lower() or "status" in error_msg.lower():
