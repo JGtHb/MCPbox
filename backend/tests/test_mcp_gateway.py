@@ -9,6 +9,7 @@ Tests run in local mode by default (ServiceTokenCache has no token loaded).
 
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient
@@ -1124,3 +1125,181 @@ class TestAuthRateLimiting:
 
         # Clean up
         _failed_auth_attempts.pop(test_ip, None)
+
+
+class TestLogToolExecutionMetadata:
+    """Tests for _log_tool_execution extracting stdout from _meta."""
+
+    @pytest.mark.asyncio
+    async def test_extracts_stdout_from_meta_on_success(self):
+        """_log_tool_execution should extract stdout from _meta.execution."""
+        from app.api.mcp_gateway import _log_tool_execution
+
+        tool_id = uuid4()
+        mock_tool = MagicMock()
+        mock_tool.id = tool_id
+        mock_tool.server_id = uuid4()
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_tool
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
+
+        mock_log_service = MagicMock()
+        mock_log_service.create_log = AsyncMock()
+
+        sandbox_response = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{"type": "text", "text": "result text"}],
+                "isError": False,
+                "_meta": {
+                    "execution": {
+                        "stdout": "captured print output",
+                        "duration_ms": 150,
+                    }
+                },
+            },
+        }
+
+        with (
+            patch(
+                "app.api.mcp_gateway.async_session_maker",
+                return_value=AsyncMock(
+                    __aenter__=AsyncMock(return_value=mock_session),
+                    __aexit__=AsyncMock(return_value=False),
+                ),
+            ),
+            patch(
+                "app.api.mcp_gateway.ExecutionLogService",
+                return_value=mock_log_service,
+            ),
+        ):
+            await _log_tool_execution(
+                tool_name="MySrv__my_tool",
+                arguments={"arg1": "val1"},
+                sandbox_response=sandbox_response,
+                duration_ms=200,
+            )
+
+        # Verify stdout was extracted from _meta
+        mock_log_service.create_log.assert_called_once()
+        call_kwargs = mock_log_service.create_log.call_args
+        assert call_kwargs.kwargs.get("stdout") == "captured print output"
+        assert call_kwargs.kwargs.get("success") is True
+
+    @pytest.mark.asyncio
+    async def test_extracts_stdout_from_meta_on_failure(self):
+        """_log_tool_execution extracts stdout from _meta on tool errors."""
+        from app.api.mcp_gateway import _log_tool_execution
+
+        tool_id = uuid4()
+        mock_tool = MagicMock()
+        mock_tool.id = tool_id
+        mock_tool.server_id = uuid4()
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_tool
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
+
+        mock_log_service = MagicMock()
+        mock_log_service.create_log = AsyncMock()
+
+        sandbox_response = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{"type": "text", "text": "ValueError: boom"}],
+                "isError": True,
+                "_meta": {
+                    "execution": {
+                        "stdout": "debug line before crash",
+                        "duration_ms": 100,
+                    }
+                },
+            },
+        }
+
+        with (
+            patch(
+                "app.api.mcp_gateway.async_session_maker",
+                return_value=AsyncMock(
+                    __aenter__=AsyncMock(return_value=mock_session),
+                    __aexit__=AsyncMock(return_value=False),
+                ),
+            ),
+            patch(
+                "app.api.mcp_gateway.ExecutionLogService",
+                return_value=mock_log_service,
+            ),
+        ):
+            await _log_tool_execution(
+                tool_name="MySrv__my_tool",
+                arguments={},
+                sandbox_response=sandbox_response,
+                duration_ms=200,
+            )
+
+        mock_log_service.create_log.assert_called_once()
+        call_kwargs = mock_log_service.create_log.call_args
+        assert call_kwargs.kwargs.get("stdout") == "debug line before crash"
+        assert call_kwargs.kwargs.get("success") is False
+        assert "ValueError: boom" in call_kwargs.kwargs.get("error", "")
+
+    @pytest.mark.asyncio
+    async def test_handles_missing_meta_gracefully(self):
+        """_log_tool_execution handles responses without _meta (old sandbox)."""
+        from app.api.mcp_gateway import _log_tool_execution
+
+        tool_id = uuid4()
+        mock_tool = MagicMock()
+        mock_tool.id = tool_id
+        mock_tool.server_id = uuid4()
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_tool
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
+
+        mock_log_service = MagicMock()
+        mock_log_service.create_log = AsyncMock()
+
+        # Response without _meta (backward compatibility)
+        sandbox_response = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{"type": "text", "text": "result"}],
+                "isError": False,
+            },
+        }
+
+        with (
+            patch(
+                "app.api.mcp_gateway.async_session_maker",
+                return_value=AsyncMock(
+                    __aenter__=AsyncMock(return_value=mock_session),
+                    __aexit__=AsyncMock(return_value=False),
+                ),
+            ),
+            patch(
+                "app.api.mcp_gateway.ExecutionLogService",
+                return_value=mock_log_service,
+            ),
+        ):
+            await _log_tool_execution(
+                tool_name="MySrv__my_tool",
+                arguments={},
+                sandbox_response=sandbox_response,
+                duration_ms=200,
+            )
+
+        # Should not crash, stdout should be None (no _meta)
+        mock_log_service.create_log.assert_called_once()
+        call_kwargs = mock_log_service.create_log.call_args
+        assert call_kwargs.kwargs.get("stdout") is None
