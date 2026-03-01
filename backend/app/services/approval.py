@@ -2,7 +2,7 @@
 
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from sqlalchemy import ColumnElement, func, or_, select
@@ -34,12 +34,16 @@ async def sync_allowed_hosts(server_id: UUID, db: AsyncSession) -> list[str]:
     (both LLM-originated via tool.server_id and admin-originated via direct server_id),
     deduplicates, and writes the result to Server.allowed_hosts.
 
+    Entries are formatted as ``host`` (any port) or ``host:port`` (specific port).
+    If a host has both a port-less approval and port-specific approvals, the
+    port-less entry supersedes (any port allowed).
+
     Returns:
         The updated list of allowed hosts.
     """
-    # Get all approved hosts for this server from both paths
+    # Get all approved host+port pairs for this server from both paths
     stmt = (
-        select(NetworkAccessRequest.host)
+        select(NetworkAccessRequest.host, NetworkAccessRequest.port)
         .outerjoin(Tool, NetworkAccessRequest.tool_id == Tool.id)
         .where(
             NetworkAccessRequest.status == "approved",
@@ -50,16 +54,31 @@ async def sync_allowed_hosts(server_id: UUID, db: AsyncSession) -> list[str]:
         )
     )
     result = await db.execute(stmt)
-    hosts = sorted({row[0] for row in result.all()})
+
+    # Group by host: if any approval has port=None, it means "any port"
+    host_ports: dict[str, set[int | None]] = {}
+    for host, port in result.all():
+        host_ports.setdefault(host, set()).add(port)
+
+    entries: list[str] = []
+    for host in sorted(host_ports):
+        ports = host_ports[host]
+        if None in ports:
+            # A port-less approval supersedes all port-specific ones
+            entries.append(host)
+        else:
+            # None was already excluded by the branch above
+            for p in sorted(cast(set[int], ports)):
+                entries.append(f"{host}:{p}")
 
     # Update the server's cached allowed_hosts
     server_result = await db.execute(select(Server).where(Server.id == server_id))
     server = server_result.scalar_one_or_none()
     if server:
-        server.allowed_hosts = hosts
+        server.allowed_hosts = entries
         await db.flush()
 
-    return hosts
+    return entries
 
 
 async def sync_allowed_modules(db: AsyncSession) -> list[str]:
