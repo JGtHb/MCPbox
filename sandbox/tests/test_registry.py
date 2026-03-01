@@ -302,6 +302,186 @@ class TestUpdateSecrets:
         assert "get_weather" in tool_registry.servers["server-1"].tools
 
 
+class TestSquidAclUpdate:
+    """Tests for _update_squid_approved_hosts — squid ACL file generation."""
+
+    def test_private_ip_written_to_file(self, tool_registry, sample_tool_def, tmp_path):
+        """Private IPs in allowed_hosts are written to the squid ACL file."""
+        from unittest.mock import patch
+
+        acl_file = tmp_path / "approved-private.txt"
+        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            tool_registry.register_server(
+                server_id="s1",
+                server_name="LanServer",
+                tools=[sample_tool_def],
+                allowed_hosts=["192.168.1.2"],
+            )
+
+        assert acl_file.exists()
+        lines = acl_file.read_text().strip().splitlines()
+        assert "192.168.1.2" in lines
+
+    def test_multiple_private_hosts_written(self, tool_registry, sample_tool_def, tmp_path):
+        """Multiple private IPs and LAN hostnames are all written."""
+        from unittest.mock import patch
+
+        acl_file = tmp_path / "approved-private.txt"
+        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            tool_registry.register_server(
+                server_id="s1",
+                server_name="LanServer",
+                tools=[sample_tool_def],
+                allowed_hosts=["192.168.1.2", "10.0.0.50", "nas.local"],
+            )
+
+        lines = acl_file.read_text().strip().splitlines()
+        assert "192.168.1.2" in lines
+        assert "10.0.0.50" in lines
+        assert "nas.local" in lines
+
+    def test_public_hosts_not_written(self, tool_registry, sample_tool_def, tmp_path):
+        """Public hostnames (e.g. api.example.com) are NOT written to the ACL file."""
+        from unittest.mock import patch
+
+        acl_file = tmp_path / "approved-private.txt"
+        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            tool_registry.register_server(
+                server_id="s1",
+                server_name="PublicServer",
+                tools=[sample_tool_def],
+                allowed_hosts=["api.example.com", "192.168.1.2"],
+            )
+
+        lines = acl_file.read_text().strip().splitlines()
+        assert "api.example.com" not in lines
+        assert "192.168.1.2" in lines
+
+    def test_lan_tlds_written(self, tool_registry, sample_tool_def, tmp_path):
+        """Hostnames with .local, .lan, .home, .internal TLDs are written."""
+        from unittest.mock import patch
+
+        acl_file = tmp_path / "approved-private.txt"
+        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            tool_registry.register_server(
+                server_id="s1",
+                server_name="LanServer",
+                tools=[sample_tool_def],
+                allowed_hosts=["mynas.local", "printer.lan", "ha.home", "dns.internal"],
+            )
+
+        lines = acl_file.read_text().strip().splitlines()
+        assert "mynas.local" in lines
+        assert "printer.lan" in lines
+        assert "ha.home" in lines
+        assert "dns.internal" in lines
+
+    def test_single_label_hostnames_written(self, tool_registry, sample_tool_def, tmp_path):
+        """Single-label hostnames (no dots) are written as likely LAN targets."""
+        from unittest.mock import patch
+
+        acl_file = tmp_path / "approved-private.txt"
+        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            tool_registry.register_server(
+                server_id="s1",
+                server_name="LanServer",
+                tools=[sample_tool_def],
+                allowed_hosts=["nas", "homeassistant"],
+            )
+
+        lines = acl_file.read_text().strip().splitlines()
+        assert "nas" in lines
+        assert "homeassistant" in lines
+
+    def test_unregister_removes_hosts_from_file(
+        self, tool_registry, sample_tool_def, tmp_path
+    ):
+        """Unregistering a server removes its hosts from the ACL file."""
+        from unittest.mock import patch
+
+        acl_file = tmp_path / "approved-private.txt"
+        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            tool_registry.register_server(
+                server_id="s1",
+                server_name="Server1",
+                tools=[sample_tool_def],
+                allowed_hosts=["192.168.1.2"],
+            )
+            assert "192.168.1.2" in acl_file.read_text()
+
+            tool_registry.unregister_server("s1")
+
+        content = acl_file.read_text()
+        assert "192.168.1.2" not in content
+
+    def test_hosts_aggregated_across_servers(
+        self, tool_registry, sample_tool_def, tmp_path
+    ):
+        """Hosts from all registered servers are aggregated in the ACL file."""
+        from unittest.mock import patch
+
+        acl_file = tmp_path / "approved-private.txt"
+        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            tool_registry.register_server(
+                server_id="s1",
+                server_name="Server1",
+                tools=[sample_tool_def],
+                allowed_hosts=["192.168.1.2"],
+            )
+            tool_registry.register_server(
+                server_id="s2",
+                server_name="Server2",
+                tools=[{**sample_tool_def, "name": "tool2"}],
+                allowed_hosts=["10.0.0.50"],
+            )
+
+        lines = acl_file.read_text().strip().splitlines()
+        assert "192.168.1.2" in lines
+        assert "10.0.0.50" in lines
+
+    def test_empty_allowed_hosts_clears_file(
+        self, tool_registry, sample_tool_def, tmp_path
+    ):
+        """Registering with empty allowed_hosts writes an empty ACL file."""
+        from unittest.mock import patch
+
+        acl_file = tmp_path / "approved-private.txt"
+        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            tool_registry.register_server(
+                server_id="s1",
+                server_name="Server1",
+                tools=[sample_tool_def],
+                allowed_hosts=["192.168.1.2"],
+            )
+            assert "192.168.1.2" in acl_file.read_text()
+
+            # Re-register with no hosts
+            tool_registry.register_server(
+                server_id="s1",
+                server_name="Server1",
+                tools=[sample_tool_def],
+                allowed_hosts=[],
+            )
+
+        assert acl_file.read_text().strip() == ""
+
+    def test_hosts_lowercased(self, tool_registry, sample_tool_def, tmp_path):
+        """Host entries are normalized to lowercase."""
+        from unittest.mock import patch
+
+        acl_file = tmp_path / "approved-private.txt"
+        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            tool_registry.register_server(
+                server_id="s1",
+                server_name="Server1",
+                tools=[sample_tool_def],
+                allowed_hosts=["MyNAS.Local"],
+            )
+
+        lines = acl_file.read_text().strip().splitlines()
+        assert "mynas.local" in lines
+
+
 class TestToolFullName:
     """Tests for Tool.full_name property."""
 

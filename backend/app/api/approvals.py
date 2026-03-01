@@ -17,7 +17,7 @@ from app.api.auth import get_current_user
 from app.core import get_db
 from app.models import ModuleRequest as ModuleRequestModel
 from app.models import NetworkAccessRequest as NetworkAccessRequestModel
-from app.models import Tool
+from app.models import Server, Tool
 from app.schemas.approval import (
     ApprovalDashboardStats,
     BulkActionResponse,
@@ -123,6 +123,91 @@ async def _refresh_server_registration(tool: Any, db: AsyncSession) -> bool:
     except Exception as e:
         logger.error(f"Error refreshing server registration: {e}")
         return False
+
+
+async def _refresh_server_by_id(server_id: Any, db: AsyncSession) -> bool:
+    """Re-register a server with sandbox by server ID.
+
+    Looks up the server, checks it's running, and re-registers it with the
+    sandbox so changes (allowed_hosts, allowed_modules, etc.) take effect
+    immediately.
+
+    Returns True if successful, False if server not found/not running/failed.
+    """
+    stmt = select(Server).where(Server.id == server_id)
+    server_result = await db.execute(stmt)
+    server = server_result.scalar_one_or_none()
+    if not server or server.status != "running":
+        return False
+
+    try:
+        from app.api.sandbox import _build_external_source_configs, _build_tool_definitions
+        from app.services.global_config import GlobalConfigService
+        from app.services.server_secret import ServerSecretService
+        from app.services.tool import ToolService
+
+        tool_service = ToolService(db)
+        all_tools, _ = await tool_service.list_by_server(server.id)
+        active_tools = [t for t in all_tools if t.enabled and t.approval_status == "approved"]
+        tool_defs = _build_tool_definitions(active_tools)
+
+        secret_service = ServerSecretService(db)
+        secrets = await secret_service.get_decrypted_for_injection(server.id)
+
+        config_service = GlobalConfigService(db)
+        allowed_modules = await config_service.get_allowed_modules()
+
+        external_sources_data = await _build_external_source_configs(db, server.id, secrets)
+
+        sandbox_client = SandboxClient.get_instance()
+        reg_result = await sandbox_client.register_server(
+            server_id=str(server.id),
+            server_name=server.name,
+            tools=tool_defs,
+            allowed_modules=allowed_modules,
+            secrets=secrets,
+            external_sources=external_sources_data,
+            allowed_hosts=server.allowed_hosts or [],
+        )
+
+        success = (
+            bool(reg_result.get("success")) if isinstance(reg_result, dict) else bool(reg_result)
+        )
+        if success:
+            logger.info(f"Server {server.name} re-registered after network access change")
+        else:
+            logger.warning(
+                f"Failed to re-register server {server.name} after network access change"
+            )
+        return bool(success)
+
+    except Exception as e:
+        logger.error(f"Error refreshing server registration by ID: {e}")
+        return False
+
+
+async def _refresh_server_for_network_request(request: Any, db: AsyncSession) -> bool:
+    """Re-register the server associated with a network access request.
+
+    Handles both LLM-originated requests (tool_id set -> find server via tool)
+    and admin-initiated requests (tool_id NULL -> use server_id directly).
+
+    Returns True if successful, False if skipped or failed.
+    """
+    try:
+        if request.tool_id:
+            # LLM-originated: find server via tool relationship
+            stmt = select(Tool).where(Tool.id == request.tool_id).options(selectinload(Tool.server))
+            tool_result = await db.execute(stmt)
+            tool = tool_result.scalar_one_or_none()
+            if tool:
+                return await _refresh_server_registration(tool, db)
+        elif request.server_id:
+            # Admin-initiated: find server directly by ID
+            return await _refresh_server_by_id(request.server_id, db)
+    except Exception as e:
+        logger.warning(f"Failed to refresh server after network request change: {e}")
+    return False
 
 
 def get_admin_identity(
@@ -690,18 +775,7 @@ async def take_network_request_action(
             )
 
             # Re-register server so approved hosts take effect immediately
-            try:
-                stmt = (
-                    select(Tool)
-                    .where(Tool.id == request.tool_id)
-                    .options(selectinload(Tool.server))
-                )
-                tool_result = await db.execute(stmt)
-                tool = tool_result.scalar_one_or_none()
-                if tool:
-                    await _refresh_server_registration(tool, db)
-            except Exception as e:
-                logger.warning(f"Failed to refresh server after network approval: {e}")
+            await _refresh_server_for_network_request(request, db)
 
             return NetworkAccessRequestResponse.model_validate(request)
         else:
@@ -749,14 +823,7 @@ async def revoke_network_access_request(
         )
 
         # Re-register server so revoked hosts are removed immediately
-        try:
-            stmt = select(Tool).where(Tool.id == request.tool_id).options(selectinload(Tool.server))
-            tool_result = await db.execute(stmt)
-            tool = tool_result.scalar_one_or_none()
-            if tool:
-                await _refresh_server_registration(tool, db)
-        except Exception as e:
-            logger.warning(f"Failed to refresh server after network revocation: {e}")
+        await _refresh_server_for_network_request(request, db)
 
         return NetworkAccessRequestResponse.model_validate(request)
     except ValueError as e:
@@ -800,28 +867,32 @@ async def bulk_network_request_action(
 
         # Re-register affected servers so approved hosts take effect immediately
         refreshed_servers: set[str] = set()
-        for request_id in action.request_ids:
-            if not any(f["id"] == request_id for f in result["failed"]):
+        for req_id in action.request_ids:
+            if not any(f["id"] == req_id for f in result["failed"]):
                 try:
-                    stmt = (
-                        select(Tool)
-                        .join(
-                            NetworkAccessRequestModel,
-                            NetworkAccessRequestModel.tool_id == Tool.id,
-                        )
-                        .where(NetworkAccessRequestModel.id == request_id)
-                        .options(selectinload(Tool.server))
+                    stmt = select(NetworkAccessRequestModel).where(
+                        NetworkAccessRequestModel.id == req_id
                     )
-                    tool_result = await db.execute(stmt)
-                    tool = tool_result.scalar_one_or_none()
-                    if tool and str(tool.server_id) not in refreshed_servers:
-                        refreshed = await _refresh_server_registration(tool, db)
+                    req_result = await db.execute(stmt)
+                    nar = req_result.scalar_one_or_none()
+                    if not nar:
+                        continue
+                    # Determine server_id from tool or direct server reference
+                    server_id_str = None
+                    if nar.tool_id:
+                        tool_result = await db.execute(select(Tool).where(Tool.id == nar.tool_id))
+                        tool = tool_result.scalar_one_or_none()
+                        if tool:
+                            server_id_str = str(tool.server_id)
+                    elif nar.server_id:
+                        server_id_str = str(nar.server_id)
+
+                    if server_id_str and server_id_str not in refreshed_servers:
+                        refreshed = await _refresh_server_for_network_request(nar, db)
                         if refreshed:
-                            refreshed_servers.add(str(tool.server_id))
+                            refreshed_servers.add(server_id_str)
                 except Exception as e:
-                    logger.warning(
-                        f"Failed to refresh server for network request {request_id}: {e}"
-                    )
+                    logger.warning(f"Failed to refresh server for network request {req_id}: {e}")
     else:
         result = await service.bulk_reject_network_requests(
             request_ids=action.request_ids,
