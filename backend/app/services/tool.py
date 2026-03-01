@@ -65,14 +65,16 @@ class ToolService:
     async def get(self, tool_id: UUID) -> Tool | None:
         """Get a tool by ID."""
         result = await self.db.execute(select(Tool).where(Tool.id == tool_id))
-        return result.scalar_one_or_none()
+        tool: Tool | None = result.scalar_one_or_none()
+        return tool
 
     async def get_with_server(self, tool_id: UUID) -> Tool | None:
         """Get a tool by ID with its server relationship eagerly loaded."""
         result = await self.db.execute(
             select(Tool).where(Tool.id == tool_id).options(selectinload(Tool.server))
         )
-        return result.scalar_one_or_none()
+        tool: Tool | None = result.scalar_one_or_none()
+        return tool
 
     async def list_by_server(
         self, server_id: UUID, page: int = 1, page_size: int = 50
@@ -273,7 +275,8 @@ class ToolService:
                 ToolVersion.version_number == version_number,
             )
         )
-        return result.scalar_one_or_none()
+        version: ToolVersion | None = result.scalar_one_or_none()
+        return version
 
     async def rollback(self, tool_id: UUID, version_number: int) -> Tool | None:
         """Rollback a tool to a previous version.

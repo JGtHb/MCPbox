@@ -80,7 +80,8 @@ class TunnelConfigurationService:
         result = await self.db.execute(
             select(TunnelConfiguration).where(TunnelConfiguration.id == config_id)
         )
-        return result.scalar_one_or_none()
+        config: TunnelConfiguration | None = result.scalar_one_or_none()
+        return config
 
     async def get_response(self, config_id: UUID) -> TunnelConfigurationResponse | None:
         """Get a tunnel configuration response by ID."""
@@ -104,7 +105,8 @@ class TunnelConfigurationService:
         result = await self.db.execute(
             select(TunnelConfiguration).where(TunnelConfiguration.is_active.is_(True))
         )
-        return result.scalar_one_or_none()
+        config: TunnelConfiguration | None = result.scalar_one_or_none()
+        return config
 
     async def create(
         self,

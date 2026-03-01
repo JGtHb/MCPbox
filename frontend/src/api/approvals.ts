@@ -236,6 +236,35 @@ export function useRevokeNetworkRequest() {
   })
 }
 
+// Deletion functions (hard delete for rejected/pending requests)
+export async function deleteModuleRequest(requestId: string): Promise<void> {
+  await api.delete(`/api/approvals/modules/${requestId}`)
+}
+
+export async function deleteNetworkRequest(requestId: string): Promise<void> {
+  await api.delete(`/api/approvals/network/${requestId}`)
+}
+
+export function useDeleteModuleRequest() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (requestId: string) => deleteModuleRequest(requestId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['approvals'] })
+    },
+  })
+}
+
+export function useDeleteNetworkRequest() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (requestId: string) => deleteNetworkRequest(requestId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['approvals'] })
+    },
+  })
+}
+
 // Server-specific approval API functions
 export async function getServerModuleRequests(serverId: string, status = 'approved'): Promise<{ items: ModuleRequestQueueItem[]; total: number }> {
   return api.get(`/api/approvals/server/${serverId}/modules?status=${status}`)

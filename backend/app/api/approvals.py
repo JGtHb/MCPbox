@@ -11,13 +11,13 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.api.auth import get_current_user
+from app.api.sandbox import reregister_server
 from app.core import get_db
 from app.models import ModuleRequest as ModuleRequestModel
 from app.models import NetworkAccessRequest as NetworkAccessRequestModel
-from app.models import Server, Tool
+from app.models import Tool
 from app.schemas.approval import (
     ApprovalDashboardStats,
     BulkActionResponse,
@@ -52,106 +52,6 @@ router = APIRouter(
 def get_approval_service(db: AsyncSession = Depends(get_db)) -> ApprovalService:
     """Dependency to get approval service."""
     return ApprovalService(db)
-
-
-async def _refresh_server_registration(tool: Any, db: AsyncSession) -> bool:
-    """Re-register a server with sandbox after tool approval.
-
-    This ensures newly approved tools are immediately available without
-    requiring a server restart. Handles both python_code and mcp_passthrough tools.
-
-    Returns True if successful, False if server not running or registration failed.
-    """
-    # Get server info
-    server = tool.server
-    if not server or server.status != "running":
-        logger.debug(f"Server {server.id if server else 'unknown'} not running, skipping refresh")
-        return False
-
-    try:
-        from app.api.sandbox import _build_external_source_configs, _build_tool_definitions
-        from app.services.global_config import GlobalConfigService
-        from app.services.server_secret import ServerSecretService
-        from app.services.tool import ToolService
-
-        # Get all tools for this server
-        tool_service = ToolService(db)
-        all_tools, _ = await tool_service.list_by_server(server.id)
-
-        # Filter to approved + enabled only
-        active_tools = [t for t in all_tools if t.enabled and t.approval_status == "approved"]
-
-        # Build tool definitions (handles both python_code and mcp_passthrough)
-        tool_defs = _build_tool_definitions(active_tools)
-
-        # Get decrypted secrets for injection
-        secret_service = ServerSecretService(db)
-        secrets = await secret_service.get_decrypted_for_injection(server.id)
-
-        # Get global allowed modules
-        config_service = GlobalConfigService(db)
-        allowed_modules = await config_service.get_allowed_modules()
-
-        # Build external source configs for passthrough tools
-        external_sources_data = await _build_external_source_configs(db, server.id, secrets)
-
-        # Re-register with sandbox
-        sandbox_client = SandboxClient.get_instance()
-        reg_result = await sandbox_client.register_server(
-            server_id=str(server.id),
-            server_name=server.name,
-            tools=tool_defs,
-            allowed_modules=allowed_modules,
-            secrets=secrets,
-            external_sources=external_sources_data,
-            allowed_hosts=server.allowed_hosts or [],
-        )
-
-        success = (
-            bool(reg_result.get("success")) if isinstance(reg_result, dict) else bool(reg_result)
-        )
-
-        if success:
-            logger.info(
-                f"Server {server.name} re-registered with {len(tool_defs)} tools after approval"
-            )
-        else:
-            logger.warning(f"Failed to re-register server {server.name} after approval")
-
-        return bool(success)
-
-    except Exception as e:
-        logger.error(f"Error refreshing server registration: {e}")
-        return False
-
-
-async def _refresh_server_after_network_change(request: Any, db: AsyncSession) -> None:
-    """Re-register server with sandbox after network access approval/revocation.
-
-    Handles both tool-level requests (tool_id set) and server-level requests
-    (only server_id set).  Falls back to loading the server directly when
-    no tool is associated with the request.
-    """
-    try:
-        if request.tool_id:
-            stmt = select(Tool).where(Tool.id == request.tool_id).options(selectinload(Tool.server))
-            tool_result = await db.execute(stmt)
-            tool = tool_result.scalar_one_or_none()
-            if tool:
-                await _refresh_server_registration(tool, db)
-                return
-
-        # Server-level request or tool lookup failed — load server directly.
-        server_id = request.server_id
-        if server_id:
-            server_result = await db.execute(select(Server).where(Server.id == server_id))
-            server = server_result.scalar_one_or_none()
-            if server and server.status == "running":
-                from app.api.servers import _refresh_server_registration_for_hosts
-
-                await _refresh_server_registration_for_hosts(server, db)
-    except Exception as e:
-        logger.warning(f"Failed to refresh server after network change: {e}")
 
 
 def get_admin_identity(
@@ -244,7 +144,7 @@ async def take_tool_action(
             )
 
             # Auto-refresh server registration so tool is immediately available
-            refreshed = await _refresh_server_registration(tool, db)
+            refreshed = await reregister_server(tool.server_id, db)
 
             # Notify MCP clients that tool list has changed
             from app.services.tool_change_notifier import fire_and_forget_notify
@@ -271,7 +171,7 @@ async def take_tool_action(
             # If auto-approved, refresh server registration
             refreshed = False
             if tool.approval_status == "approved":
-                refreshed = await _refresh_server_registration(tool, db)
+                refreshed = await reregister_server(tool.server_id, db)
                 from app.services.tool_change_notifier import fire_and_forget_notify
 
                 fire_and_forget_notify()
@@ -337,7 +237,7 @@ async def revoke_tool_approval(
         )
 
         # Re-register server to remove the revoked tool from active sandbox
-        refreshed = await _refresh_server_registration(tool, db)
+        refreshed = await reregister_server(tool.server_id, db)
 
         # Notify MCP clients that tool list has changed
         from app.services.tool_change_notifier import fire_and_forget_notify
@@ -391,16 +291,15 @@ async def bulk_tool_action(
         )
 
         # Re-register servers for approved tools
+        refreshed_servers: set[str] = set()
         for tool_id in action.tool_ids:
             if not any(f["id"] == tool_id for f in result["failed"]):
-                try:
-                    stmt = select(Tool).where(Tool.id == tool_id)
-                    tool_result = await db.execute(stmt)
-                    tool = tool_result.scalar_one_or_none()
-                    if tool:
-                        await _refresh_server_registration(tool, db)
-                except Exception as e:
-                    logger.warning(f"Failed to refresh server for tool {tool_id}: {e}")
+                stmt = select(Tool.server_id).where(Tool.id == tool_id)
+                row = await db.execute(stmt)
+                sid = row.scalar_one_or_none()
+                if sid and str(sid) not in refreshed_servers:
+                    if await reregister_server(sid, db):
+                        refreshed_servers.add(str(sid))
 
         # Notify MCP clients that tool list has changed
         from app.services.tool_change_notifier import fire_and_forget_notify
@@ -519,20 +418,11 @@ async def take_module_request_action(
             )
 
             # Re-register server so the updated module list takes effect immediately
-            try:
-                stmt = (
-                    select(Tool)
-                    .where(Tool.id == request.tool_id)
-                    .options(selectinload(Tool.server))
-                )
-                tool_result = await db.execute(stmt)
-                tool = tool_result.scalar_one_or_none()
-                if tool:
-                    await _refresh_server_registration(tool, db)
-            except Exception as e:
-                logger.warning(f"Failed to refresh server after module approval: {e}")
+            if request.server_id:
+                await reregister_server(request.server_id, db)
 
-            return ModuleRequestResponse.model_validate(request)
+            resp: ModuleRequestResponse = ModuleRequestResponse.model_validate(request)
+            return resp
         else:
             if not action.reason:
                 raise HTTPException(
@@ -544,7 +434,8 @@ async def take_module_request_action(
                 rejected_by=admin_identity,
                 reason=action.reason,
             )
-            return ModuleRequestResponse.model_validate(request)
+            rejected: ModuleRequestResponse = ModuleRequestResponse.model_validate(request)
+            return rejected
     except ValueError as e:
         # Only expose safe error messages for known validation errors
         error_msg = str(e)
@@ -578,16 +469,11 @@ async def revoke_module_request(
         )
 
         # Re-register server so the revoked module is removed immediately
-        try:
-            stmt = select(Tool).where(Tool.id == request.tool_id).options(selectinload(Tool.server))
-            tool_result = await db.execute(stmt)
-            tool = tool_result.scalar_one_or_none()
-            if tool:
-                await _refresh_server_registration(tool, db)
-        except Exception as e:
-            logger.warning(f"Failed to refresh server after module revocation: {e}")
+        if request.server_id:
+            await reregister_server(request.server_id, db)
 
-        return ModuleRequestResponse.model_validate(request)
+        resp: ModuleRequestResponse = ModuleRequestResponse.model_validate(request)
+        return resp
     except ValueError as e:
         error_msg = str(e)
         if "not found" in error_msg.lower() or "status" in error_msg.lower():
@@ -597,6 +483,41 @@ async def revoke_module_request(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=detail,
+        ) from e
+
+
+@router.delete("/modules/{request_id}")
+async def delete_module_request(
+    request_id: UUID,
+    service: ApprovalService = Depends(get_approval_service),
+    admin_identity: str = Depends(get_admin_identity),
+) -> dict[str, Any]:
+    """Permanently delete a module request.
+
+    Only pending or rejected requests can be deleted. Approved requests
+    must be revoked first before deletion.
+    Admin identity is extracted from verified JWT token.
+    """
+    try:
+        result = await service.delete_module_request(
+            request_id=request_id,
+            deleted_by=admin_identity,
+        )
+        return {
+            "success": True,
+            "message": f"Module request for '{result['module_name']}' has been deleted",
+            **result,
+        }
+    except ValueError as e:
+        error_msg = str(e)
+        if "not found" in error_msg.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=error_msg,
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_msg,
         ) from e
 
 
@@ -629,26 +550,14 @@ async def bulk_module_request_action(
 
         # Re-register affected servers so the updated module list takes effect
         refreshed_servers: set[str] = set()
-        for request_id in action.request_ids:
-            if not any(f["id"] == request_id for f in result["failed"]):
-                try:
-                    stmt = (
-                        select(Tool)
-                        .join(
-                            ModuleRequestModel,
-                            ModuleRequestModel.tool_id == Tool.id,
-                        )
-                        .where(ModuleRequestModel.id == request_id)
-                        .options(selectinload(Tool.server))
-                    )
-                    tool_result = await db.execute(stmt)
-                    tool = tool_result.scalar_one_or_none()
-                    if tool and str(tool.server_id) not in refreshed_servers:
-                        refreshed = await _refresh_server_registration(tool, db)
-                        if refreshed:
-                            refreshed_servers.add(str(tool.server_id))
-                except Exception as e:
-                    logger.warning(f"Failed to refresh server for module request {request_id}: {e}")
+        for req_id in action.request_ids:
+            if not any(f["id"] == req_id for f in result["failed"]):
+                stmt = select(ModuleRequestModel.server_id).where(ModuleRequestModel.id == req_id)
+                row = await db.execute(stmt)
+                sid = row.scalar_one_or_none()
+                if sid and str(sid) not in refreshed_servers:
+                    if await reregister_server(sid, db):
+                        refreshed_servers.add(str(sid))
     else:
         result = await service.bulk_reject_module_requests(
             request_ids=action.request_ids,
@@ -719,9 +628,13 @@ async def take_network_request_action(
             )
 
             # Re-register server so approved hosts take effect immediately
-            await _refresh_server_after_network_change(request, db)
+            if request.server_id:
+                await reregister_server(request.server_id, db)
 
-            return NetworkAccessRequestResponse.model_validate(request)
+            resp: NetworkAccessRequestResponse = NetworkAccessRequestResponse.model_validate(
+                request
+            )
+            return resp
         else:
             if not action.reason:
                 raise HTTPException(
@@ -733,7 +646,10 @@ async def take_network_request_action(
                 rejected_by=admin_identity,
                 reason=action.reason,
             )
-            return NetworkAccessRequestResponse.model_validate(request)
+            rejected: NetworkAccessRequestResponse = NetworkAccessRequestResponse.model_validate(
+                request
+            )
+            return rejected
     except ValueError as e:
         # Only expose safe error messages for known validation errors
         error_msg = str(e)
@@ -767,9 +683,11 @@ async def revoke_network_access_request(
         )
 
         # Re-register server so revoked hosts are removed immediately
-        await _refresh_server_after_network_change(request, db)
+        if request.server_id:
+            await reregister_server(request.server_id, db)
 
-        return NetworkAccessRequestResponse.model_validate(request)
+        resp: NetworkAccessRequestResponse = NetworkAccessRequestResponse.model_validate(request)
+        return resp
     except ValueError as e:
         error_msg = str(e)
         if "not found" in error_msg.lower() or "status" in error_msg.lower():
@@ -779,6 +697,42 @@ async def revoke_network_access_request(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=detail,
+        ) from e
+
+
+@router.delete("/network/{request_id}")
+async def delete_network_access_request(
+    request_id: UUID,
+    service: ApprovalService = Depends(get_approval_service),
+    admin_identity: str = Depends(get_admin_identity),
+) -> dict[str, Any]:
+    """Permanently delete a network access request.
+
+    Only pending or rejected requests can be deleted. Approved requests
+    must be revoked first before deletion.
+    Admin identity is extracted from verified JWT token.
+    """
+    try:
+        result = await service.delete_network_access_request(
+            request_id=request_id,
+            deleted_by=admin_identity,
+        )
+        port_str = f":{result['port']}" if result.get("port") else ""
+        return {
+            "success": True,
+            "message": f"Network access request for '{result['host']}{port_str}' has been deleted",
+            **result,
+        }
+    except ValueError as e:
+        error_msg = str(e)
+        if "not found" in error_msg.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=error_msg,
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_msg,
         ) from e
 
 
@@ -813,20 +767,14 @@ async def bulk_network_request_action(
         refreshed_servers: set[str] = set()
         for req_id in action.request_ids:
             if not any(f["id"] == req_id for f in result["failed"]):
-                try:
-                    stmt = select(NetworkAccessRequestModel).where(
-                        NetworkAccessRequestModel.id == req_id
-                    )
-                    nar_result = await db.execute(stmt)
-                    nar = nar_result.scalar_one_or_none()
-                    if not nar:
-                        continue
-                    sid = str(nar.server_id) if nar.server_id else None
-                    if sid and sid not in refreshed_servers:
-                        await _refresh_server_after_network_change(nar, db)
-                        refreshed_servers.add(sid)
-                except Exception as e:
-                    logger.warning(f"Failed to refresh server for network request {req_id}: {e}")
+                stmt = select(NetworkAccessRequestModel.server_id).where(
+                    NetworkAccessRequestModel.id == req_id
+                )
+                row = await db.execute(stmt)
+                sid = row.scalar_one_or_none()
+                if sid and str(sid) not in refreshed_servers:
+                    if await reregister_server(sid, db):
+                        refreshed_servers.add(str(sid))
     else:
         result = await service.bulk_reject_network_requests(
             request_ids=action.request_ids,

@@ -28,7 +28,8 @@ class SettingService:
     async def get(self, key: str) -> Setting | None:
         """Get a setting by key."""
         result = await self.db.execute(select(Setting).where(Setting.key == key))
-        return result.scalar_one_or_none()
+        setting: Setting | None = result.scalar_one_or_none()
+        return setting
 
     async def get_value(self, key: str, default: str | None = None) -> str | None:
         """Get a setting value by key, decrypting if necessary."""
@@ -51,7 +52,8 @@ class SettingService:
                     e,
                 )
                 raise
-        return setting.value
+        value: str | None = setting.value
+        return value
 
     async def get_all(self) -> list[Setting]:
         """Get all settings."""

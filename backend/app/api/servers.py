@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.sandbox import reregister_server
 from app.core import get_db
 from app.models.network_access_request import NetworkAccessRequest
 from app.schemas.server import (
@@ -179,7 +180,7 @@ async def add_allowed_host(
     await db.refresh(server)
 
     # Re-register with sandbox if running
-    await _refresh_server_registration_for_hosts(server, db)
+    await reregister_server(server.id, db)
 
     return AllowedHostsResponse(
         server_id=server.id,
@@ -233,66 +234,12 @@ async def remove_allowed_host(
     await db.refresh(server)
 
     # Re-register with sandbox if running
-    await _refresh_server_registration_for_hosts(server, db)
+    await reregister_server(server.id, db)
 
     return AllowedHostsResponse(
         server_id=server.id,
         allowed_hosts=server.allowed_hosts or [],
     )
-
-
-async def _refresh_server_registration_for_hosts(server: Any, db: AsyncSession) -> bool:
-    """Re-register a server with sandbox after host allowlist change.
-
-    Similar to _refresh_server_registration in approvals.py, but takes a server
-    directly instead of a tool with .server relationship.
-    """
-    if server.status != "running":
-        return False
-
-    try:
-        from app.api.sandbox import _build_external_source_configs, _build_tool_definitions
-        from app.services.global_config import GlobalConfigService
-        from app.services.sandbox import SandboxClient
-        from app.services.server_secret import ServerSecretService
-        from app.services.tool import ToolService
-
-        tool_service = ToolService(db)
-        all_tools, _ = await tool_service.list_by_server(server.id)
-        active_tools = [t for t in all_tools if t.enabled and t.approval_status == "approved"]
-        tool_defs = _build_tool_definitions(active_tools)
-
-        secret_service = ServerSecretService(db)
-        secrets = await secret_service.get_decrypted_for_injection(server.id)
-
-        config_service = GlobalConfigService(db)
-        allowed_modules = await config_service.get_allowed_modules()
-
-        external_sources_data = await _build_external_source_configs(db, server.id, secrets)
-
-        sandbox_client = SandboxClient.get_instance()
-        reg_result = await sandbox_client.register_server(
-            server_id=str(server.id),
-            server_name=server.name,
-            tools=tool_defs,
-            allowed_modules=allowed_modules,
-            secrets=secrets,
-            external_sources=external_sources_data,
-            allowed_hosts=server.allowed_hosts or [],
-        )
-
-        success = (
-            bool(reg_result.get("success")) if isinstance(reg_result, dict) else bool(reg_result)
-        )
-        if success:
-            logger.info(f"Server {server.name} re-registered after host allowlist change")
-        else:
-            logger.warning(f"Failed to re-register server {server.name} after host change")
-        return bool(success)
-
-    except Exception as e:
-        logger.error(f"Error refreshing server registration for hosts: {e}")
-        return False
 
 
 def _to_response(server: Any) -> ServerResponse:

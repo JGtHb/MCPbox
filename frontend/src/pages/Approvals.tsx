@@ -13,6 +13,8 @@ import {
   useRevokeToolApproval,
   useRevokeModuleRequest,
   useRevokeNetworkRequest,
+  useDeleteModuleRequest,
+  useDeleteNetworkRequest,
   ToolApprovalQueueItem,
   ModuleRequestQueueItem,
   NetworkAccessRequestQueueItem,
@@ -794,10 +796,12 @@ function ModuleRequestsQueue() {
   const moduleAction = useModuleRequestAction()
   const bulkAction = useBulkModuleRequestAction()
   const revokeAction = useRevokeModuleRequest()
+  const deleteAction = useDeleteModuleRequest()
   const [selectedRequest, setSelectedRequest] = useState<ModuleRequestQueueItem | null>(null)
   const [rejectReason, setRejectReason] = useState('')
   const [showRejectModal, setShowRejectModal] = useState(false)
   const [revokeTarget, setRevokeTarget] = useState<ModuleRequestQueueItem | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<ModuleRequestQueueItem | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [showBulkRejectModal, setShowBulkRejectModal] = useState(false)
   const [bulkRejectReason, setBulkRejectReason] = useState('')
@@ -809,6 +813,7 @@ function ModuleRequestsQueue() {
 
   const pendingItems = data?.items.filter((r) => isPendingStatus(r.status)) ?? []
   const approvedItems = data?.items.filter((r) => r.status === 'approved') ?? []
+  const rejectedItems = data?.items.filter((r) => r.status === 'rejected') ?? []
 
   const toggleSelection = (id: string) => {
     const newSet = new Set(selectedIds)
@@ -924,13 +929,21 @@ function ModuleRequestsQueue() {
                 Request Revision
               </button>
             </>
-          ) : (
+          ) : req.status === 'approved' ? (
             <button
               onClick={() => setRevokeTarget(req)}
               disabled={revokeAction.isPending}
               className="px-2.5 py-1 text-xs font-medium text-love bg-surface border border-love/20 rounded-lg hover:bg-love/10 transition-colors focus:outline-none focus:ring-2 focus:ring-love disabled:opacity-50"
             >
               Revoke
+            </button>
+          ) : (
+            <button
+              onClick={() => setDeleteTarget(req)}
+              disabled={deleteAction.isPending}
+              className="px-2.5 py-1 text-xs font-medium text-love bg-surface border border-love/20 rounded-lg hover:bg-love/10 transition-colors focus:outline-none focus:ring-2 focus:ring-love disabled:opacity-50"
+            >
+              Delete
             </button>
           )}
         </div>
@@ -1025,7 +1038,22 @@ function ModuleRequestsQueue() {
             </div>
           )}
 
-          {debouncedSearch && pendingItems.length === 0 && approvedItems.length === 0 && (
+          {/* Rejected section */}
+          {rejectedItems.length > 0 && (
+            <div className="mt-6">
+              <div className="flex items-center gap-3 mb-3">
+                <h3 className="text-sm font-medium text-subtle uppercase tracking-wide">
+                  Rejected ({rejectedItems.length})
+                </h3>
+                <div className="flex-1 h-px bg-hl-med" />
+              </div>
+              <div className="space-y-3">
+                {rejectedItems.map((req) => <ModuleCard key={req.id} req={req} isPending={false} />)}
+              </div>
+            </div>
+          )}
+
+          {debouncedSearch && pendingItems.length === 0 && approvedItems.length === 0 && rejectedItems.length === 0 && (
             <div className="text-center py-8">
               <p className="text-subtle">No module requests match your search</p>
               <p className="text-xs text-muted mt-1">Try a different search term</p>
@@ -1109,6 +1137,18 @@ function ModuleRequestsQueue() {
         onConfirm={async () => { await revokeAction.mutateAsync(revokeTarget!.id); setRevokeTarget(null) }}
         onCancel={() => setRevokeTarget(null)}
       />
+
+      {/* Delete Confirmation */}
+      <ConfirmModal
+        isOpen={!!deleteTarget}
+        title="Delete Module Request"
+        message={`Permanently delete the request for "${deleteTarget?.module_name ?? ''}"? This cannot be undone. The LLM will be able to re-request this module.`}
+        confirmLabel="Delete"
+        destructive
+        isLoading={deleteAction.isPending}
+        onConfirm={async () => { await deleteAction.mutateAsync(deleteTarget!.id); setDeleteTarget(null) }}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   )
 }
@@ -1121,10 +1161,12 @@ function NetworkRequestsQueue() {
   const networkAction = useNetworkRequestAction()
   const bulkAction = useBulkNetworkRequestAction()
   const revokeAction = useRevokeNetworkRequest()
+  const deleteAction = useDeleteNetworkRequest()
   const [selectedRequest, setSelectedRequest] = useState<NetworkAccessRequestQueueItem | null>(null)
   const [rejectReason, setRejectReason] = useState('')
   const [showRejectModal, setShowRejectModal] = useState(false)
   const [revokeTarget, setRevokeTarget] = useState<NetworkAccessRequestQueueItem | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<NetworkAccessRequestQueueItem | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [showBulkRejectModal, setShowBulkRejectModal] = useState(false)
   const [bulkRejectReason, setBulkRejectReason] = useState('')
@@ -1136,6 +1178,7 @@ function NetworkRequestsQueue() {
 
   const pendingItems = data?.items.filter((r) => isPendingStatus(r.status)) ?? []
   const approvedItems = data?.items.filter((r) => r.status === 'approved') ?? []
+  const rejectedItems = data?.items.filter((r) => r.status === 'rejected') ?? []
 
   const toggleSelection = (id: string) => {
     const newSet = new Set(selectedIds)
@@ -1252,13 +1295,21 @@ function NetworkRequestsQueue() {
                 Request Revision
               </button>
             </>
-          ) : (
+          ) : req.status === 'approved' ? (
             <button
               onClick={() => setRevokeTarget(req)}
               disabled={revokeAction.isPending}
               className="px-2.5 py-1 text-xs font-medium text-love bg-surface border border-love/20 rounded-lg hover:bg-love/10 transition-colors focus:outline-none focus:ring-2 focus:ring-love disabled:opacity-50"
             >
               Revoke
+            </button>
+          ) : (
+            <button
+              onClick={() => setDeleteTarget(req)}
+              disabled={deleteAction.isPending}
+              className="px-2.5 py-1 text-xs font-medium text-love bg-surface border border-love/20 rounded-lg hover:bg-love/10 transition-colors focus:outline-none focus:ring-2 focus:ring-love disabled:opacity-50"
+            >
+              Delete
             </button>
           )}
         </div>
@@ -1353,7 +1404,22 @@ function NetworkRequestsQueue() {
             </div>
           )}
 
-          {debouncedSearch && pendingItems.length === 0 && approvedItems.length === 0 && (
+          {/* Rejected section */}
+          {rejectedItems.length > 0 && (
+            <div className="mt-6">
+              <div className="flex items-center gap-3 mb-3">
+                <h3 className="text-sm font-medium text-subtle uppercase tracking-wide">
+                  Rejected ({rejectedItems.length})
+                </h3>
+                <div className="flex-1 h-px bg-hl-med" />
+              </div>
+              <div className="space-y-3">
+                {rejectedItems.map((req) => <NetworkCard key={req.id} req={req} isPending={false} />)}
+              </div>
+            </div>
+          )}
+
+          {debouncedSearch && pendingItems.length === 0 && approvedItems.length === 0 && rejectedItems.length === 0 && (
             <div className="text-center py-8">
               <p className="text-subtle">No network requests match your search</p>
               <p className="text-xs text-muted mt-1">Try a different search term</p>
@@ -1436,6 +1502,18 @@ function NetworkRequestsQueue() {
         isLoading={revokeAction.isPending}
         onConfirm={async () => { await revokeAction.mutateAsync(revokeTarget!.id); setRevokeTarget(null) }}
         onCancel={() => setRevokeTarget(null)}
+      />
+
+      {/* Delete Confirmation */}
+      <ConfirmModal
+        isOpen={!!deleteTarget}
+        title="Delete Network Access Request"
+        message={`Permanently delete the request for "${deleteTarget?.host ?? ''}${deleteTarget?.port ? `:${deleteTarget.port}` : ''}"? This cannot be undone. The LLM will be able to re-request this host.`}
+        confirmLabel="Delete"
+        destructive
+        isLoading={deleteAction.isPending}
+        onConfirm={async () => { await deleteAction.mutateAsync(deleteTarget!.id); setDeleteTarget(null) }}
+        onCancel={() => setDeleteTarget(null)}
       />
     </div>
   )

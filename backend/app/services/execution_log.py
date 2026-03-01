@@ -7,7 +7,7 @@ errors, stdout, duration, and success status for each tool call.
 import logging
 import math
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from sqlalchemy import delete, desc, func, select
@@ -252,7 +252,8 @@ class ExecutionLogService:
         result = await self.db.execute(
             select(ToolExecutionLog).where(ToolExecutionLog.id == log_id)
         )
-        return result.scalar_one_or_none()
+        log: ToolExecutionLog | None = result.scalar_one_or_none()
+        return log
 
     async def cleanup(self, max_per_tool: int = 100) -> int:
         """Trim old execution logs, keeping at most max_per_tool per tool.
@@ -290,11 +291,14 @@ class ExecutionLogService:
                 continue
 
             # Delete logs older than cutoff
-            del_result: CursorResult[Any] = await self.db.execute(  # type: ignore[assignment]
-                delete(ToolExecutionLog).where(
-                    ToolExecutionLog.tool_id == tool_id,
-                    ToolExecutionLog.created_at <= cutoff_time,
-                )
+            del_result = cast(
+                CursorResult[Any],
+                await self.db.execute(
+                    delete(ToolExecutionLog).where(
+                        ToolExecutionLog.tool_id == tool_id,
+                        ToolExecutionLog.created_at <= cutoff_time,
+                    )
+                ),
             )
             total_deleted += del_result.rowcount
 
