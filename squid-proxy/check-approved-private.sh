@@ -3,7 +3,7 @@
 # (and optionally port) has been admin-approved for private network access.
 #
 # Protocol (concurrency=0):
-#   stdin:  "<DST> <DSTPORT> [extra tokens]\n"  (from %DST %DSTPORT)
+#   stdin:  "<DST> <PORT> [extra tokens]\n"  (from %DST %PORT)
 #   stdout: "OK\n" or "ERR\n"
 #
 # The approved-private.txt file is maintained by the sandbox registry
