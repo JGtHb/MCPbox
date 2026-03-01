@@ -73,28 +73,45 @@ class RegisteredServer:
     allowed_hosts: Optional[set[str]] = None
 
 
-def _filter_private_hosts(hosts: set[str]) -> list[str]:
-    """Filter a set of hostnames to those that look private/LAN.
+def _parse_host_from_entry(entry: str) -> str:
+    """Extract the bare host from an allowed_hosts entry.
 
-    Returns private IPs, common LAN hostname suffixes (.local, .lan,
-    .home, .internal), and single-label hostnames.  Public hostnames
-    (e.g. ``api.example.com``) are omitted — squid already allows those.
+    Entries may be ``host`` (any port) or ``host:port`` (specific port).
+    Returns the host part only, used for private-IP / LAN detection.
+    """
+    if ":" in entry:
+        # Could be host:port — split on the LAST colon so IPv6 literals
+        # like ``[::1]:8080`` are handled (though those are blocked by
+        # _ALWAYS_BLOCKED_NETWORKS anyway).
+        host, _, maybe_port = entry.rpartition(":")
+        if maybe_port.isdigit():
+            return host
+    return entry
+
+
+def _filter_private_hosts(hosts: set[str]) -> list[str]:
+    """Filter a set of allowed_hosts entries to those that look private/LAN.
+
+    Entries can be ``host`` or ``host:port``.  The host part is checked
+    against private IP ranges and common LAN suffixes; the full entry
+    (including ``:port`` if present) is returned so port enforcement
+    flows through to the squid ACL helper.
+
+    Public hostnames (e.g. ``api.example.com``) are omitted — squid
+    already allows those.
     """
     private: list[str] = []
-    for host in sorted(hosts):
-        host_lower = host.lower()
+    for entry in sorted(hosts):
+        host = _parse_host_from_entry(entry).lower()
         try:
-            ip = ipaddress.ip_address(host_lower)
+            ip = ipaddress.ip_address(host)
             if ip.is_private:
-                private.append(host_lower)
+                private.append(entry.lower())
             continue
         except ValueError:
             pass
-        if (
-            host_lower.endswith((".local", ".lan", ".home", ".internal"))
-            or "." not in host_lower
-        ):
-            private.append(host_lower)
+        if host.endswith((".local", ".lan", ".home", ".internal")) or "." not in host:
+            private.append(entry.lower())
     return private
 
 

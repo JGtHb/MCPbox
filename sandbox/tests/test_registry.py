@@ -3,7 +3,7 @@
 import stat
 from unittest.mock import patch
 
-from app.registry import Tool, ensure_private_hosts_in_squid_acl
+from app.registry import Tool, _filter_private_hosts, ensure_private_hosts_in_squid_acl
 
 
 class TestToolRegistry:
@@ -551,3 +551,51 @@ class TestEnsurePrivateHostsInSquidACL:
         content = acl_file.read_text()
         assert "192.168.1.1" in content
         assert "172.16.0.99" not in content
+
+
+class TestFilterPrivateHostsWithPort:
+    """Tests for _filter_private_hosts handling host:port entries."""
+
+    def test_private_ip_with_port(self):
+        """host:port entries with private IPs are preserved."""
+        result = _filter_private_hosts({"192.168.1.2:8081"})
+        assert "192.168.1.2:8081" in result
+
+    def test_private_ip_without_port(self):
+        """Bare private IPs still work."""
+        result = _filter_private_hosts({"10.0.0.5"})
+        assert "10.0.0.5" in result
+
+    def test_public_host_with_port_excluded(self):
+        """Public hosts with port are excluded."""
+        result = _filter_private_hosts({"api.example.com:443"})
+        assert len(result) == 0
+
+    def test_lan_hostname_with_port(self):
+        """LAN hostnames (.local) with port are preserved."""
+        result = _filter_private_hosts({"mynas.local:8080"})
+        assert "mynas.local:8080" in result
+
+    def test_mixed_entries_with_and_without_ports(self):
+        """Mix of host and host:port entries correctly filtered."""
+        hosts = {
+            "192.168.1.2:8081",
+            "192.168.1.2",
+            "api.example.com:443",
+            "10.0.0.5:9090",
+        }
+        result = _filter_private_hosts(hosts)
+        assert "192.168.1.2:8081" in result
+        assert "192.168.1.2" in result
+        assert "10.0.0.5:9090" in result
+        assert "api.example.com:443" not in result
+
+    def test_acl_file_includes_port_entries(self, tmp_path):
+        """ACL file written with host:port entries preserved."""
+        acl_file = tmp_path / "approved-private.txt"
+        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            ensure_private_hosts_in_squid_acl(["192.168.1.2:8081", "10.0.0.5"])
+
+        content = acl_file.read_text()
+        assert "192.168.1.2:8081" in content
+        assert "10.0.0.5" in content
