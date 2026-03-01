@@ -9,6 +9,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import get_db
@@ -379,3 +380,59 @@ async def _build_external_source_configs(
         )
 
     return configs
+
+
+async def reregister_server(server_id: UUID, db: AsyncSession) -> bool:
+    """Re-register a server with the sandbox so changes take effect immediately.
+
+    Use after any change that affects a running server's registration:
+    tool approval/revocation, module approval/revocation, network access
+    changes, secret changes, etc.
+
+    Returns True if successful, False if server not found/not running/failed.
+    """
+    from app.models import Server
+
+    stmt = select(Server).where(Server.id == server_id)
+    result = await db.execute(stmt)
+    server = result.scalar_one_or_none()
+    if not server or server.status != "running":
+        return False
+
+    try:
+        tool_service = ToolService(db)
+        all_tools, _ = await tool_service.list_by_server(server.id)
+        active_tools = [t for t in all_tools if t.enabled and t.approval_status == "approved"]
+        tool_defs = _build_tool_definitions(active_tools)
+
+        secret_service = ServerSecretService(db)
+        secrets = await secret_service.get_decrypted_for_injection(server.id)
+
+        config_service = GlobalConfigService(db)
+        allowed_modules = await config_service.get_allowed_modules()
+
+        external_sources_data = await _build_external_source_configs(db, server.id, secrets)
+
+        sandbox_client = SandboxClient.get_instance()
+        reg_result = await sandbox_client.register_server(
+            server_id=str(server.id),
+            server_name=server.name,
+            tools=tool_defs,
+            allowed_modules=allowed_modules,
+            secrets=secrets,
+            external_sources=external_sources_data,
+            allowed_hosts=server.allowed_hosts or [],
+        )
+
+        success = (
+            bool(reg_result.get("success")) if isinstance(reg_result, dict) else bool(reg_result)
+        )
+        if success:
+            logger.info(f"Server {server.name} re-registered after configuration change")
+        else:
+            logger.warning(f"Failed to re-register server {server.name}")
+        return success
+
+    except Exception as e:
+        logger.error(f"Error re-registering server {server_id}: {e}")
+        return False

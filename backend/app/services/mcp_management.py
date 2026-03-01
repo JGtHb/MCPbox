@@ -1328,15 +1328,12 @@ class MCPManagementService:
             if tool.approval_status == "approved":
                 # Auto-approved: immediately re-register with sandbox so the tool
                 # is live without requiring a manual server restart.
-                from app.api.approvals import _refresh_server_registration
-                from app.services.tool import ToolService as _ToolService
+                from app.api.sandbox import reregister_server
 
-                tool_with_server = await _ToolService(self.db).get_with_server(tool_id)
-                if tool_with_server:
-                    await _refresh_server_registration(tool_with_server, self.db)
-                    from app.services.tool_change_notifier import fire_and_forget_notify
+                await reregister_server(tool.server_id, self.db)
+                from app.services.tool_change_notifier import fire_and_forget_notify
 
-                    fire_and_forget_notify()
+                fire_and_forget_notify()
 
                 message = (
                     f"Tool '{tool.name}' has been auto-approved and registered with the sandbox. "
