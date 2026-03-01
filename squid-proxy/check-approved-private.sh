@@ -3,7 +3,7 @@
 # has been admin-approved for private network access.
 #
 # Protocol (concurrency=0):
-#   stdin:  "<destination>\n"   (one per line, from %DST token)
+#   stdin:  "<DST> [extra tokens]\n"  (from %DST, squid may append ident/-)
 #   stdout: "OK\n" or "ERR\n"
 #
 # The approved-private.txt file is maintained by the sandbox registry
@@ -18,9 +18,9 @@ DEBUG="${ACL_HELPER_DEBUG:-0}"
 # Log startup so we know the helper actually initialized
 echo "ACL_HELPER: started, approved_file=$APPROVED_FILE exists=$(test -f "$APPROVED_FILE" && echo yes || echo no)" >&2
 
-while read -r dst; do
-    # Strip leading/trailing whitespace (defensive)
-    dst=$(printf '%s' "$dst" | tr -d '[:space:]')
+while read -r dst _rest; do
+    # read -r dst _rest: take ONLY the first whitespace-delimited token.
+    # Squid 7 appends extra tokens (e.g. "-" for no-ident) after %DST.
 
     if [ -z "$dst" ]; then
         echo "ERR"
