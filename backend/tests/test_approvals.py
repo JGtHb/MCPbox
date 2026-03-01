@@ -2362,3 +2362,344 @@ async def test_llm_module_request_includes_source_field(
     item = next(i for i in data["items"] if i["id"] == str(pending_module_request.id))
     assert item["source"] == "llm"
     assert item["tool_name"] is not None
+
+
+# =============================================================================
+# Duplicate Detection Tests
+# =============================================================================
+# Tests that LLM re-requests for already approved/rejected hosts are detected
+# and return helpful errors instead of creating redundant pending requests.
+# Reuses existing fixtures: approved_network_request (host=api.approved.com),
+# approved_module_request (module=requests).
+
+
+@pytest.fixture
+async def rejected_network_request(
+    db_session: AsyncSession, draft_tool: Tool
+) -> NetworkAccessRequest:
+    """Create a rejected network request for dedup testing."""
+    from datetime import UTC, datetime
+
+    request = NetworkAccessRequest(
+        tool_id=draft_tool.id,
+        server_id=draft_tool.server_id,
+        host="malicious.example.com",
+        port=443,
+        justification="Need access to external API",
+        requested_by="test@example.com",
+        status="rejected",
+        reviewed_at=datetime.now(UTC),
+        reviewed_by="admin@example.com",
+        rejection_reason="This host looks suspicious",
+    )
+    db_session.add(request)
+    await db_session.flush()
+    await db_session.refresh(request)
+    return request
+
+
+@pytest.fixture
+async def rejected_module_request(db_session: AsyncSession, draft_tool: Tool) -> ModuleRequest:
+    """Create a rejected module request for dedup testing."""
+    from datetime import UTC, datetime
+
+    request = ModuleRequest(
+        tool_id=draft_tool.id,
+        server_id=draft_tool.server_id,
+        module_name="subprocess",
+        justification="Need subprocess for running commands",
+        requested_by="test@example.com",
+        status="rejected",
+        reviewed_at=datetime.now(UTC),
+        reviewed_by="admin@example.com",
+        rejection_reason="subprocess is not allowed for security reasons",
+    )
+    db_session.add(request)
+    await db_session.flush()
+    await db_session.refresh(request)
+    return request
+
+
+@pytest.mark.asyncio
+async def test_duplicate_network_request_already_approved(
+    db_session: AsyncSession,
+    approved_network_request: NetworkAccessRequest,
+    draft_tool: Tool,
+):
+    """Re-requesting an already-approved host returns an error."""
+    from app.services.approval import ApprovalService
+
+    service = ApprovalService(db_session)
+    with pytest.raises(ValueError, match="already approved"):
+        await service.create_network_access_request(
+            tool_id=draft_tool.id,
+            host="api.approved.com",
+            port=443,
+            justification="I need this again",
+        )
+
+
+@pytest.mark.asyncio
+async def test_duplicate_network_request_already_rejected(
+    db_session: AsyncSession,
+    rejected_network_request: NetworkAccessRequest,
+    draft_tool: Tool,
+):
+    """Re-requesting an already-rejected host returns an error with rejection reason."""
+    from app.services.approval import ApprovalService
+
+    service = ApprovalService(db_session)
+    with pytest.raises(ValueError, match="already rejected") as exc_info:
+        await service.create_network_access_request(
+            tool_id=draft_tool.id,
+            host="malicious.example.com",
+            port=443,
+            justification="Please let me try again",
+        )
+    assert "suspicious" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_duplicate_network_request_same_host_different_server(
+    db_session: AsyncSession,
+    approved_network_request: NetworkAccessRequest,
+    test_server: Server,
+):
+    """Different server can still request the same host (not a duplicate)."""
+    from app.services.approval import ApprovalService
+
+    # Create a second server
+    other_server = Server(
+        name="Other Server",
+        description="A different server",
+        status="imported",
+    )
+    db_session.add(other_server)
+    await db_session.flush()
+
+    # Create a tool on the other server
+    other_tool = Tool(
+        server_id=other_server.id,
+        name="other_tool",
+        description="Tool on other server",
+        python_code='async def main() -> str:\n    return "test"',
+        input_schema={"type": "object", "properties": {}},
+        approval_status="draft",
+    )
+    db_session.add(other_tool)
+    await db_session.flush()
+
+    service = ApprovalService(db_session)
+    # This should succeed because it's a different server
+    request = await service.create_network_access_request(
+        tool_id=other_tool.id,
+        host="api.approved.com",
+        port=443,
+        justification="Different server needs this too",
+    )
+    assert request.status == "pending"
+    assert request.host == "api.approved.com"
+
+
+@pytest.mark.asyncio
+async def test_duplicate_module_request_already_approved(
+    db_session: AsyncSession,
+    approved_module_request: ModuleRequest,
+    draft_tool: Tool,
+):
+    """Re-requesting an already-approved module returns an error."""
+    from app.services.approval import ApprovalService
+
+    service = ApprovalService(db_session)
+    with pytest.raises(ValueError, match="already approved"):
+        await service.create_module_request(
+            tool_id=draft_tool.id,
+            module_name="requests",
+            justification="I need this module",
+        )
+
+
+@pytest.mark.asyncio
+async def test_duplicate_module_request_already_rejected(
+    db_session: AsyncSession,
+    rejected_module_request: ModuleRequest,
+    draft_tool: Tool,
+):
+    """Re-requesting an already-rejected module returns an error with rejection reason."""
+    from app.services.approval import ApprovalService
+
+    service = ApprovalService(db_session)
+    with pytest.raises(ValueError, match="already rejected") as exc_info:
+        await service.create_module_request(
+            tool_id=draft_tool.id,
+            module_name="subprocess",
+            justification="Please let me use subprocess",
+        )
+    assert "security" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_network_request_host_normalized_to_lowercase(
+    db_session: AsyncSession,
+    draft_tool: Tool,
+):
+    """Network access request hosts are normalized to lowercase."""
+    from app.services.approval import ApprovalService
+
+    service = ApprovalService(db_session)
+    request = await service.create_network_access_request(
+        tool_id=draft_tool.id,
+        host="API.GITHUB.COM",
+        port=443,
+        justification="Need GitHub API access",
+    )
+    assert request.host == "api.github.com"
+
+
+# =============================================================================
+# Delete Request Tests
+# =============================================================================
+# Tests that admins can permanently delete rejected and pending requests.
+
+
+@pytest.mark.asyncio
+async def test_delete_rejected_network_request(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    rejected_network_request: NetworkAccessRequest,
+    db_session: AsyncSession,
+):
+    """Admin can delete a rejected network request."""
+    response = await async_client.delete(
+        f"/api/approvals/network/{rejected_network_request.id}",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["host"] == "malicious.example.com"
+
+    # Verify deleted from DB
+    from sqlalchemy import select
+
+    result = await db_session.execute(
+        select(NetworkAccessRequest).where(NetworkAccessRequest.id == rejected_network_request.id)
+    )
+    assert result.scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_delete_pending_network_request(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    pending_network_request: NetworkAccessRequest,
+    db_session: AsyncSession,
+):
+    """Admin can delete a pending network request."""
+    response = await async_client.delete(
+        f"/api/approvals/network/{pending_network_request.id}",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_delete_approved_network_request_fails(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    approved_network_request: NetworkAccessRequest,
+):
+    """Cannot delete an approved network request (must revoke first)."""
+    response = await async_client.delete(
+        f"/api/approvals/network/{approved_network_request.id}",
+        headers=admin_headers,
+    )
+    assert response.status_code == 400
+    assert "revoke" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_delete_nonexistent_network_request(
+    async_client: AsyncClient,
+    admin_headers: dict,
+):
+    """Deleting a non-existent request returns 404."""
+    import uuid
+
+    response = await async_client.delete(
+        f"/api/approvals/network/{uuid.uuid4()}",
+        headers=admin_headers,
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_rejected_module_request(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    rejected_module_request: ModuleRequest,
+    db_session: AsyncSession,
+):
+    """Admin can delete a rejected module request."""
+    response = await async_client.delete(
+        f"/api/approvals/modules/{rejected_module_request.id}",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["module_name"] == "subprocess"
+
+    # Verify deleted from DB
+    from sqlalchemy import select
+
+    result = await db_session.execute(
+        select(ModuleRequest).where(ModuleRequest.id == rejected_module_request.id)
+    )
+    assert result.scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_delete_approved_module_request_fails(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    approved_module_request: ModuleRequest,
+):
+    """Cannot delete an approved module request (must revoke first)."""
+    response = await async_client.delete(
+        f"/api/approvals/modules/{approved_module_request.id}",
+        headers=admin_headers,
+    )
+    assert response.status_code == 400
+    assert "revoke" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_delete_then_rerequest_network_access(
+    db_session: AsyncSession,
+    rejected_network_request: NetworkAccessRequest,
+    draft_tool: Tool,
+    async_client: AsyncClient,
+    admin_headers: dict,
+):
+    """After deleting a rejected request, the LLM can re-request the same host."""
+    from app.services.approval import ApprovalService
+
+    # Delete the rejected request
+    response = await async_client.delete(
+        f"/api/approvals/network/{rejected_network_request.id}",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+
+    # Now re-requesting should work
+    service = ApprovalService(db_session)
+    request = await service.create_network_access_request(
+        tool_id=draft_tool.id,
+        host="malicious.example.com",
+        port=443,
+        justification="Trying again after admin cleared the rejection",
+    )
+    assert request.status == "pending"

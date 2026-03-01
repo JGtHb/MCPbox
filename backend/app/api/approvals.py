@@ -600,6 +600,41 @@ async def revoke_module_request(
         ) from e
 
 
+@router.delete("/modules/{request_id}")
+async def delete_module_request(
+    request_id: UUID,
+    service: ApprovalService = Depends(get_approval_service),
+    admin_identity: str = Depends(get_admin_identity),
+) -> dict[str, Any]:
+    """Permanently delete a module request.
+
+    Only pending or rejected requests can be deleted. Approved requests
+    must be revoked first before deletion.
+    Admin identity is extracted from verified JWT token.
+    """
+    try:
+        result = await service.delete_module_request(
+            request_id=request_id,
+            deleted_by=admin_identity,
+        )
+        return {
+            "success": True,
+            "message": f"Module request for '{result['module_name']}' has been deleted",
+            **result,
+        }
+    except ValueError as e:
+        error_msg = str(e)
+        if "not found" in error_msg.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=error_msg,
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_msg,
+        ) from e
+
+
 @router.post("/modules/bulk-action", response_model=BulkActionResponse)
 async def bulk_module_request_action(
     action: BulkModuleRequestAction,
@@ -779,6 +814,42 @@ async def revoke_network_access_request(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=detail,
+        ) from e
+
+
+@router.delete("/network/{request_id}")
+async def delete_network_access_request(
+    request_id: UUID,
+    service: ApprovalService = Depends(get_approval_service),
+    admin_identity: str = Depends(get_admin_identity),
+) -> dict[str, Any]:
+    """Permanently delete a network access request.
+
+    Only pending or rejected requests can be deleted. Approved requests
+    must be revoked first before deletion.
+    Admin identity is extracted from verified JWT token.
+    """
+    try:
+        result = await service.delete_network_access_request(
+            request_id=request_id,
+            deleted_by=admin_identity,
+        )
+        port_str = f":{result['port']}" if result.get("port") else ""
+        return {
+            "success": True,
+            "message": f"Network access request for '{result['host']}{port_str}' has been deleted",
+            **result,
+        }
+    except ValueError as e:
+        error_msg = str(e)
+        if "not found" in error_msg.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=error_msg,
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_msg,
         ) from e
 
 
