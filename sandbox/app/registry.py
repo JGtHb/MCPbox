@@ -204,9 +204,20 @@ class ToolRegistry:
                 "Updated squid ACL file with %d approved private host(s)",
                 len(private_hosts),
             )
-        except OSError:
-            # Shared volume not mounted (e.g. in tests) — silently skip.
-            pass
+        except OSError as e:
+            if not _SQUID_ACL_PATH.parent.exists():
+                # Shared volume not mounted (e.g. in tests) — skip silently.
+                logger.debug("Squid ACL volume not mounted, skipping: %s", e)
+            else:
+                # Volume exists but write failed (e.g. permission denied).
+                # This means Squid will block approved private hosts!
+                logger.error(
+                    "Failed to write squid ACL file %s: %s. "
+                    "Approved private hosts will be blocked by the proxy. "
+                    "Check volume permissions (sandbox user needs write access).",
+                    _SQUID_ACL_PATH,
+                    e,
+                )
 
     def update_secrets(self, server_id: str, secrets: dict[str, str]) -> bool:
         """Update secrets for a running server.
@@ -350,8 +361,14 @@ class ToolRegistry:
             return result.to_dict()
 
         finally:
-            # Always close the per-request client
-            await http_client.aclose()
+            # Always close the per-request client.
+            # Catch exceptions to prevent aclose() failures from
+            # suppressing the execution result (the finally block
+            # would replace a successful return with an exception).
+            try:
+                await http_client.aclose()
+            except Exception as e:
+                logger.warning(f"Error closing HTTP client: {e}")
 
     async def _execute_passthrough_tool(
         self,

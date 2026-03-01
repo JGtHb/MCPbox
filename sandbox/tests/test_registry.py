@@ -1,5 +1,8 @@
 """Unit tests for the tool registry."""
 
+import stat
+from unittest.mock import patch
+
 from app.registry import Tool
 
 
@@ -317,3 +320,148 @@ class TestToolFullName:
         )
 
         assert tool.full_name == "MyServer__my_tool"
+
+
+class TestSquidACLFileUpdates:
+    """Tests for _update_squid_approved_hosts writing the ACL file."""
+
+    def test_writes_private_ips(self, tool_registry, sample_tool_def, tmp_path):
+        """Private IPs from allowed_hosts are written to the ACL file."""
+        acl_file = tmp_path / "approved-private.txt"
+        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            tool_registry.register_server(
+                server_id="s1",
+                server_name="S1",
+                tools=[sample_tool_def],
+                allowed_hosts=["192.168.1.2", "10.0.0.5", "api.example.com"],
+            )
+
+        content = acl_file.read_text()
+        assert "192.168.1.2" in content
+        assert "10.0.0.5" in content
+        # Public hostnames must NOT appear (squid already allows them)
+        assert "api.example.com" not in content
+
+    def test_writes_lan_hostnames(self, tool_registry, sample_tool_def, tmp_path):
+        """LAN hostname patterns (.local, .lan, single-label) are written."""
+        acl_file = tmp_path / "approved-private.txt"
+        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            tool_registry.register_server(
+                server_id="s1",
+                server_name="S1",
+                tools=[sample_tool_def],
+                allowed_hosts=["mynas.local", "printer.lan", "homeserver"],
+            )
+
+        content = acl_file.read_text()
+        assert "mynas.local" in content
+        assert "printer.lan" in content
+        assert "homeserver" in content
+
+    def test_aggregates_across_servers(self, tool_registry, sample_tool_def, tmp_path):
+        """Hosts from multiple servers are merged into one file."""
+        acl_file = tmp_path / "approved-private.txt"
+        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            tool_registry.register_server(
+                server_id="s1",
+                server_name="S1",
+                tools=[sample_tool_def],
+                allowed_hosts=["192.168.1.1"],
+            )
+            tool_registry.register_server(
+                server_id="s2",
+                server_name="S2",
+                tools=[{**sample_tool_def, "name": "tool2"}],
+                allowed_hosts=["10.0.0.1"],
+            )
+
+        content = acl_file.read_text()
+        assert "192.168.1.1" in content
+        assert "10.0.0.1" in content
+
+    def test_unregister_removes_hosts(self, tool_registry, sample_tool_def, tmp_path):
+        """Unregistering a server removes its hosts from the ACL file."""
+        acl_file = tmp_path / "approved-private.txt"
+        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            tool_registry.register_server(
+                server_id="s1",
+                server_name="S1",
+                tools=[sample_tool_def],
+                allowed_hosts=["192.168.1.1"],
+            )
+            tool_registry.register_server(
+                server_id="s2",
+                server_name="S2",
+                tools=[{**sample_tool_def, "name": "t2"}],
+                allowed_hosts=["10.0.0.1"],
+            )
+
+            tool_registry.unregister_server("s1")
+
+        content = acl_file.read_text()
+        assert "192.168.1.1" not in content
+        assert "10.0.0.1" in content
+
+    def test_empty_when_no_private_hosts(
+        self, tool_registry, sample_tool_def, tmp_path
+    ):
+        """File is empty when only public hosts are approved."""
+        acl_file = tmp_path / "approved-private.txt"
+        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            tool_registry.register_server(
+                server_id="s1",
+                server_name="S1",
+                tools=[sample_tool_def],
+                allowed_hosts=["api.github.com", "example.com"],
+            )
+
+        content = acl_file.read_text()
+        assert content == ""
+
+    def test_logs_warning_on_permission_error(
+        self, tool_registry, sample_tool_def, tmp_path, caplog
+    ):
+        """Permission errors are logged (not silently swallowed)."""
+        acl_dir = tmp_path / "squid-acl"
+        acl_dir.mkdir()
+        # Make directory read-only so writes fail
+        acl_dir.chmod(stat.S_IRUSR | stat.S_IXUSR)
+        acl_file = acl_dir / "approved-private.txt"
+
+        try:
+            with patch("app.registry._SQUID_ACL_PATH", acl_file):
+                import logging
+
+                with caplog.at_level(logging.ERROR, logger="app.registry"):
+                    tool_registry.register_server(
+                        server_id="s1",
+                        server_name="S1",
+                        tools=[sample_tool_def],
+                        allowed_hosts=["192.168.1.1"],
+                    )
+
+            assert "Failed to write squid ACL file" in caplog.text
+        finally:
+            # Restore permissions for cleanup
+            acl_dir.chmod(stat.S_IRWXU)
+
+    def test_skips_silently_when_volume_not_mounted(
+        self, tool_registry, sample_tool_def, caplog
+    ):
+        """When the ACL volume doesn't exist, skip without error logs."""
+        nonexistent = "/nonexistent/squid-acl/approved-private.txt"
+        from pathlib import Path
+
+        with patch("app.registry._SQUID_ACL_PATH", Path(nonexistent)):
+            import logging
+
+            with caplog.at_level(logging.ERROR, logger="app.registry"):
+                tool_registry.register_server(
+                    server_id="s1",
+                    server_name="S1",
+                    tools=[sample_tool_def],
+                    allowed_hosts=["192.168.1.1"],
+                )
+
+        # Should NOT log an error (volume simply not mounted)
+        assert "Failed to write squid ACL file" not in caplog.text
