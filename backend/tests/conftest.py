@@ -526,13 +526,13 @@ def sample_tool_data() -> dict[str, Any]:
 def mock_sandbox_client():
     """Mock sandbox client for testing without actual sandbox service.
 
-    Patches SandboxClient in both its home module and in approvals.py
-    (which imports the name directly), so that get_instance() returns
+    Patches SandboxClient in both its home module and in sandbox.py
+    (where reregister_server imports it), so that get_instance() returns
     the same mock regardless of call-site.
     """
     with (
         patch("app.services.sandbox_client.SandboxClient") as mock_orig,
-        patch("app.api.approvals.SandboxClient") as mock_approvals,
+        patch("app.api.sandbox.SandboxClient") as mock_sandbox,
     ):
         client_instance = MagicMock()
         client_instance.health_check.return_value = True
@@ -552,7 +552,7 @@ def mock_sandbox_client():
             return_value={"is_installed": False, "package_name": "test"}
         )
         mock_orig.get_instance.return_value = client_instance
-        mock_approvals.get_instance.return_value = client_instance
+        mock_sandbox.get_instance.return_value = client_instance
         yield client_instance
 
 
