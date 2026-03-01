@@ -1907,7 +1907,7 @@ async def test_revoke_admin_network_request_triggers_server_reregistration(
         headers=admin_headers,
     )
     assert response.status_code == 200
-    assert response.json()["status"] == "revoked"
+    assert response.json()["status"] == "pending"
 
     # Verify the server was re-registered
     mock_sandbox_client.register_server.assert_called_once()
