@@ -628,7 +628,8 @@ async def take_network_request_action(
             )
 
             # Re-register server so approved hosts take effect immediately
-            await reregister_server(request.server_id, db)
+            if request.server_id:
+                await reregister_server(request.server_id, db)
 
             resp: NetworkAccessRequestResponse = NetworkAccessRequestResponse.model_validate(
                 request
@@ -682,7 +683,8 @@ async def revoke_network_access_request(
         )
 
         # Re-register server so revoked hosts are removed immediately
-        await reregister_server(request.server_id, db)
+        if request.server_id:
+            await reregister_server(request.server_id, db)
 
         resp: NetworkAccessRequestResponse = NetworkAccessRequestResponse.model_validate(request)
         return resp

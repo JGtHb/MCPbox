@@ -1350,7 +1350,7 @@ class ApprovalService:
         self,
         request_id: UUID,
         deleted_by: str,
-    ) -> dict[str, str]:
+    ) -> dict[str, str | None]:
         """Permanently delete a network access request.
 
         Only pending or rejected requests can be deleted. Approved requests

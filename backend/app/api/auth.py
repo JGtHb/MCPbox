@@ -4,7 +4,7 @@ import logging
 import time
 from collections import defaultdict
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import delete, select
@@ -66,8 +66,9 @@ async def is_token_blacklisted(db: AsyncSession, jti: str) -> bool:
 async def cleanup_expired_blacklist_entries(db: AsyncSession) -> int:
     """Remove expired entries from the token blacklist. Returns count removed."""
     now = datetime.now(tz=UTC)
-    result: CursorResult[Any] = await db.execute(
-        delete(TokenBlacklist).where(TokenBlacklist.expires_at < now)
+    result = cast(
+        CursorResult[Any],
+        await db.execute(delete(TokenBlacklist).where(TokenBlacklist.expires_at < now)),
     )
     count: int = result.rowcount
     return count
