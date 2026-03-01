@@ -24,7 +24,7 @@ from app.executor import (
     create_safe_builtins,
     validate_code_safety,
 )
-from app.registry import tool_registry
+from app.registry import ensure_private_hosts_in_squid_acl, tool_registry
 from app.ssrf import SSRFError
 from app.ssrf import SSRFProtectedAsyncHttpClient
 
@@ -800,6 +800,12 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
     safe_builtins_with_import["print"] = lambda *args, **kwargs: print(
         *args, file=stdout_capture, **kwargs
     )
+
+    # Ensure approved private hosts are in the squid ACL file BEFORE execution.
+    # The /execute endpoint bypasses the registry (no register_server() call),
+    # so _update_squid_approved_hosts() is never triggered.  Without this,
+    # the SSRF client allows the request but squid blocks it with 403.
+    ensure_private_hosts_in_squid_acl(body.allowed_hosts)
 
     # Phase 1: exec() the code to define functions (synchronous, just defines main())
     # Phase 2: If async main() is defined, create http client on THIS loop and await it
