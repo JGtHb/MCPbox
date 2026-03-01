@@ -2,7 +2,7 @@
 
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from sqlalchemy import ColumnElement, func, or_, select
@@ -67,7 +67,8 @@ async def sync_allowed_hosts(server_id: UUID, db: AsyncSession) -> list[str]:
             # A port-less approval supersedes all port-specific ones
             entries.append(host)
         else:
-            for p in sorted(ports):
+            # None was already excluded by the branch above
+            for p in sorted(cast(set[int], ports)):
                 entries.append(f"{host}:{p}")
 
     # Update the server's cached allowed_hosts
