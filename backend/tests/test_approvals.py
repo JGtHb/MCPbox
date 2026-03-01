@@ -1796,6 +1796,130 @@ async def test_bulk_approve_network_requests_triggers_server_reregistration(
 
 
 # =============================================================================
+# Admin-Initiated Network Approval → Sandbox Re-registration Tests
+# =============================================================================
+# Regression tests: admin-initiated network requests (tool_id=NULL, server_id
+# set directly) must also trigger sandbox re-registration on approval/revoke.
+# Previously these were silently skipped due to a broken import in servers.py.
+
+
+@pytest.fixture
+async def admin_pending_network_request(
+    db_session: AsyncSession, running_server: Server
+) -> NetworkAccessRequest:
+    """Create a pending admin-initiated network request on a running server."""
+    request = NetworkAccessRequest(
+        tool_id=None,
+        server_id=running_server.id,
+        host="192.168.1.2",
+        port=8081,
+        justification="Need access to LAN service",
+        requested_by="admin",
+        status="pending",
+    )
+    db_session.add(request)
+    await db_session.flush()
+    await db_session.refresh(request)
+    return request
+
+
+@pytest.fixture
+async def admin_approved_network_request(
+    db_session: AsyncSession, running_server: Server
+) -> NetworkAccessRequest:
+    """Create an approved admin-initiated network request on a running server."""
+    from datetime import UTC, datetime
+
+    request = NetworkAccessRequest(
+        tool_id=None,
+        server_id=running_server.id,
+        host="10.0.0.50",
+        port=None,
+        justification="Admin-approved LAN access",
+        requested_by="admin",
+        status="approved",
+        reviewed_by="admin@example.com",
+        reviewed_at=datetime.now(UTC),
+    )
+    db_session.add(request)
+    await db_session.flush()
+    await db_session.refresh(request)
+    return request
+
+
+@pytest.mark.asyncio
+async def test_approve_admin_network_request_triggers_server_reregistration(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    admin_pending_network_request: NetworkAccessRequest,
+    running_server: Server,
+    db_session: AsyncSession,
+    mock_sandbox_client,
+):
+    """Approving an admin-initiated network request re-registers the server.
+
+    Regression test: previously, admin-initiated requests (tool_id=NULL) were
+    silently skipped during re-registration because the helper imported from
+    a non-existent module (app.services.sandbox instead of sandbox_client).
+    """
+    mock_sandbox_client.register_server = AsyncMock(
+        return_value={"success": True, "tools_registered": 0}
+    )
+
+    response = await async_client.post(
+        f"/api/approvals/network/{admin_pending_network_request.id}/action",
+        json={"action": "approve"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "approved"
+
+    # Verify the server was re-registered with the sandbox
+    mock_sandbox_client.register_server.assert_called_once()
+    call_kwargs = mock_sandbox_client.register_server.call_args
+    passed_hosts = call_kwargs.kwargs.get(
+        "allowed_hosts", call_kwargs.args[6] if len(call_kwargs.args) > 6 else []
+    )
+    assert "192.168.1.2" in passed_hosts
+
+
+@pytest.mark.asyncio
+async def test_revoke_admin_network_request_triggers_server_reregistration(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    admin_approved_network_request: NetworkAccessRequest,
+    running_server: Server,
+    db_session: AsyncSession,
+    mock_sandbox_client,
+):
+    """Revoking an admin-initiated network request re-registers the server.
+
+    Regression test: ensures admin-initiated revocations also trigger
+    sandbox re-registration to remove the host from Squid ACL.
+    """
+    mock_sandbox_client.register_server = AsyncMock(
+        return_value={"success": True, "tools_registered": 0}
+    )
+
+    response = await async_client.post(
+        f"/api/approvals/network/{admin_approved_network_request.id}/revoke",
+        json={},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "revoked"
+
+    # Verify the server was re-registered
+    mock_sandbox_client.register_server.assert_called_once()
+    call_kwargs = mock_sandbox_client.register_server.call_args
+    passed_hosts = call_kwargs.kwargs.get(
+        "allowed_hosts", call_kwargs.args[6] if len(call_kwargs.args) > 6 else []
+    )
+    # The revoked host should NOT be in the new allowlist
+    assert "10.0.0.50" not in passed_hosts
+
+
+# =============================================================================
 # Module Approval → Sandbox Re-registration Tests
 # =============================================================================
 # Regression tests: approving/revoking module requests should immediately

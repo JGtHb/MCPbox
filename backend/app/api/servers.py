@@ -253,7 +253,7 @@ async def _refresh_server_registration_for_hosts(server: Any, db: AsyncSession) 
     try:
         from app.api.sandbox import _build_external_source_configs, _build_tool_definitions
         from app.services.global_config import GlobalConfigService
-        from app.services.sandbox import SandboxClient
+        from app.services.sandbox_client import SandboxClient
         from app.services.server_secret import ServerSecretService
         from app.services.tool import ToolService
 
