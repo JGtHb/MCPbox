@@ -8,6 +8,7 @@ import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -141,10 +142,22 @@ async def lifespan(app: FastAPI):
     await tool_registry.clear_all()
 
 
+def _read_version() -> str:
+    """Read version from the VERSION file (single source of truth)."""
+    candidates = [
+        Path("/app/VERSION"),
+        Path(__file__).resolve().parents[2] / "VERSION",
+    ]
+    for p in candidates:
+        if p.is_file():
+            return p.read_text().strip()
+    return "0.0.0-unknown"
+
+
 app = FastAPI(
     title="MCPbox Sandbox",
     description="Shared sandbox for executing MCP tools",
-    version="0.2.1",
+    version=_read_version(),
     lifespan=lifespan,
 )
 

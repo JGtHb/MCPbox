@@ -411,9 +411,13 @@ class ApprovalService:
             tool_name_str = tool.name
 
         # Check if this module is already approved (modules are global, not per-server)
-        approved_stmt = select(ModuleRequest).where(
-            ModuleRequest.module_name == module_name,
-            ModuleRequest.status == "approved",
+        approved_stmt = (
+            select(ModuleRequest)
+            .where(
+                ModuleRequest.module_name == module_name,
+                ModuleRequest.status == "approved",
+            )
+            .limit(1)
         )
         approved_result = await self.db.execute(approved_stmt)
         if approved_result.scalar_one_or_none():
@@ -717,7 +721,7 @@ class ApprovalService:
         elif not server_id:
             raise ValueError("Either tool_id or server_id must be provided")
 
-        host_lower = host.strip().lower()
+        host_lower = host.strip().lower().rstrip(".")
         port_str = f":{port}" if port else ""
 
         # Check if this host is already approved for the server (via any tool or admin)
@@ -732,6 +736,7 @@ class ApprovalService:
                     Tool.server_id == server_id,
                 ),
             )
+            .limit(1)
         )
         approved_result = await self.db.execute(approved_stmt)
         if approved_result.scalar_one_or_none():
@@ -1333,6 +1338,10 @@ class ApprovalService:
         Only pending or rejected requests can be deleted. Approved requests
         must be revoked first.
 
+        No sandbox re-registration is needed because only non-active
+        (pending/rejected) requests are deletable — they were never
+        applied to the sandbox configuration.
+
         Args:
             request_id: ID of the module request to delete
             deleted_by: Email of the admin deleting
@@ -1374,6 +1383,10 @@ class ApprovalService:
 
         Only pending or rejected requests can be deleted. Approved requests
         must be revoked first.
+
+        No sandbox re-registration is needed because only non-active
+        (pending/rejected) requests are deletable — they were never
+        applied to the sandbox configuration.
 
         Args:
             request_id: ID of the network request to delete
