@@ -188,10 +188,15 @@ async def take_tool_action(
                 "server_refreshed": refreshed,
             }
         else:
+            if not action.reason:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="A reason is required when rejecting",
+                )
             tool = await service.reject_tool(
                 tool_id=tool_id,
                 rejected_by=admin_identity,
-                reason=action.reason or "",
+                reason=action.reason,
             )
             return {
                 "success": True,
@@ -294,10 +299,15 @@ async def bulk_tool_action(
 
         fire_and_forget_notify()
     else:
+        if not action.reason:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A reason is required when rejecting",
+            )
         result = await service.bulk_reject_tools(
             tool_ids=action.tool_ids,
             rejected_by=admin_identity,
-            reason=action.reason or "",
+            reason=action.reason,
         )
 
     return BulkActionResponse(**result)
@@ -412,10 +422,15 @@ async def take_module_request_action(
             resp: ModuleRequestResponse = ModuleRequestResponse.model_validate(request)
             return resp
         else:
+            if not action.reason:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="A reason is required when rejecting",
+                )
             request = await service.reject_module_request(
                 request_id=request_id,
                 rejected_by=admin_identity,
-                reason=action.reason or "",
+                reason=action.reason,
             )
             rejected: ModuleRequestResponse = ModuleRequestResponse.model_validate(request)
             return rejected
@@ -535,10 +550,15 @@ async def bulk_module_request_action(
                     if await reregister_server(sid, db):
                         refreshed_servers.add(str(sid))
     else:
+        if not action.reason:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A reason is required when rejecting",
+            )
         result = await service.bulk_reject_module_requests(
             request_ids=action.request_ids,
             rejected_by=admin_identity,
-            reason=action.reason or "",
+            reason=action.reason,
         )
 
     return BulkActionResponse(**result)
@@ -612,10 +632,15 @@ async def take_network_request_action(
             )
             return resp
         else:
+            if not action.reason:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="A reason is required when rejecting",
+                )
             request = await service.reject_network_access_request(
                 request_id=request_id,
                 rejected_by=admin_identity,
-                reason=action.reason or "",
+                reason=action.reason,
             )
             rejected: NetworkAccessRequestResponse = NetworkAccessRequestResponse.model_validate(
                 request
@@ -740,10 +765,15 @@ async def bulk_network_request_action(
                     if await reregister_server(sid, db):
                         refreshed_servers.add(str(sid))
     else:
+        if not action.reason:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A reason is required when rejecting",
+            )
         result = await service.bulk_reject_network_requests(
             request_ids=action.request_ids,
             rejected_by=admin_identity,
-            reason=action.reason or "",
+            reason=action.reason,
         )
 
     return BulkActionResponse(**result)
