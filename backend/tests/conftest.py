@@ -526,33 +526,36 @@ def sample_tool_data() -> dict[str, Any]:
 def mock_sandbox_client():
     """Mock sandbox client for testing without actual sandbox service.
 
-    Patches SandboxClient in both its home module and in sandbox.py
-    (where reregister_server imports it), so that get_instance() returns
-    the same mock regardless of call-site.
+    Uses patch.object on the real SandboxClient class to mock get_instance()
+    at the class level. This covers ALL import paths (approvals, sandbox,
+    mcp_management, settings, etc.) with a single patch, since they all
+    share the same class object regardless of import site.
     """
-    with (
-        patch("app.services.sandbox_client.SandboxClient") as mock_orig,
-        patch("app.api.sandbox.SandboxClient") as mock_sandbox,
-    ):
-        client_instance = MagicMock()
-        client_instance.health_check.return_value = True
-        client_instance.register_server = AsyncMock(
-            return_value={"success": True, "tools_registered": 1}
-        )
-        client_instance.unregister_server.return_value = {"success": True}
-        client_instance.list_tools.return_value = []
-        client_instance.install_package = AsyncMock(
-            return_value={"status": "installed", "package_name": "test", "version": "1.0"}
-        )
-        client_instance.sync_packages = AsyncMock(return_value={"synced": 0, "errors": []})
-        client_instance.get_pypi_info = AsyncMock(
-            return_value={"module_name": "test", "package_name": "test", "is_stdlib": False, "pypi_info": None}
-        )
-        client_instance.get_package_status = AsyncMock(
-            return_value={"is_installed": False, "package_name": "test"}
-        )
-        mock_orig.get_instance.return_value = client_instance
-        mock_sandbox.get_instance.return_value = client_instance
+    from app.services.sandbox_client import SandboxClient
+
+    client_instance = MagicMock()
+    client_instance.health_check.return_value = True
+    client_instance.register_server = AsyncMock(
+        return_value={"success": True, "tools_registered": 1}
+    )
+    client_instance.unregister_server.return_value = {"success": True}
+    client_instance.list_tools.return_value = []
+    client_instance.install_package = AsyncMock(
+        return_value={"status": "installed", "package_name": "test", "version": "1.0"}
+    )
+    client_instance.sync_packages = AsyncMock(return_value={"synced": 0, "errors": []})
+    client_instance.get_pypi_info = AsyncMock(
+        return_value={
+            "module_name": "test",
+            "package_name": "test",
+            "is_stdlib": False,
+            "pypi_info": None,
+        }
+    )
+    client_instance.get_package_status = AsyncMock(
+        return_value={"is_installed": False, "package_name": "test"}
+    )
+    with patch.object(SandboxClient, "get_instance", return_value=client_instance):
         yield client_instance
 
 

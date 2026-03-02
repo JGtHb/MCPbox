@@ -2683,6 +2683,43 @@ async def test_network_request_host_normalized_to_lowercase(
     assert request.host == "api.github.com"
 
 
+@pytest.mark.asyncio
+async def test_network_request_host_trailing_dot_stripped(
+    db_session: AsyncSession,
+    draft_tool: Tool,
+):
+    """Trailing dots in DNS names are stripped during normalization."""
+    from app.services.approval import ApprovalService
+
+    service = ApprovalService(db_session)
+    request = await service.create_network_access_request(
+        tool_id=draft_tool.id,
+        host="api.github.com.",
+        port=443,
+        justification="Need GitHub API access",
+    )
+    assert request.host == "api.github.com"
+
+
+@pytest.mark.asyncio
+async def test_network_request_trailing_dot_dedup(
+    db_session: AsyncSession,
+    approved_network_request: NetworkAccessRequest,
+    draft_tool: Tool,
+):
+    """Trailing dot variant is detected as duplicate of approved host."""
+    from app.services.approval import ApprovalService
+
+    service = ApprovalService(db_session)
+    with pytest.raises(ValueError, match="already approved"):
+        await service.create_network_access_request(
+            tool_id=draft_tool.id,
+            host="api.approved.com.",
+            port=443,
+            justification="Trying with trailing dot",
+        )
+
+
 # =============================================================================
 # Delete Request Tests
 # =============================================================================

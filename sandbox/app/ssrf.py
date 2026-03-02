@@ -480,21 +480,20 @@ class SSRFProtectedAsyncHttpClient:
         # If allowed_hosts is set (even if empty), only those hosts are permitted.
         # A host that passes this check was explicitly approved by an admin.
         #
-        # Entries may be "host" (any port) or "host:port" (specific port only).
+        # Entries can be "host" (any port) or "host:port" (specific port).
+        # We check the more specific "host:port" first, then fall back to "host".
         admin_approved = False
         if self.__allowed_hosts is not None:
             parsed = urlparse(str(url))
             hostname = (parsed.hostname or "").lower()
-            port = parsed.port
-            if port is None:
-                port = 443 if parsed.scheme == "https" else 80
-            # Check: "host" in allowlist (any port) or "host:port" (specific port)
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            host_port = f"{hostname}:{port}"
             if (
-                hostname not in self.__allowed_hosts
-                and f"{hostname}:{port}" not in self.__allowed_hosts
+                host_port not in self.__allowed_hosts
+                and hostname not in self.__allowed_hosts
             ):
                 raise SSRFError(
-                    f"Network access to '{hostname}:{port}' is not approved for this server. "
+                    f"Network access to '{host_port}' is not approved for this server. "
                     f"Use mcpbox_request_network_access to request access."
                 )
             admin_approved = True

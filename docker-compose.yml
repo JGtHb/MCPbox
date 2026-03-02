@@ -171,8 +171,8 @@ services:
   # ============================================================
   sandbox:
     build:
-      context: ./sandbox
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: sandbox/Dockerfile
     environment:
       - SANDBOX_API_KEY=${SANDBOX_API_KEY:?SANDBOX_API_KEY is required}
       # SECURITY (F-03): MCPBOX_ENCRYPTION_KEY intentionally excluded from sandbox.
@@ -240,7 +240,7 @@ services:
       - /var/run/squid:size=1M,uid=31,gid=31
       - /tmp:size=1M
     volumes:
-      - mcpbox-squid-acl:/shared/squid-acl:ro   # Read approved private hosts from sandbox
+      - mcpbox-squid-acl:/shared/squid-acl      # Shared with sandbox (entrypoint fixes perms on old volumes)
     networks:
       - mcpbox-sandbox-proxy     # Receives sandbox traffic
       - mcpbox-sandbox-external  # Outbound to internet

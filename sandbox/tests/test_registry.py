@@ -3,7 +3,7 @@
 import stat
 from unittest.mock import patch
 
-from app.registry import Tool
+from app.registry import Tool, _filter_private_hosts, ensure_private_hosts_in_squid_acl
 
 
 class TestToolRegistry:
@@ -466,21 +466,136 @@ class TestSquidACLFileUpdates:
         # Should NOT log an error (volume simply not mounted)
         assert "Failed to write squid ACL file" not in caplog.text
 
-    def test_strips_port_from_entries(self, tool_registry, sample_tool_def, tmp_path):
-        """Port suffixes are stripped: '192.168.1.2:8081' → '192.168.1.2' in ACL."""
+
+class TestEnsurePrivateHostsInSquidACL:
+    """Tests for ensure_private_hosts_in_squid_acl (used by /execute)."""
+
+    def test_creates_file_when_missing(self, tmp_path):
+        """Creates ACL file from scratch when it doesn't exist yet."""
         acl_file = tmp_path / "approved-private.txt"
         with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            ensure_private_hosts_in_squid_acl(["192.168.1.2", "10.0.0.5"])
+
+        content = acl_file.read_text()
+        assert "192.168.1.2" in content
+        assert "10.0.0.5" in content
+
+    def test_merges_with_existing_entries(self, tmp_path):
+        """New hosts are merged without removing existing ones."""
+        acl_file = tmp_path / "approved-private.txt"
+        acl_file.write_text("10.0.0.1\n")
+
+        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            ensure_private_hosts_in_squid_acl(["192.168.1.2"])
+
+        content = acl_file.read_text()
+        assert "10.0.0.1" in content
+        assert "192.168.1.2" in content
+
+    def test_filters_public_hosts(self, tmp_path):
+        """Public hostnames are not written (squid already allows them)."""
+        acl_file = tmp_path / "approved-private.txt"
+        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            ensure_private_hosts_in_squid_acl(["api.example.com", "192.168.1.2"])
+
+        content = acl_file.read_text()
+        assert "api.example.com" not in content
+        assert "192.168.1.2" in content
+
+    def test_noop_when_no_private_hosts(self, tmp_path):
+        """No file written when all hosts are public."""
+        acl_file = tmp_path / "approved-private.txt"
+        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            ensure_private_hosts_in_squid_acl(["api.example.com"])
+
+        assert not acl_file.exists()
+
+    def test_noop_when_hosts_is_none(self, tmp_path):
+        """None input is a no-op."""
+        acl_file = tmp_path / "approved-private.txt"
+        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            ensure_private_hosts_in_squid_acl(None)
+
+        assert not acl_file.exists()
+
+    def test_noop_when_hosts_already_present(self, tmp_path):
+        """File is not rewritten when host is already present."""
+        acl_file = tmp_path / "approved-private.txt"
+        acl_file.write_text("192.168.1.2\n")
+        mtime_before = acl_file.stat().st_mtime_ns
+
+        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            ensure_private_hosts_in_squid_acl(["192.168.1.2"])
+
+        # File should not have been rewritten
+        assert acl_file.stat().st_mtime_ns == mtime_before
+
+    def test_registry_rebuild_cleans_up_temporary_entries(
+        self, tool_registry, sample_tool_def, tmp_path
+    ):
+        """register_server rebuilds from scratch, removing /execute entries."""
+        acl_file = tmp_path / "approved-private.txt"
+        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            # Simulate /execute adding a temporary host
+            ensure_private_hosts_in_squid_acl(["172.16.0.99"])
+            assert "172.16.0.99" in acl_file.read_text()
+
+            # Now register_server rebuilds — 172.16.0.99 should be gone
             tool_registry.register_server(
                 server_id="s1",
                 server_name="S1",
                 tools=[sample_tool_def],
-                allowed_hosts=["192.168.1.2:8081", "192.168.1.2:1883", "10.0.0.5"],
+                allowed_hosts=["192.168.1.1"],
             )
 
         content = acl_file.read_text()
-        # Ports should be stripped
-        assert "192.168.1.2:8081" not in content
-        assert "192.168.1.2:1883" not in content
-        # But the host itself should be present (deduplicated)
-        assert "192.168.1.2" in content
+        assert "192.168.1.1" in content
+        assert "172.16.0.99" not in content
+
+
+class TestFilterPrivateHostsWithPort:
+    """Tests for _filter_private_hosts handling host:port entries."""
+
+    def test_private_ip_with_port(self):
+        """host:port entries with private IPs are preserved."""
+        result = _filter_private_hosts({"192.168.1.2:8081"})
+        assert "192.168.1.2:8081" in result
+
+    def test_private_ip_without_port(self):
+        """Bare private IPs still work."""
+        result = _filter_private_hosts({"10.0.0.5"})
+        assert "10.0.0.5" in result
+
+    def test_public_host_with_port_excluded(self):
+        """Public hosts with port are excluded."""
+        result = _filter_private_hosts({"api.example.com:443"})
+        assert len(result) == 0
+
+    def test_lan_hostname_with_port(self):
+        """LAN hostnames (.local) with port are preserved."""
+        result = _filter_private_hosts({"mynas.local:8080"})
+        assert "mynas.local:8080" in result
+
+    def test_mixed_entries_with_and_without_ports(self):
+        """Mix of host and host:port entries correctly filtered."""
+        hosts = {
+            "192.168.1.2:8081",
+            "192.168.1.2",
+            "api.example.com:443",
+            "10.0.0.5:9090",
+        }
+        result = _filter_private_hosts(hosts)
+        assert "192.168.1.2:8081" in result
+        assert "192.168.1.2" in result
+        assert "10.0.0.5:9090" in result
+        assert "api.example.com:443" not in result
+
+    def test_acl_file_includes_port_entries(self, tmp_path):
+        """ACL file written with host:port entries preserved."""
+        acl_file = tmp_path / "approved-private.txt"
+        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            ensure_private_hosts_in_squid_acl(["192.168.1.2:8081", "10.0.0.5"])
+
+        content = acl_file.read_text()
+        assert "192.168.1.2:8081" in content
         assert "10.0.0.5" in content

@@ -54,6 +54,7 @@ COPY --chown=mcpbox:mcpbox backend/app/ /app/app/
 COPY --chown=mcpbox:mcpbox backend/alembic/ /app/alembic/
 COPY --chown=mcpbox:mcpbox backend/alembic.ini /app/
 COPY --chown=mcpbox:mcpbox backend/entrypoint.sh /app/
+COPY --chown=mcpbox:mcpbox VERSION /app/VERSION
 
 # Copy worker source for Cloudflare Workers deployment via the wizard.
 # The wizard's deploy_worker() reads these files at runtime when deploying
