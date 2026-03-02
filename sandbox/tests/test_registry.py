@@ -465,3 +465,22 @@ class TestSquidACLFileUpdates:
 
         # Should NOT log an error (volume simply not mounted)
         assert "Failed to write squid ACL file" not in caplog.text
+
+    def test_strips_port_from_entries(self, tool_registry, sample_tool_def, tmp_path):
+        """Port suffixes are stripped: '192.168.1.2:8081' → '192.168.1.2' in ACL."""
+        acl_file = tmp_path / "approved-private.txt"
+        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            tool_registry.register_server(
+                server_id="s1",
+                server_name="S1",
+                tools=[sample_tool_def],
+                allowed_hosts=["192.168.1.2:8081", "192.168.1.2:1883", "10.0.0.5"],
+            )
+
+        content = acl_file.read_text()
+        # Ports should be stripped
+        assert "192.168.1.2:8081" not in content
+        assert "192.168.1.2:1883" not in content
+        # But the host itself should be present (deduplicated)
+        assert "192.168.1.2" in content
+        assert "10.0.0.5" in content

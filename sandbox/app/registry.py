@@ -177,14 +177,20 @@ class ToolRegistry:
                 all_hosts.update(server.allowed_hosts)
 
         # Filter to hosts that are likely private / LAN targets.
-        private_hosts: list[str] = []
-        for host in sorted(all_hosts):
+        # Strip port suffixes (e.g., "192.168.1.2:8081" → "192.168.1.2")
+        # since squid ACL matches on destination IP/hostname, not port.
+        # Port-level filtering is enforced by SSRFProtectedAsyncHttpClient.
+        private_hosts_set: set[str] = set()
+        for host in all_hosts:
             host_lower = host.lower()
+            # Strip port suffix if present (use rsplit to handle IPv6 correctly)
+            if ":" in host_lower:
+                host_lower = host_lower.rsplit(":", 1)[0]
             # Literal private IP?
             try:
                 ip = ipaddress.ip_address(host_lower)
                 if ip.is_private:
-                    private_hosts.append(host_lower)
+                    private_hosts_set.add(host_lower)
                 continue
             except ValueError:
                 pass
@@ -193,7 +199,8 @@ class ToolRegistry:
                 host_lower.endswith((".local", ".lan", ".home", ".internal"))
                 or "." not in host_lower
             ):
-                private_hosts.append(host_lower)
+                private_hosts_set.add(host_lower)
+        private_hosts = sorted(private_hosts_set)
 
         try:
             _SQUID_ACL_PATH.parent.mkdir(parents=True, exist_ok=True)

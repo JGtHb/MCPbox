@@ -135,6 +135,64 @@ class TestNetworkAllowlist:
         # _prepare_pinned_request runs, but that's fine — the allowlist check
         # is more restrictive anyway.
 
+    def test_allowlist_port_specific_blocks_different_port(self):
+        """Port-specific entry 'host:8081' blocks requests to host:1883."""
+        client = self._make_client(allowed_hosts={"192.168.1.2:8081"})
+
+        with pytest.raises(SSRFError) as exc_info:
+            client._prepare_request("http://192.168.1.2:1883/mqtt", {})
+
+        assert "not approved" in str(exc_info.value)
+
+    @patch("app.ssrf.validate_url_with_pinning")
+    def test_allowlist_port_specific_permits_matching_port(self, mock_validate):
+        """Port-specific entry 'host:8081' permits requests to host:8081."""
+        mock_validated = MagicMock()
+        mock_validated.get_pinned_url.return_value = "http://192.168.1.2:8081/api"
+        mock_validated.hostname = "192.168.1.2"
+        mock_validated.scheme = "http"
+        mock_validated.pinned_ip = "192.168.1.2"
+        mock_validate.return_value = mock_validated
+
+        client = self._make_client(allowed_hosts={"192.168.1.2:8081"})
+        url, _ = client._prepare_request("http://192.168.1.2:8081/api", {})
+        assert url is not None
+
+    def test_allowlist_any_port_permits_all_ports(self):
+        """Any-port entry 'host' (no port suffix) permits requests on any port."""
+        client = self._make_client(allowed_hosts={"192.168.1.2"})
+        # Should not raise — any port is allowed
+        url, _ = client._prepare_request("http://192.168.1.2:8081/api", {})
+        assert "192.168.1.2" in url
+
+    def test_allowlist_port_specific_blocks_default_port(self):
+        """Port-specific entry 'host:8081' blocks requests on default port 80."""
+        client = self._make_client(allowed_hosts={"192.168.1.2:8081"})
+
+        with pytest.raises(SSRFError):
+            client._prepare_request("http://192.168.1.2/api", {})
+
+    @patch("app.ssrf.validate_url_with_pinning")
+    def test_allowlist_multiple_ports_same_host(self, mock_validate):
+        """Multiple port-specific entries for the same host work independently."""
+        mock_validated = MagicMock()
+        mock_validated.get_pinned_url.return_value = "http://192.168.1.2:1883/mqtt"
+        mock_validated.hostname = "192.168.1.2"
+        mock_validated.scheme = "http"
+        mock_validated.pinned_ip = "192.168.1.2"
+        mock_validate.return_value = mock_validated
+
+        client = self._make_client(
+            allowed_hosts={"192.168.1.2:8081", "192.168.1.2:1883"}
+        )
+        # Port 1883 should be permitted
+        url, _ = client._prepare_request("http://192.168.1.2:1883/mqtt", {})
+        assert url is not None
+
+        # Port 22 should be blocked
+        with pytest.raises(SSRFError):
+            client._prepare_request("http://192.168.1.2:22/ssh", {})
+
 
 # =============================================================================
 # Proxy Mode Tests

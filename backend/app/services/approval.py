@@ -34,12 +34,15 @@ async def sync_allowed_hosts(server_id: UUID, db: AsyncSession) -> list[str]:
     (both LLM-originated via tool.server_id and admin-originated via direct server_id),
     deduplicates, and writes the result to Server.allowed_hosts.
 
+    Entries are formatted as ``"host:port"`` when a specific port is approved,
+    or ``"host"`` when any port is approved (port is NULL).
+
     Returns:
         The updated list of allowed hosts.
     """
-    # Get all approved hosts for this server from both paths
+    # Get all approved hosts (with port) for this server from both paths
     stmt = (
-        select(NetworkAccessRequest.host)
+        select(NetworkAccessRequest.host, NetworkAccessRequest.port)
         .outerjoin(Tool, NetworkAccessRequest.tool_id == Tool.id)
         .where(
             NetworkAccessRequest.status == "approved",
@@ -50,7 +53,14 @@ async def sync_allowed_hosts(server_id: UUID, db: AsyncSession) -> list[str]:
         )
     )
     result = await db.execute(stmt)
-    hosts = sorted({row[0] for row in result.all()})
+    entries: set[str] = set()
+    for row in result.all():
+        host, port = row
+        if port is not None:
+            entries.add(f"{host}:{port}")
+        else:
+            entries.add(host)
+    hosts = sorted(entries)
 
     # Update the server's cached allowed_hosts
     server_result = await db.execute(select(Server).where(Server.id == server_id))
@@ -62,11 +72,40 @@ async def sync_allowed_hosts(server_id: UUID, db: AsyncSession) -> list[str]:
     return hosts
 
 
+def _derive_import_names(module_name: str) -> set[str]:
+    """Derive import-time names from a module/package name.
+
+    PyPI package names (e.g., "paho-mqtt") use hyphens but Python import
+    names use dots/underscores.  This function returns additional names that
+    should be allowed so that ``import paho.mqtt.client`` works when
+    "paho-mqtt" is the approved name.
+
+    Returns:
+        A (possibly empty) set of derived import names.
+    """
+    extras: set[str] = set()
+
+    if "-" in module_name:
+        # "paho-mqtt" → also allow "paho_mqtt" and "paho" (the top-level import)
+        extras.add(module_name.replace("-", "_"))
+        extras.add(module_name.split("-")[0])
+
+    if "." in module_name:
+        # "paho.mqtt.client" → also allow "paho" (the base module)
+        extras.add(module_name.split(".")[0])
+
+    return extras
+
+
 async def sync_allowed_modules(db: AsyncSession) -> list[str]:
     """Recompute GlobalConfig.allowed_modules from approved ModuleRequest records + defaults.
 
     Queries all approved module requests, unions with DEFAULT_ALLOWED_MODULES,
     and writes the result to GlobalConfig.allowed_modules.
+
+    For each approved name that looks like a PyPI package (contains hyphens)
+    or a submodule path (contains dots), the corresponding base import name
+    is also included so that ``import <base>.<sub>`` works at runtime.
 
     Returns:
         The updated list of allowed modules.
@@ -78,8 +117,13 @@ async def sync_allowed_modules(db: AsyncSession) -> list[str]:
     result = await db.execute(stmt)
     approved_modules = {row[0] for row in result.all()}
 
-    # Union with defaults
-    all_modules = sorted(set(DEFAULT_ALLOWED_MODULES) | approved_modules)
+    # Derive additional import names from approved modules
+    derived: set[str] = set()
+    for name in approved_modules:
+        derived.update(_derive_import_names(name))
+
+    # Union with defaults and derived import names
+    all_modules = sorted(set(DEFAULT_ALLOWED_MODULES) | approved_modules | derived)
 
     # Update GlobalConfig
     config_service = GlobalConfigService(db)
@@ -391,15 +435,34 @@ class ApprovalService:
             server_id = tool.server_id
             tool_name_str = tool.name
 
-        # Check if this module is already approved (modules are global, not per-server)
+        # Check if this module is already approved (modules are global, not per-server).
+        # Also check equivalent names: e.g., requesting "paho.mqtt.client" when
+        # "paho-mqtt" is already approved, or vice versa.
+        names_to_check = {module_name} | _derive_import_names(module_name)
+        # Also check the base module
+        base = module_name.split(".")[0]
+        names_to_check.add(base)
+
         approved_stmt = select(ModuleRequest).where(
-            ModuleRequest.module_name == module_name,
             ModuleRequest.status == "approved",
         )
         approved_result = await self.db.execute(approved_stmt)
-        if approved_result.scalar_one_or_none():
+        approved_modules = {r.module_name for r in approved_result.scalars().all()}
+
+        # Check direct match or if any approved module covers this one
+        matching_approved = names_to_check & approved_modules
+        if not matching_approved:
+            # Also check the reverse: does any approved hyphenated name cover
+            # the requested module's base import name?
+            for approved in approved_modules:
+                if "-" in approved and approved.split("-")[0] == base:
+                    matching_approved = {approved}
+                    break
+
+        if matching_approved:
+            matched = next(iter(matching_approved))
             raise ValueError(
-                f"Module '{module_name}' is already approved globally. "
+                f"Module '{module_name}' is already covered by approved module '{matched}'. "
                 "No new request needed — the tool can use it immediately."
             )
 
@@ -701,13 +764,19 @@ class ApprovalService:
         host_lower = host.strip().lower()
         port_str = f":{port}" if port else ""
 
-        # Check if this host is already approved for the server (via any tool or admin)
+        # Check if this host+port is already approved for the server (via any tool or admin).
+        # An any-port approval (port IS NULL) covers all ports.
+        # A port-specific approval only covers that exact port.
         approved_stmt = (
             select(NetworkAccessRequest)
             .outerjoin(Tool, NetworkAccessRequest.tool_id == Tool.id)
             .where(
                 NetworkAccessRequest.status == "approved",
                 NetworkAccessRequest.host == host_lower,
+                or_(
+                    NetworkAccessRequest.port.is_(None),  # any-port approval covers all
+                    NetworkAccessRequest.port == port,  # exact port match
+                ),
                 or_(
                     NetworkAccessRequest.server_id == server_id,
                     Tool.server_id == server_id,
@@ -721,12 +790,13 @@ class ApprovalService:
                 "No new request needed — the tool can use it immediately."
             )
 
-        # Check if this exact tool already has a non-pending request for this host
+        # Check if this exact tool already has a non-pending request for this host+port
         # (rejected requests that the LLM is re-requesting)
         if tool_id:
             existing_stmt = select(NetworkAccessRequest).where(
                 NetworkAccessRequest.tool_id == tool_id,
                 NetworkAccessRequest.host == host_lower,
+                NetworkAccessRequest.port == port,
                 NetworkAccessRequest.status == "rejected",
             )
             existing_result = await self.db.execute(existing_stmt)

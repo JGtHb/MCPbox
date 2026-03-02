@@ -463,9 +463,9 @@ async def test_approve_network_request(
     assert data["status"] == "approved"
     assert data["host"] == "api.example.com"
 
-    # Verify host was added to server's allowed list
+    # Verify host:port was added to server's allowed list
     await db_session.refresh(test_server)
-    assert "api.example.com" in test_server.allowed_hosts
+    assert "api.example.com:443" in test_server.allowed_hosts
 
 
 @pytest.mark.asyncio
@@ -756,7 +756,8 @@ async def test_bulk_approve_network_requests(
 
     await db_session.refresh(test_server)
     for req in multiple_pending_network_requests:
-        assert req.host in test_server.allowed_hosts
+        expected = f"{req.host}:{req.port}" if req.port else req.host
+        assert expected in test_server.allowed_hosts
 
 
 @pytest.mark.asyncio
@@ -1694,7 +1695,7 @@ async def test_approve_network_request_triggers_server_reregistration(
     passed_hosts = call_kwargs.kwargs.get(
         "allowed_hosts", call_kwargs.args[6] if len(call_kwargs.args) > 6 else []
     )
-    assert "api.newhost.com" in passed_hosts
+    assert "api.newhost.com:443" in passed_hosts
 
 
 @pytest.mark.asyncio
@@ -1791,7 +1792,7 @@ async def test_bulk_approve_network_requests_triggers_server_reregistration(
     passed_hosts = call_kwargs.kwargs.get(
         "allowed_hosts", call_kwargs.args[6] if len(call_kwargs.args) > 6 else []
     )
-    for host in ["api.bulk1.com", "api.bulk2.com", "api.bulk3.com"]:
+    for host in ["api.bulk1.com:443", "api.bulk2.com:443", "api.bulk3.com:443"]:
         assert host in passed_hosts
 
 
@@ -1880,7 +1881,7 @@ async def test_approve_admin_network_request_triggers_server_reregistration(
     passed_hosts = call_kwargs.kwargs.get(
         "allowed_hosts", call_kwargs.args[6] if len(call_kwargs.args) > 6 else []
     )
-    assert "192.168.1.2" in passed_hosts
+    assert "192.168.1.2:8081" in passed_hosts
 
 
 @pytest.mark.asyncio
@@ -2410,12 +2411,14 @@ async def test_sync_allowed_hosts_recomputes_from_records(
 
     # Sync
     hosts = await sync_allowed_hosts(test_server.id, db_session)
-    assert "api.llm.com" in hosts
+    # Port-specific approval includes port in the entry
+    assert "api.llm.com:443" in hosts
+    # Any-port approval (port=None) is just the hostname
     assert "api.admin.com" in hosts
 
     # Verify server.allowed_hosts cache was updated
     await db_session.refresh(test_server)
-    assert "api.llm.com" in test_server.allowed_hosts
+    assert "api.llm.com:443" in test_server.allowed_hosts
     assert "api.admin.com" in test_server.allowed_hosts
 
 
@@ -2635,7 +2638,7 @@ async def test_duplicate_module_request_already_approved(
     from app.services.approval import ApprovalService
 
     service = ApprovalService(db_session)
-    with pytest.raises(ValueError, match="already approved"):
+    with pytest.raises(ValueError, match="already covered"):
         await service.create_module_request(
             tool_id=draft_tool.id,
             module_name="requests",
@@ -2827,3 +2830,349 @@ async def test_delete_then_rerequest_network_access(
         justification="Trying again after admin cleared the rejection",
     )
     assert request.status == "pending"
+
+
+# =============================================================================
+# Bug Fix Regression Tests — Network Access Port-Level Control
+# =============================================================================
+# Verifies that network access approval is enforced at host+port granularity,
+# not just at the host level.
+
+
+@pytest.mark.asyncio
+async def test_different_port_not_covered_by_existing_approval(
+    db_session: AsyncSession,
+    approved_network_request: NetworkAccessRequest,
+    draft_tool: Tool,
+):
+    """Approving host:443 does NOT cover host:1883 — different ports need separate approval."""
+    from app.services.approval import ApprovalService
+
+    service = ApprovalService(db_session)
+    # approved_network_request is for api.approved.com:443
+    # Requesting the same host on a different port should succeed
+    request = await service.create_network_access_request(
+        tool_id=draft_tool.id,
+        host="api.approved.com",
+        port=1883,
+        justification="Need MQTT on a different port",
+    )
+    assert request.status == "pending"
+    assert request.port == 1883
+
+
+@pytest.mark.asyncio
+async def test_any_port_approval_covers_specific_port(
+    db_session: AsyncSession,
+    test_server: Server,
+    draft_tool: Tool,
+):
+    """An any-port approval (port=NULL) covers all specific port requests."""
+    from datetime import UTC, datetime
+
+    from app.services.approval import ApprovalService
+
+    # Create an any-port approval
+    any_port_nar = NetworkAccessRequest(
+        tool_id=draft_tool.id,
+        server_id=draft_tool.server_id,
+        host="192.168.1.2",
+        port=None,  # any port
+        justification="Need full access",
+        requested_by="dev@example.com",
+        status="approved",
+        reviewed_by="admin@example.com",
+        reviewed_at=datetime.now(UTC),
+    )
+    db_session.add(any_port_nar)
+    await db_session.flush()
+
+    # Requesting a specific port on the same host should be "already approved"
+    service = ApprovalService(db_session)
+    with pytest.raises(ValueError, match="already approved"):
+        await service.create_network_access_request(
+            tool_id=draft_tool.id,
+            host="192.168.1.2",
+            port=8081,
+            justification="Need Homebridge",
+        )
+
+
+@pytest.mark.asyncio
+async def test_specific_port_does_not_cover_any_port(
+    db_session: AsyncSession,
+    test_server: Server,
+    draft_tool: Tool,
+):
+    """A port-specific approval does NOT cover an any-port request."""
+    from datetime import UTC, datetime
+
+    from app.services.approval import ApprovalService
+
+    # Create a port-specific approval
+    port_nar = NetworkAccessRequest(
+        tool_id=draft_tool.id,
+        server_id=draft_tool.server_id,
+        host="192.168.1.2",
+        port=8081,
+        justification="Need Homebridge",
+        requested_by="dev@example.com",
+        status="approved",
+        reviewed_by="admin@example.com",
+        reviewed_at=datetime.now(UTC),
+    )
+    db_session.add(port_nar)
+    await db_session.flush()
+
+    # Requesting any-port access should succeed (not covered by port-specific)
+    service = ApprovalService(db_session)
+    request = await service.create_network_access_request(
+        tool_id=draft_tool.id,
+        host="192.168.1.2",
+        port=None,
+        justification="Need full access",
+    )
+    assert request.status == "pending"
+    assert request.port is None
+
+
+@pytest.mark.asyncio
+async def test_sync_allowed_hosts_includes_port(
+    db_session: AsyncSession,
+    test_server: Server,
+    draft_tool: Tool,
+):
+    """sync_allowed_hosts formats entries as host:port or host (any port)."""
+    from datetime import UTC, datetime
+
+    from app.services.approval import sync_allowed_hosts
+
+    # Port-specific approval
+    nar1 = NetworkAccessRequest(
+        tool_id=draft_tool.id,
+        server_id=draft_tool.server_id,
+        host="192.168.1.2",
+        port=8081,
+        justification="Homebridge",
+        requested_by="dev@example.com",
+        status="approved",
+        reviewed_by="admin",
+        reviewed_at=datetime.now(UTC),
+    )
+    # Different port on same host
+    nar2 = NetworkAccessRequest(
+        tool_id=draft_tool.id,
+        server_id=draft_tool.server_id,
+        host="192.168.1.2",
+        port=1883,
+        justification="MQTT",
+        requested_by="dev@example.com",
+        status="approved",
+        reviewed_by="admin",
+        reviewed_at=datetime.now(UTC),
+    )
+    # Any-port approval on different host
+    nar3 = NetworkAccessRequest(
+        tool_id=draft_tool.id,
+        server_id=draft_tool.server_id,
+        host="nas.local",
+        port=None,
+        justification="NAS access",
+        requested_by="dev@example.com",
+        status="approved",
+        reviewed_by="admin",
+        reviewed_at=datetime.now(UTC),
+    )
+    db_session.add_all([nar1, nar2, nar3])
+    await db_session.flush()
+
+    hosts = await sync_allowed_hosts(test_server.id, db_session)
+    assert "192.168.1.2:8081" in hosts
+    assert "192.168.1.2:1883" in hosts
+    assert "nas.local" in hosts
+    # Plain "192.168.1.2" should NOT be in the list (no any-port approval)
+    assert "192.168.1.2" not in hosts
+
+
+@pytest.mark.asyncio
+async def test_rejected_port_does_not_block_different_port(
+    db_session: AsyncSession,
+    draft_tool: Tool,
+):
+    """Rejecting host:443 does not block requesting host:8080."""
+    from datetime import UTC, datetime
+
+    from app.services.approval import ApprovalService
+
+    # Create a rejected request for port 443
+    rejected = NetworkAccessRequest(
+        tool_id=draft_tool.id,
+        server_id=draft_tool.server_id,
+        host="example.com",
+        port=443,
+        justification="Need HTTPS",
+        requested_by="dev@example.com",
+        status="rejected",
+        reviewed_by="admin@example.com",
+        reviewed_at=datetime.now(UTC),
+        rejection_reason="No HTTPS needed",
+    )
+    db_session.add(rejected)
+    await db_session.flush()
+
+    # Requesting a different port should succeed
+    service = ApprovalService(db_session)
+    request = await service.create_network_access_request(
+        tool_id=draft_tool.id,
+        host="example.com",
+        port=8080,
+        justification="Need HTTP on alternate port",
+    )
+    assert request.status == "pending"
+    assert request.port == 8080
+
+
+# =============================================================================
+# Bug Fix Regression Tests — Module Allowlist PyPI Name Resolution
+# =============================================================================
+# Verifies that PyPI package names (e.g., "paho-mqtt") are properly resolved
+# to their import names so that `import paho.mqtt.client` works.
+
+
+@pytest.mark.asyncio
+async def test_sync_allowed_modules_derives_import_names_from_pypi_name(
+    db_session: AsyncSession,
+):
+    """Approving 'paho-mqtt' also adds 'paho' and 'paho_mqtt' to the allowlist."""
+    from datetime import UTC, datetime
+
+    from app.services.approval import sync_allowed_modules
+
+    # Create an approved module with a PyPI-style hyphenated name
+    mr = ModuleRequest(
+        server_id=None,
+        tool_id=None,
+        module_name="paho-mqtt",
+        justification="Need MQTT client",
+        requested_by="dev@example.com",
+        status="approved",
+        reviewed_by="admin",
+        reviewed_at=datetime.now(UTC),
+    )
+    db_session.add(mr)
+    await db_session.flush()
+
+    modules = await sync_allowed_modules(db_session)
+    assert "paho-mqtt" in modules  # original
+    assert "paho" in modules  # derived: first segment before hyphen
+    assert "paho_mqtt" in modules  # derived: underscored form
+
+
+@pytest.mark.asyncio
+async def test_sync_allowed_modules_derives_base_from_dotted_path(
+    db_session: AsyncSession,
+):
+    """Approving 'paho.mqtt.client' also adds 'paho' to the allowlist."""
+    from datetime import UTC, datetime
+
+    from app.services.approval import sync_allowed_modules
+
+    mr = ModuleRequest(
+        server_id=None,
+        tool_id=None,
+        module_name="paho.mqtt.client",
+        justification="Need MQTT client",
+        requested_by="dev@example.com",
+        status="approved",
+        reviewed_by="admin",
+        reviewed_at=datetime.now(UTC),
+    )
+    db_session.add(mr)
+    await db_session.flush()
+
+    modules = await sync_allowed_modules(db_session)
+    assert "paho.mqtt.client" in modules  # original
+    assert "paho" in modules  # derived: base module
+
+
+@pytest.mark.asyncio
+async def test_create_module_request_detects_pypi_equivalent(
+    db_session: AsyncSession,
+    draft_tool: Tool,
+):
+    """Requesting 'paho.mqtt.client' when 'paho-mqtt' is approved returns already-covered."""
+    from datetime import UTC, datetime
+
+    from app.services.approval import ApprovalService
+
+    # Create an approved module with PyPI name
+    mr = ModuleRequest(
+        server_id=None,
+        tool_id=None,
+        module_name="paho-mqtt",
+        justification="Need MQTT",
+        requested_by="dev@example.com",
+        status="approved",
+        reviewed_by="admin",
+        reviewed_at=datetime.now(UTC),
+    )
+    db_session.add(mr)
+    await db_session.flush()
+
+    service = ApprovalService(db_session)
+    with pytest.raises(ValueError, match="already covered"):
+        await service.create_module_request(
+            tool_id=draft_tool.id,
+            module_name="paho.mqtt.client",
+            justification="Need MQTT client",
+        )
+
+
+@pytest.mark.asyncio
+async def test_create_module_request_detects_reverse_equivalent(
+    db_session: AsyncSession,
+    draft_tool: Tool,
+):
+    """Requesting 'paho-mqtt' when 'paho' is approved returns already-covered."""
+    from datetime import UTC, datetime
+
+    from app.services.approval import ApprovalService
+
+    # Create an approved module with the base import name
+    mr = ModuleRequest(
+        server_id=None,
+        tool_id=None,
+        module_name="paho",
+        justification="Need paho base module",
+        requested_by="dev@example.com",
+        status="approved",
+        reviewed_by="admin",
+        reviewed_at=datetime.now(UTC),
+    )
+    db_session.add(mr)
+    await db_session.flush()
+
+    service = ApprovalService(db_session)
+    with pytest.raises(ValueError, match="already covered"):
+        await service.create_module_request(
+            tool_id=draft_tool.id,
+            module_name="paho-mqtt",
+            justification="Need MQTT client library",
+        )
+
+
+@pytest.mark.asyncio
+async def test_derive_import_names_helper():
+    """Unit test for _derive_import_names helper."""
+    from app.services.approval import _derive_import_names
+
+    # Hyphenated PyPI name
+    assert _derive_import_names("paho-mqtt") == {"paho_mqtt", "paho"}
+    assert _derive_import_names("python-dateutil") == {"python_dateutil", "python"}
+
+    # Dotted import path
+    assert _derive_import_names("paho.mqtt.client") == {"paho"}
+
+    # Simple name — no derivation needed
+    assert _derive_import_names("requests") == set()
+    assert _derive_import_names("numpy") == set()
