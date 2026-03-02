@@ -130,8 +130,8 @@ async def take_tool_action(
 ) -> dict[str, Any]:
     """Approve, reject, or submit a tool for review.
 
-    The admin must provide a reason for rejection.
     Admin identity is extracted from verified JWT token.
+    Rejection reason is optional.
 
     When a tool is approved, the server is automatically re-registered with
     the sandbox to make the tool immediately available.
@@ -188,15 +188,10 @@ async def take_tool_action(
                 "server_refreshed": refreshed,
             }
         else:
-            if not action.reason:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Reason is required for rejection",
-                )
             tool = await service.reject_tool(
                 tool_id=tool_id,
                 rejected_by=admin_identity,
-                reason=action.reason,
+                reason=action.reason or "",
             )
             return {
                 "success": True,
@@ -272,18 +267,11 @@ async def bulk_tool_action(
 ) -> BulkActionResponse:
     """Approve or reject multiple tools at once.
 
-    The admin must provide a reason for bulk rejection.
     Admin identity is extracted from verified JWT token.
 
     When tools are approved, their servers are automatically re-registered with
     the sandbox to make the tools immediately available.
     """
-    if action.action == "reject" and not action.reason:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Reason is required for rejection",
-        )
-
     if action.action == "approve":
         result = await service.bulk_approve_tools(
             tool_ids=action.tool_ids,
@@ -407,7 +395,7 @@ async def take_module_request_action(
     Approval will add the module to the global allowed modules list and
     re-register the server with the sandbox so the change takes effect
     immediately without requiring a restart.
-    Rejection requires a reason.
+    Rejection reason is optional.
     Admin identity is extracted from verified JWT token.
     """
     try:
@@ -424,15 +412,10 @@ async def take_module_request_action(
             resp: ModuleRequestResponse = ModuleRequestResponse.model_validate(request)
             return resp
         else:
-            if not action.reason:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Reason is required for rejection",
-                )
             request = await service.reject_module_request(
                 request_id=request_id,
                 rejected_by=admin_identity,
-                reason=action.reason,
+                reason=action.reason or "",
             )
             rejected: ModuleRequestResponse = ModuleRequestResponse.model_validate(request)
             return rejected
@@ -533,15 +516,8 @@ async def bulk_module_request_action(
     Approval will add the modules to the global allowed modules list and
     re-register affected servers with the sandbox so changes take effect
     immediately.
-    Rejection requires a reason.
     Admin identity is extracted from verified JWT token.
     """
-    if action.action == "reject" and not action.reason:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Reason is required for rejection",
-        )
-
     if action.action == "approve":
         result = await service.bulk_approve_module_requests(
             request_ids=action.request_ids,
@@ -617,7 +593,7 @@ async def take_network_request_action(
     Approval will add the host to the server's allowed hosts list and
     re-register the server with the sandbox so the change takes effect
     immediately without requiring a restart.
-    Rejection requires a reason.
+    Rejection reason is optional.
     Admin identity is extracted from verified JWT token.
     """
     try:
@@ -636,15 +612,10 @@ async def take_network_request_action(
             )
             return resp
         else:
-            if not action.reason:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Reason is required for rejection",
-                )
             request = await service.reject_network_access_request(
                 request_id=request_id,
                 rejected_by=admin_identity,
-                reason=action.reason,
+                reason=action.reason or "",
             )
             rejected: NetworkAccessRequestResponse = NetworkAccessRequestResponse.model_validate(
                 request
@@ -748,15 +719,8 @@ async def bulk_network_request_action(
     Approval will add the hosts to the respective server's allowed hosts list
     and re-register affected servers with the sandbox so changes take effect
     immediately.
-    Rejection requires a reason.
     Admin identity is extracted from verified JWT token.
     """
-    if action.action == "reject" and not action.reason:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Reason is required for rejection",
-        )
-
     if action.action == "approve":
         result = await service.bulk_approve_network_requests(
             request_ids=action.request_ids,

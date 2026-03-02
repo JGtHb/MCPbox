@@ -372,7 +372,7 @@ function ToolsQueue() {
                 disabled={toolAction.isPending}
                 className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
               >
-                Request Revision
+                Reject
               </button>
             </>
           ) : tool.approval_status === 'draft' || tool.approval_status === 'rejected' ? (
@@ -440,7 +440,7 @@ function ToolsQueue() {
             disabled={bulkAction.isPending}
             className="rounded-lg bg-gold px-3 py-1 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
           >
-            Request Revision All
+            Reject All
           </button>
           <button onClick={() => setSelectedIds(new Set())} className="text-sm text-rose hover:text-rose/80">
             Clear
@@ -517,18 +517,18 @@ function ToolsQueue() {
         </>
       )}
 
-      {/* Revision Request Modal */}
+      {/* Reject Modal */}
       {showRejectModal && selectedTool && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50" role="dialog" aria-modal="true">
           <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl">
-            <h3 className="text-lg font-medium text-on-base">Request Revision: {selectedTool.name}</h3>
-            <p className="mt-1 text-sm text-subtle">Provide feedback to help the LLM improve this tool.</p>
+            <h3 className="text-lg font-medium text-on-base">Reject: {selectedTool.name}</h3>
+            <p className="mt-1 text-sm text-subtle">Optionally provide a reason for the rejection.</p>
             <textarea
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
               className="mt-4 w-full rounded-lg border border-hl-med p-2 text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
               rows={4}
-              placeholder="What needs to be improved..."
+              placeholder="Reason (optional)..."
             />
             <div className="mt-4 flex justify-end gap-2">
               <button
@@ -539,28 +539,28 @@ function ToolsQueue() {
               </button>
               <button
                 onClick={handleReject}
-                disabled={!rejectReason.trim() || toolAction.isPending}
+                disabled={toolAction.isPending}
                 className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
               >
-                Request Revision
+                Reject
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Bulk Revision Request Modal */}
+      {/* Bulk Reject Modal */}
       {showBulkRejectModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50" role="dialog" aria-modal="true">
           <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl">
-            <h3 className="text-lg font-medium text-on-base">Request Revision for {selectedIds.size} Tools</h3>
-            <p className="mt-1 text-sm text-subtle">Provide feedback that will be applied to all selected tools.</p>
+            <h3 className="text-lg font-medium text-on-base">Reject {selectedIds.size} Tools</h3>
+            <p className="mt-1 text-sm text-subtle">Optionally provide a reason that will be applied to all selected tools.</p>
             <textarea
               value={bulkRejectReason}
               onChange={(e) => setBulkRejectReason(e.target.value)}
               className="mt-4 w-full rounded-lg border border-hl-med p-2 text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
               rows={4}
-              placeholder="What needs to be improved..."
+              placeholder="Reason (optional)..."
             />
             <div className="mt-4 flex justify-end gap-2">
               <button
@@ -571,10 +571,10 @@ function ToolsQueue() {
               </button>
               <button
                 onClick={handleBulkReject}
-                disabled={!bulkRejectReason.trim() || bulkAction.isPending}
+                disabled={bulkAction.isPending}
                 className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
               >
-                Request Revision All
+                Reject All
               </button>
             </div>
           </div>
@@ -926,7 +926,7 @@ function ModuleRequestsQueue() {
                 disabled={moduleAction.isPending}
                 className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
               >
-                Request Revision
+                Reject
               </button>
             </>
           ) : req.status === 'approved' ? (
@@ -985,7 +985,7 @@ function ModuleRequestsQueue() {
             disabled={bulkAction.isPending}
             className="rounded-lg bg-gold px-3 py-1 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
           >
-            Request Revision All
+            Reject All
           </button>
           <button onClick={() => setSelectedIds(new Set())} className="text-sm text-rose hover:text-rose/80">
             Clear
@@ -1062,18 +1062,18 @@ function ModuleRequestsQueue() {
         </>
       )}
 
-      {/* Revision Request Modal */}
+      {/* Reject Modal */}
       {showRejectModal && selectedRequest && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50" role="dialog" aria-modal="true">
           <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl">
-            <h3 className="text-lg font-medium text-on-base">Request Revision: {selectedRequest.module_name}</h3>
-            <p className="mt-1 text-sm text-subtle">Provide feedback to help the LLM find a better alternative.</p>
+            <h3 className="text-lg font-medium text-on-base">Reject: {selectedRequest.module_name}</h3>
+            <p className="mt-1 text-sm text-subtle">Optionally provide a reason for the rejection.</p>
             <textarea
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
               className="mt-4 w-full rounded-lg border border-hl-med p-2 text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
               rows={4}
-              placeholder="What needs to be changed..."
+              placeholder="Reason (optional)..."
             />
             <div className="mt-4 flex justify-end gap-2">
               <button
@@ -1084,28 +1084,28 @@ function ModuleRequestsQueue() {
               </button>
               <button
                 onClick={handleReject}
-                disabled={!rejectReason.trim() || moduleAction.isPending}
+                disabled={moduleAction.isPending}
                 className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
               >
-                Request Revision
+                Reject
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Bulk Revision Request Modal */}
+      {/* Bulk Reject Modal */}
       {showBulkRejectModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50" role="dialog" aria-modal="true">
           <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl">
-            <h3 className="text-lg font-medium text-on-base">Request Revision for {selectedIds.size} Module Requests</h3>
-            <p className="mt-1 text-sm text-subtle">Provide feedback that will be applied to all selected requests.</p>
+            <h3 className="text-lg font-medium text-on-base">Reject {selectedIds.size} Module Requests</h3>
+            <p className="mt-1 text-sm text-subtle">Optionally provide a reason that will be applied to all selected requests.</p>
             <textarea
               value={bulkRejectReason}
               onChange={(e) => setBulkRejectReason(e.target.value)}
               className="mt-4 w-full rounded-lg border border-hl-med p-2 text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
               rows={4}
-              placeholder="What needs to be changed..."
+              placeholder="Reason (optional)..."
             />
             <div className="mt-4 flex justify-end gap-2">
               <button
@@ -1116,10 +1116,10 @@ function ModuleRequestsQueue() {
               </button>
               <button
                 onClick={handleBulkReject}
-                disabled={!bulkRejectReason.trim() || bulkAction.isPending}
+                disabled={bulkAction.isPending}
                 className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
               >
-                Request Revision All
+                Reject All
               </button>
             </div>
           </div>
@@ -1292,7 +1292,7 @@ function NetworkRequestsQueue() {
                 disabled={networkAction.isPending}
                 className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
               >
-                Request Revision
+                Reject
               </button>
             </>
           ) : req.status === 'approved' ? (
@@ -1351,7 +1351,7 @@ function NetworkRequestsQueue() {
             disabled={bulkAction.isPending}
             className="rounded-lg bg-gold px-3 py-1 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
           >
-            Request Revision All
+            Reject All
           </button>
           <button onClick={() => setSelectedIds(new Set())} className="text-sm text-rose hover:text-rose/80">
             Clear
@@ -1428,18 +1428,18 @@ function NetworkRequestsQueue() {
         </>
       )}
 
-      {/* Revision Request Modal */}
+      {/* Reject Modal */}
       {showRejectModal && selectedRequest && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50" role="dialog" aria-modal="true">
           <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl">
-            <h3 className="text-lg font-medium text-on-base">Request Revision: {selectedRequest.host}</h3>
-            <p className="mt-1 text-sm text-subtle">Provide feedback to help the LLM find a better approach.</p>
+            <h3 className="text-lg font-medium text-on-base">Reject: {selectedRequest.host}</h3>
+            <p className="mt-1 text-sm text-subtle">Optionally provide a reason for the rejection.</p>
             <textarea
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
               className="mt-4 w-full rounded-lg border border-hl-med p-2 text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
               rows={4}
-              placeholder="What needs to be changed..."
+              placeholder="Reason (optional)..."
             />
             <div className="mt-4 flex justify-end gap-2">
               <button
@@ -1450,28 +1450,28 @@ function NetworkRequestsQueue() {
               </button>
               <button
                 onClick={handleReject}
-                disabled={!rejectReason.trim() || networkAction.isPending}
+                disabled={networkAction.isPending}
                 className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
               >
-                Request Revision
+                Reject
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Bulk Revision Request Modal */}
+      {/* Bulk Reject Modal */}
       {showBulkRejectModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50" role="dialog" aria-modal="true">
           <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl">
-            <h3 className="text-lg font-medium text-on-base">Request Revision for {selectedIds.size} Network Requests</h3>
-            <p className="mt-1 text-sm text-subtle">Provide feedback that will be applied to all selected requests.</p>
+            <h3 className="text-lg font-medium text-on-base">Reject {selectedIds.size} Network Requests</h3>
+            <p className="mt-1 text-sm text-subtle">Optionally provide a reason that will be applied to all selected requests.</p>
             <textarea
               value={bulkRejectReason}
               onChange={(e) => setBulkRejectReason(e.target.value)}
               className="mt-4 w-full rounded-lg border border-hl-med p-2 text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
               rows={4}
-              placeholder="What needs to be changed..."
+              placeholder="Reason (optional)..."
             />
             <div className="mt-4 flex justify-end gap-2">
               <button
@@ -1482,10 +1482,10 @@ function NetworkRequestsQueue() {
               </button>
               <button
                 onClick={handleBulkReject}
-                disabled={!bulkRejectReason.trim() || bulkAction.isPending}
+                disabled={bulkAction.isPending}
                 className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
               >
-                Request Revision All
+                Reject All
               </button>
             </div>
           </div>
