@@ -1,0 +1,39 @@
+name: Sync main → develop
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    name: Create sync PR
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Create sync PR if needed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Check if main has commits not in develop
+          if git log origin/develop..origin/main --oneline | grep -q .; then
+            BRANCH="sync/main-into-develop-$(date +%Y%m%d%H%M%S)"
+            git checkout -b "$BRANCH" origin/main
+            git merge origin/develop --no-edit
+            git push origin "$BRANCH"
+
+            gh pr create \
+              --base develop \
+              --head "$BRANCH" \
+              --title "sync: merge main into develop" \
+              --body "Automated sync of release merge commit(s) from main back into develop."
+          else
+            echo "main and develop are in sync, nothing to do."
+          fi
