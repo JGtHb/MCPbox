@@ -16,10 +16,28 @@ loaded at startup by ServiceTokenCache. No .env configuration needed.
 """
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from pydantic import PostgresDsn, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _read_version() -> str:
+    """Read version from the VERSION file (single source of truth).
+
+    Checks two locations:
+    - /app/VERSION — inside Docker container (COPY'd by Dockerfile)
+    - Repo root — local development (resolved relative to this file)
+    """
+    candidates = [
+        Path("/app/VERSION"),
+        Path(__file__).resolve().parents[3] / "VERSION",
+    ]
+    for p in candidates:
+        if p.is_file():
+            return p.read_text().strip()
+    return "0.0.0-unknown"
 
 
 class Settings(BaseSettings):
@@ -34,7 +52,7 @@ class Settings(BaseSettings):
 
     # Application
     app_name: str = "MCPbox"
-    app_version: str = "0.2.1"
+    app_version: str = _read_version()
     debug: bool = False
     log_level: str = "INFO"
 
@@ -258,7 +276,7 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     """Get cached settings instance."""
-    return Settings()  # type: ignore[call-arg]
+    return Settings()  # type: ignore[call-arg,unused-ignore]
 
 
 # Global settings instance

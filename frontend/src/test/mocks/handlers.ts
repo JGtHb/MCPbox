@@ -59,13 +59,17 @@ export const mockTools: ToolListItem[] = [
   createMockToolListItem({ id: 'tool-2', name: 'create_user' }),
 ]
 
+// Version used in mocks — intentionally not a real version to prevent
+// tests from accidentally depending on the current release number.
+const MOCK_APP_VERSION = 'test-version'
+
 // MSW handlers
 export const handlers = [
   // Health endpoints
   http.get(`${API_BASE}/health`, () => {
     return HttpResponse.json({
       status: 'healthy',
-      version: '0.2.1',
+      version: MOCK_APP_VERSION,
       database: 'connected',
     })
   }),
@@ -73,7 +77,7 @@ export const handlers = [
   http.get(`${API_BASE}/health/detail`, () => {
     return HttpResponse.json({
       status: 'healthy',
-      version: '0.2.1',
+      version: MOCK_APP_VERSION,
       database: 'connected',
       sandbox: 'connected',
     })
@@ -322,7 +326,7 @@ export const handlers = [
   http.get(`${API_BASE}/api/config`, () => {
     return HttpResponse.json({
       app_name: 'MCPbox',
-      app_version: '0.2.1',
+      app_version: MOCK_APP_VERSION,
       auth_required: true,
     })
   }),

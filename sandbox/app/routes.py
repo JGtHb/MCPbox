@@ -24,7 +24,7 @@ from app.executor import (
     create_safe_builtins,
     validate_code_safety,
 )
-from app.registry import tool_registry
+from app.registry import ensure_private_hosts_in_squid_acl, tool_registry
 from app.ssrf import SSRFError
 from app.ssrf import SSRFProtectedAsyncHttpClient
 
@@ -465,7 +465,21 @@ async def mcp_endpoint(request: Request, body: dict[str, Any]):
             }
 
         start_time = time.monotonic()
-        result = await tool_registry.execute_tool(tool_name, arguments)
+        try:
+            result = await tool_registry.execute_tool(tool_name, arguments)
+        except Exception as e:
+            # Catch-all for unhandled exceptions (MemoryError, etc.)
+            # that would otherwise return a 500 with no diagnostic info.
+            logger.error(
+                f"MCP tools/call: {tool_name} crashed: {type(e).__name__}: {e}",
+                extra={"tool_name": tool_name},
+            )
+            result = {
+                "success": False,
+                "error": f"Tool execution crashed: {type(e).__name__}: {e}",
+                "stdout": "",
+                "duration_ms": int((time.monotonic() - start_time) * 1000),
+            }
         duration_ms = int((time.monotonic() - start_time) * 1000)
 
         # Log execution result
@@ -484,6 +498,17 @@ async def mcp_endpoint(request: Request, body: dict[str, Any]):
                 },
             )
 
+        # Include raw execution metadata in MCP response so the backend
+        # can log stdout, duration, and structured errors. Without this,
+        # the MCP JSON-RPC wrapping discards these fields and execution
+        # logs show null for stdout.
+        execution_meta = {
+            "stdout": result.get("stdout", ""),
+            "duration_ms": result.get("duration_ms", duration_ms),
+        }
+        if result.get("error_detail"):
+            execution_meta["error_detail"] = result["error_detail"]
+
         if result.get("success"):
             return {
                 "jsonrpc": "2.0",
@@ -496,6 +521,7 @@ async def mcp_endpoint(request: Request, body: dict[str, Any]):
                         }
                     ],
                     "isError": False,
+                    "_meta": {"execution": execution_meta},
                 },
             }
         else:
@@ -553,6 +579,7 @@ async def mcp_endpoint(request: Request, body: dict[str, Any]):
                         }
                     ],
                     "isError": True,
+                    "_meta": {"execution": execution_meta},
                 },
             }
 
@@ -773,6 +800,12 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
     safe_builtins_with_import["print"] = lambda *args, **kwargs: print(
         *args, file=stdout_capture, **kwargs
     )
+
+    # Ensure approved private hosts are in the squid ACL file BEFORE execution.
+    # The /execute endpoint bypasses the registry (no register_server() call),
+    # so _update_squid_approved_hosts() is never triggered.  Without this,
+    # the SSRF client allows the request but squid blocks it with 403.
+    ensure_private_hosts_in_squid_acl(body.allowed_hosts)
 
     # Phase 1: exec() the code to define functions (synchronous, just defines main())
     # Phase 2: If async main() is defined, create http client on THIS loop and await it

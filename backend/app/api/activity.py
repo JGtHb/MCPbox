@@ -163,7 +163,8 @@ async def get_activity_log(
     if not log:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Activity log not found")
 
-    return ActivityLogResponse.model_validate(log)
+    response: ActivityLogResponse = ActivityLogResponse.model_validate(log)
+    return response
 
 
 @router.get("/stats", response_model=ActivityStatsResponse)

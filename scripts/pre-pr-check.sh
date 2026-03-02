@@ -58,6 +58,32 @@ else
 fi
 echo ""
 
+# 3.5. Version sync check
+echo "3.5. Checking version sync..."
+if [ -f VERSION ]; then
+    VERSION=$(cat VERSION)
+    BACKEND_V=$(grep -m1 '^version' backend/pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+    SANDBOX_V=$(grep -m1 '^version' sandbox/pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+    FRONTEND_V=$(node -p "require('./frontend/package.json').version" 2>/dev/null || echo "")
+    WORKER_V=$(node -p "require('./worker/package.json').version" 2>/dev/null || echo "")
+
+    if [ "$BACKEND_V" = "$VERSION" ] && [ "$SANDBOX_V" = "$VERSION" ] && \
+       [ "$FRONTEND_V" = "$VERSION" ] && [ "$WORKER_V" = "$VERSION" ]; then
+        echo -e "   ${GREEN}✓ All versions match: $VERSION${NC}"
+    else
+        echo -e "   ${RED}✗ Version mismatch detected${NC}"
+        [ "$BACKEND_V" != "$VERSION" ] && echo "   backend/pyproject.toml: $BACKEND_V (expected $VERSION)"
+        [ "$SANDBOX_V" != "$VERSION" ] && echo "   sandbox/pyproject.toml: $SANDBOX_V (expected $VERSION)"
+        [ "$FRONTEND_V" != "$VERSION" ] && echo "   frontend/package.json: $FRONTEND_V (expected $VERSION)"
+        [ "$WORKER_V" != "$VERSION" ] && echo "   worker/package.json: $WORKER_V (expected $VERSION)"
+        echo "   Fix with: ./scripts/bump-version.sh $VERSION --no-commit"
+        FAILED=1
+    fi
+else
+    echo -e "   ${YELLOW}⚠ No VERSION file found (skipping sync check)${NC}"
+fi
+echo ""
+
 # 4. Backend tests (if PostgreSQL available)
 echo "4. Running backend tests..."
 if command -v docker &> /dev/null; then

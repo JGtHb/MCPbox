@@ -463,9 +463,9 @@ async def test_approve_network_request(
     assert data["status"] == "approved"
     assert data["host"] == "api.example.com"
 
-    # Verify host was added to server's allowed list
+    # Verify host:port was added to server's allowed list
     await db_session.refresh(test_server)
-    assert "api.example.com" in test_server.allowed_hosts
+    assert "api.example.com:443" in test_server.allowed_hosts
 
 
 @pytest.mark.asyncio
@@ -756,7 +756,8 @@ async def test_bulk_approve_network_requests(
 
     await db_session.refresh(test_server)
     for req in multiple_pending_network_requests:
-        assert req.host in test_server.allowed_hosts
+        expected = f"{req.host}:{req.port}" if req.port else req.host
+        assert expected in test_server.allowed_hosts
 
 
 @pytest.mark.asyncio
@@ -1694,7 +1695,7 @@ async def test_approve_network_request_triggers_server_reregistration(
     passed_hosts = call_kwargs.kwargs.get(
         "allowed_hosts", call_kwargs.args[6] if len(call_kwargs.args) > 6 else []
     )
-    assert "api.newhost.com" in passed_hosts
+    assert "api.newhost.com:443" in passed_hosts
 
 
 @pytest.mark.asyncio
@@ -1791,8 +1792,132 @@ async def test_bulk_approve_network_requests_triggers_server_reregistration(
     passed_hosts = call_kwargs.kwargs.get(
         "allowed_hosts", call_kwargs.args[6] if len(call_kwargs.args) > 6 else []
     )
-    for host in ["api.bulk1.com", "api.bulk2.com", "api.bulk3.com"]:
+    for host in ["api.bulk1.com:443", "api.bulk2.com:443", "api.bulk3.com:443"]:
         assert host in passed_hosts
+
+
+# =============================================================================
+# Admin-Initiated Network Approval → Sandbox Re-registration Tests
+# =============================================================================
+# Regression tests: admin-initiated network requests (tool_id=NULL, server_id
+# set directly) must also trigger sandbox re-registration on approval/revoke.
+# Previously these were silently skipped due to a broken import in servers.py.
+
+
+@pytest.fixture
+async def admin_pending_network_request(
+    db_session: AsyncSession, running_server: Server
+) -> NetworkAccessRequest:
+    """Create a pending admin-initiated network request on a running server."""
+    request = NetworkAccessRequest(
+        tool_id=None,
+        server_id=running_server.id,
+        host="192.168.1.2",
+        port=8081,
+        justification="Need access to LAN service",
+        requested_by="admin",
+        status="pending",
+    )
+    db_session.add(request)
+    await db_session.flush()
+    await db_session.refresh(request)
+    return request
+
+
+@pytest.fixture
+async def admin_approved_network_request(
+    db_session: AsyncSession, running_server: Server
+) -> NetworkAccessRequest:
+    """Create an approved admin-initiated network request on a running server."""
+    from datetime import UTC, datetime
+
+    request = NetworkAccessRequest(
+        tool_id=None,
+        server_id=running_server.id,
+        host="10.0.0.50",
+        port=None,
+        justification="Admin-approved LAN access",
+        requested_by="admin",
+        status="approved",
+        reviewed_by="admin@example.com",
+        reviewed_at=datetime.now(UTC),
+    )
+    db_session.add(request)
+    await db_session.flush()
+    await db_session.refresh(request)
+    return request
+
+
+@pytest.mark.asyncio
+async def test_approve_admin_network_request_triggers_server_reregistration(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    admin_pending_network_request: NetworkAccessRequest,
+    running_server: Server,
+    db_session: AsyncSession,
+    mock_sandbox_client,
+):
+    """Approving an admin-initiated network request re-registers the server.
+
+    Regression test: previously, admin-initiated requests (tool_id=NULL) were
+    silently skipped during re-registration because the helper imported from
+    a non-existent module (app.services.sandbox instead of sandbox_client).
+    """
+    mock_sandbox_client.register_server = AsyncMock(
+        return_value={"success": True, "tools_registered": 0}
+    )
+
+    response = await async_client.post(
+        f"/api/approvals/network/{admin_pending_network_request.id}/action",
+        json={"action": "approve"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "approved"
+
+    # Verify the server was re-registered with the sandbox
+    mock_sandbox_client.register_server.assert_called_once()
+    call_kwargs = mock_sandbox_client.register_server.call_args
+    passed_hosts = call_kwargs.kwargs.get(
+        "allowed_hosts", call_kwargs.args[6] if len(call_kwargs.args) > 6 else []
+    )
+    assert "192.168.1.2:8081" in passed_hosts
+
+
+@pytest.mark.asyncio
+async def test_revoke_admin_network_request_triggers_server_reregistration(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    admin_approved_network_request: NetworkAccessRequest,
+    running_server: Server,
+    db_session: AsyncSession,
+    mock_sandbox_client,
+):
+    """Revoking an admin-initiated network request re-registers the server.
+
+    Regression test: ensures admin-initiated revocations also trigger
+    sandbox re-registration to remove the host from Squid ACL.
+    """
+    mock_sandbox_client.register_server = AsyncMock(
+        return_value={"success": True, "tools_registered": 0}
+    )
+
+    response = await async_client.post(
+        f"/api/approvals/network/{admin_approved_network_request.id}/revoke",
+        json={},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "pending"
+
+    # Verify the server was re-registered
+    mock_sandbox_client.register_server.assert_called_once()
+    call_kwargs = mock_sandbox_client.register_server.call_args
+    passed_hosts = call_kwargs.kwargs.get(
+        "allowed_hosts", call_kwargs.args[6] if len(call_kwargs.args) > 6 else []
+    )
+    # The revoked host should NOT be in the new allowlist
+    assert "10.0.0.50" not in passed_hosts
 
 
 # =============================================================================
@@ -2286,12 +2411,14 @@ async def test_sync_allowed_hosts_recomputes_from_records(
 
     # Sync
     hosts = await sync_allowed_hosts(test_server.id, db_session)
-    assert "api.llm.com" in hosts
+    # Port-specific approval includes port in the entry
+    assert "api.llm.com:443" in hosts
+    # Any-port approval (port=None) is just the hostname
     assert "api.admin.com" in hosts
 
     # Verify server.allowed_hosts cache was updated
     await db_session.refresh(test_server)
-    assert "api.llm.com" in test_server.allowed_hosts
+    assert "api.llm.com:443" in test_server.allowed_hosts
     assert "api.admin.com" in test_server.allowed_hosts
 
 
@@ -2362,3 +2489,727 @@ async def test_llm_module_request_includes_source_field(
     item = next(i for i in data["items"] if i["id"] == str(pending_module_request.id))
     assert item["source"] == "llm"
     assert item["tool_name"] is not None
+
+
+# =============================================================================
+# Duplicate Detection Tests
+# =============================================================================
+# Tests that LLM re-requests for already approved/rejected hosts are detected
+# and return helpful errors instead of creating redundant pending requests.
+# Reuses existing fixtures: approved_network_request (host=api.approved.com),
+# approved_module_request (module=requests).
+
+
+@pytest.fixture
+async def rejected_network_request(
+    db_session: AsyncSession, draft_tool: Tool
+) -> NetworkAccessRequest:
+    """Create a rejected network request for dedup testing."""
+    from datetime import UTC, datetime
+
+    request = NetworkAccessRequest(
+        tool_id=draft_tool.id,
+        server_id=draft_tool.server_id,
+        host="malicious.example.com",
+        port=443,
+        justification="Need access to external API",
+        requested_by="test@example.com",
+        status="rejected",
+        reviewed_at=datetime.now(UTC),
+        reviewed_by="admin@example.com",
+        rejection_reason="This host looks suspicious",
+    )
+    db_session.add(request)
+    await db_session.flush()
+    await db_session.refresh(request)
+    return request
+
+
+@pytest.fixture
+async def rejected_module_request(db_session: AsyncSession, draft_tool: Tool) -> ModuleRequest:
+    """Create a rejected module request for dedup testing."""
+    from datetime import UTC, datetime
+
+    request = ModuleRequest(
+        tool_id=draft_tool.id,
+        server_id=draft_tool.server_id,
+        module_name="subprocess",
+        justification="Need subprocess for running commands",
+        requested_by="test@example.com",
+        status="rejected",
+        reviewed_at=datetime.now(UTC),
+        reviewed_by="admin@example.com",
+        rejection_reason="subprocess is not allowed for security reasons",
+    )
+    db_session.add(request)
+    await db_session.flush()
+    await db_session.refresh(request)
+    return request
+
+
+@pytest.mark.asyncio
+async def test_duplicate_network_request_already_approved(
+    db_session: AsyncSession,
+    approved_network_request: NetworkAccessRequest,
+    draft_tool: Tool,
+):
+    """Re-requesting an already-approved host returns an error."""
+    from app.services.approval import ApprovalService
+
+    service = ApprovalService(db_session)
+    with pytest.raises(ValueError, match="already approved"):
+        await service.create_network_access_request(
+            tool_id=draft_tool.id,
+            host="api.approved.com",
+            port=443,
+            justification="I need this again",
+        )
+
+
+@pytest.mark.asyncio
+async def test_duplicate_network_request_already_rejected(
+    db_session: AsyncSession,
+    rejected_network_request: NetworkAccessRequest,
+    draft_tool: Tool,
+):
+    """Re-requesting an already-rejected host returns an error with rejection reason."""
+    from app.services.approval import ApprovalService
+
+    service = ApprovalService(db_session)
+    with pytest.raises(ValueError, match="already rejected") as exc_info:
+        await service.create_network_access_request(
+            tool_id=draft_tool.id,
+            host="malicious.example.com",
+            port=443,
+            justification="Please let me try again",
+        )
+    assert "suspicious" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_duplicate_network_request_same_host_different_server(
+    db_session: AsyncSession,
+    approved_network_request: NetworkAccessRequest,
+    test_server: Server,
+):
+    """Different server can still request the same host (not a duplicate)."""
+    from app.services.approval import ApprovalService
+
+    # Create a second server
+    other_server = Server(
+        name="Other Server",
+        description="A different server",
+        status="imported",
+    )
+    db_session.add(other_server)
+    await db_session.flush()
+
+    # Create a tool on the other server
+    other_tool = Tool(
+        server_id=other_server.id,
+        name="other_tool",
+        description="Tool on other server",
+        python_code='async def main() -> str:\n    return "test"',
+        input_schema={"type": "object", "properties": {}},
+        approval_status="draft",
+    )
+    db_session.add(other_tool)
+    await db_session.flush()
+
+    service = ApprovalService(db_session)
+    # This should succeed because it's a different server
+    request = await service.create_network_access_request(
+        tool_id=other_tool.id,
+        host="api.approved.com",
+        port=443,
+        justification="Different server needs this too",
+    )
+    assert request.status == "pending"
+    assert request.host == "api.approved.com"
+
+
+@pytest.mark.asyncio
+async def test_duplicate_module_request_already_approved(
+    db_session: AsyncSession,
+    approved_module_request: ModuleRequest,
+    draft_tool: Tool,
+):
+    """Re-requesting an already-approved module returns an error."""
+    from app.services.approval import ApprovalService
+
+    service = ApprovalService(db_session)
+    with pytest.raises(ValueError, match="already covered"):
+        await service.create_module_request(
+            tool_id=draft_tool.id,
+            module_name="requests",
+            justification="I need this module",
+        )
+
+
+@pytest.mark.asyncio
+async def test_duplicate_module_request_already_rejected(
+    db_session: AsyncSession,
+    rejected_module_request: ModuleRequest,
+    draft_tool: Tool,
+):
+    """Re-requesting an already-rejected module returns an error with rejection reason."""
+    from app.services.approval import ApprovalService
+
+    service = ApprovalService(db_session)
+    with pytest.raises(ValueError, match="already rejected") as exc_info:
+        await service.create_module_request(
+            tool_id=draft_tool.id,
+            module_name="subprocess",
+            justification="Please let me use subprocess",
+        )
+    assert "security" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_network_request_host_normalized_to_lowercase(
+    db_session: AsyncSession,
+    draft_tool: Tool,
+):
+    """Network access request hosts are normalized to lowercase."""
+    from app.services.approval import ApprovalService
+
+    service = ApprovalService(db_session)
+    request = await service.create_network_access_request(
+        tool_id=draft_tool.id,
+        host="API.GITHUB.COM",
+        port=443,
+        justification="Need GitHub API access",
+    )
+    assert request.host == "api.github.com"
+
+
+@pytest.mark.asyncio
+async def test_network_request_host_trailing_dot_stripped(
+    db_session: AsyncSession,
+    draft_tool: Tool,
+):
+    """Trailing dots in DNS names are stripped during normalization."""
+    from app.services.approval import ApprovalService
+
+    service = ApprovalService(db_session)
+    request = await service.create_network_access_request(
+        tool_id=draft_tool.id,
+        host="api.github.com.",
+        port=443,
+        justification="Need GitHub API access",
+    )
+    assert request.host == "api.github.com"
+
+
+@pytest.mark.asyncio
+async def test_network_request_trailing_dot_dedup(
+    db_session: AsyncSession,
+    approved_network_request: NetworkAccessRequest,
+    draft_tool: Tool,
+):
+    """Trailing dot variant is detected as duplicate of approved host."""
+    from app.services.approval import ApprovalService
+
+    service = ApprovalService(db_session)
+    with pytest.raises(ValueError, match="already approved"):
+        await service.create_network_access_request(
+            tool_id=draft_tool.id,
+            host="api.approved.com.",
+            port=443,
+            justification="Trying with trailing dot",
+        )
+
+
+# =============================================================================
+# Delete Request Tests
+# =============================================================================
+# Tests that admins can permanently delete rejected and pending requests.
+
+
+@pytest.mark.asyncio
+async def test_delete_rejected_network_request(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    rejected_network_request: NetworkAccessRequest,
+    db_session: AsyncSession,
+):
+    """Admin can delete a rejected network request."""
+    response = await async_client.delete(
+        f"/api/approvals/network/{rejected_network_request.id}",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["host"] == "malicious.example.com"
+
+    # Verify deleted from DB
+    from sqlalchemy import select
+
+    result = await db_session.execute(
+        select(NetworkAccessRequest).where(NetworkAccessRequest.id == rejected_network_request.id)
+    )
+    assert result.scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_delete_pending_network_request(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    pending_network_request: NetworkAccessRequest,
+    db_session: AsyncSession,
+):
+    """Admin can delete a pending network request."""
+    response = await async_client.delete(
+        f"/api/approvals/network/{pending_network_request.id}",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_delete_approved_network_request_fails(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    approved_network_request: NetworkAccessRequest,
+):
+    """Cannot delete an approved network request (must revoke first)."""
+    response = await async_client.delete(
+        f"/api/approvals/network/{approved_network_request.id}",
+        headers=admin_headers,
+    )
+    assert response.status_code == 400
+    assert "revoke" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_delete_nonexistent_network_request(
+    async_client: AsyncClient,
+    admin_headers: dict,
+):
+    """Deleting a non-existent request returns 404."""
+    import uuid
+
+    response = await async_client.delete(
+        f"/api/approvals/network/{uuid.uuid4()}",
+        headers=admin_headers,
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_rejected_module_request(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    rejected_module_request: ModuleRequest,
+    db_session: AsyncSession,
+):
+    """Admin can delete a rejected module request."""
+    response = await async_client.delete(
+        f"/api/approvals/modules/{rejected_module_request.id}",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["module_name"] == "subprocess"
+
+    # Verify deleted from DB
+    from sqlalchemy import select
+
+    result = await db_session.execute(
+        select(ModuleRequest).where(ModuleRequest.id == rejected_module_request.id)
+    )
+    assert result.scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_delete_approved_module_request_fails(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    approved_module_request: ModuleRequest,
+):
+    """Cannot delete an approved module request (must revoke first)."""
+    response = await async_client.delete(
+        f"/api/approvals/modules/{approved_module_request.id}",
+        headers=admin_headers,
+    )
+    assert response.status_code == 400
+    assert "revoke" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_delete_then_rerequest_network_access(
+    db_session: AsyncSession,
+    rejected_network_request: NetworkAccessRequest,
+    draft_tool: Tool,
+    async_client: AsyncClient,
+    admin_headers: dict,
+):
+    """After deleting a rejected request, the LLM can re-request the same host."""
+    from app.services.approval import ApprovalService
+
+    # Delete the rejected request
+    response = await async_client.delete(
+        f"/api/approvals/network/{rejected_network_request.id}",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+
+    # Now re-requesting should work
+    service = ApprovalService(db_session)
+    request = await service.create_network_access_request(
+        tool_id=draft_tool.id,
+        host="malicious.example.com",
+        port=443,
+        justification="Trying again after admin cleared the rejection",
+    )
+    assert request.status == "pending"
+
+
+# =============================================================================
+# Bug Fix Regression Tests — Network Access Port-Level Control
+# =============================================================================
+# Verifies that network access approval is enforced at host+port granularity,
+# not just at the host level.
+
+
+@pytest.mark.asyncio
+async def test_different_port_not_covered_by_existing_approval(
+    db_session: AsyncSession,
+    approved_network_request: NetworkAccessRequest,
+    draft_tool: Tool,
+):
+    """Approving host:443 does NOT cover host:1883 — different ports need separate approval."""
+    from app.services.approval import ApprovalService
+
+    service = ApprovalService(db_session)
+    # approved_network_request is for api.approved.com:443
+    # Requesting the same host on a different port should succeed
+    request = await service.create_network_access_request(
+        tool_id=draft_tool.id,
+        host="api.approved.com",
+        port=1883,
+        justification="Need MQTT on a different port",
+    )
+    assert request.status == "pending"
+    assert request.port == 1883
+
+
+@pytest.mark.asyncio
+async def test_any_port_approval_covers_specific_port(
+    db_session: AsyncSession,
+    test_server: Server,
+    draft_tool: Tool,
+):
+    """An any-port approval (port=NULL) covers all specific port requests."""
+    from datetime import UTC, datetime
+
+    from app.services.approval import ApprovalService
+
+    # Create an any-port approval
+    any_port_nar = NetworkAccessRequest(
+        tool_id=draft_tool.id,
+        server_id=draft_tool.server_id,
+        host="192.168.1.2",
+        port=None,  # any port
+        justification="Need full access",
+        requested_by="dev@example.com",
+        status="approved",
+        reviewed_by="admin@example.com",
+        reviewed_at=datetime.now(UTC),
+    )
+    db_session.add(any_port_nar)
+    await db_session.flush()
+
+    # Requesting a specific port on the same host should be "already approved"
+    service = ApprovalService(db_session)
+    with pytest.raises(ValueError, match="already approved"):
+        await service.create_network_access_request(
+            tool_id=draft_tool.id,
+            host="192.168.1.2",
+            port=8081,
+            justification="Need Homebridge",
+        )
+
+
+@pytest.mark.asyncio
+async def test_specific_port_does_not_cover_any_port(
+    db_session: AsyncSession,
+    test_server: Server,
+    draft_tool: Tool,
+):
+    """A port-specific approval does NOT cover an any-port request."""
+    from datetime import UTC, datetime
+
+    from app.services.approval import ApprovalService
+
+    # Create a port-specific approval
+    port_nar = NetworkAccessRequest(
+        tool_id=draft_tool.id,
+        server_id=draft_tool.server_id,
+        host="192.168.1.2",
+        port=8081,
+        justification="Need Homebridge",
+        requested_by="dev@example.com",
+        status="approved",
+        reviewed_by="admin@example.com",
+        reviewed_at=datetime.now(UTC),
+    )
+    db_session.add(port_nar)
+    await db_session.flush()
+
+    # Requesting any-port access should succeed (not covered by port-specific)
+    service = ApprovalService(db_session)
+    request = await service.create_network_access_request(
+        tool_id=draft_tool.id,
+        host="192.168.1.2",
+        port=None,
+        justification="Need full access",
+    )
+    assert request.status == "pending"
+    assert request.port is None
+
+
+@pytest.mark.asyncio
+async def test_sync_allowed_hosts_includes_port(
+    db_session: AsyncSession,
+    test_server: Server,
+    draft_tool: Tool,
+):
+    """sync_allowed_hosts formats entries as host:port or host (any port)."""
+    from datetime import UTC, datetime
+
+    from app.services.approval import sync_allowed_hosts
+
+    # Port-specific approval
+    nar1 = NetworkAccessRequest(
+        tool_id=draft_tool.id,
+        server_id=draft_tool.server_id,
+        host="192.168.1.2",
+        port=8081,
+        justification="Homebridge",
+        requested_by="dev@example.com",
+        status="approved",
+        reviewed_by="admin",
+        reviewed_at=datetime.now(UTC),
+    )
+    # Different port on same host
+    nar2 = NetworkAccessRequest(
+        tool_id=draft_tool.id,
+        server_id=draft_tool.server_id,
+        host="192.168.1.2",
+        port=1883,
+        justification="MQTT",
+        requested_by="dev@example.com",
+        status="approved",
+        reviewed_by="admin",
+        reviewed_at=datetime.now(UTC),
+    )
+    # Any-port approval on different host
+    nar3 = NetworkAccessRequest(
+        tool_id=draft_tool.id,
+        server_id=draft_tool.server_id,
+        host="nas.local",
+        port=None,
+        justification="NAS access",
+        requested_by="dev@example.com",
+        status="approved",
+        reviewed_by="admin",
+        reviewed_at=datetime.now(UTC),
+    )
+    db_session.add_all([nar1, nar2, nar3])
+    await db_session.flush()
+
+    hosts = await sync_allowed_hosts(test_server.id, db_session)
+    assert "192.168.1.2:8081" in hosts
+    assert "192.168.1.2:1883" in hosts
+    assert "nas.local" in hosts
+    # Plain "192.168.1.2" should NOT be in the list (no any-port approval)
+    assert "192.168.1.2" not in hosts
+
+
+@pytest.mark.asyncio
+async def test_rejected_port_does_not_block_different_port(
+    db_session: AsyncSession,
+    draft_tool: Tool,
+):
+    """Rejecting host:443 does not block requesting host:8080."""
+    from datetime import UTC, datetime
+
+    from app.services.approval import ApprovalService
+
+    # Create a rejected request for port 443
+    rejected = NetworkAccessRequest(
+        tool_id=draft_tool.id,
+        server_id=draft_tool.server_id,
+        host="example.com",
+        port=443,
+        justification="Need HTTPS",
+        requested_by="dev@example.com",
+        status="rejected",
+        reviewed_by="admin@example.com",
+        reviewed_at=datetime.now(UTC),
+        rejection_reason="No HTTPS needed",
+    )
+    db_session.add(rejected)
+    await db_session.flush()
+
+    # Requesting a different port should succeed
+    service = ApprovalService(db_session)
+    request = await service.create_network_access_request(
+        tool_id=draft_tool.id,
+        host="example.com",
+        port=8080,
+        justification="Need HTTP on alternate port",
+    )
+    assert request.status == "pending"
+    assert request.port == 8080
+
+
+# =============================================================================
+# Bug Fix Regression Tests — Module Allowlist PyPI Name Resolution
+# =============================================================================
+# Verifies that PyPI package names (e.g., "paho-mqtt") are properly resolved
+# to their import names so that `import paho.mqtt.client` works.
+
+
+@pytest.mark.asyncio
+async def test_sync_allowed_modules_derives_import_names_from_pypi_name(
+    db_session: AsyncSession,
+):
+    """Approving 'paho-mqtt' also adds 'paho' and 'paho_mqtt' to the allowlist."""
+    from datetime import UTC, datetime
+
+    from app.services.approval import sync_allowed_modules
+
+    # Create an approved module with a PyPI-style hyphenated name
+    mr = ModuleRequest(
+        server_id=None,
+        tool_id=None,
+        module_name="paho-mqtt",
+        justification="Need MQTT client",
+        requested_by="dev@example.com",
+        status="approved",
+        reviewed_by="admin",
+        reviewed_at=datetime.now(UTC),
+    )
+    db_session.add(mr)
+    await db_session.flush()
+
+    modules = await sync_allowed_modules(db_session)
+    assert "paho-mqtt" in modules  # original
+    assert "paho" in modules  # derived: first segment before hyphen
+    assert "paho_mqtt" in modules  # derived: underscored form
+
+
+@pytest.mark.asyncio
+async def test_sync_allowed_modules_derives_base_from_dotted_path(
+    db_session: AsyncSession,
+):
+    """Approving 'paho.mqtt.client' also adds 'paho' to the allowlist."""
+    from datetime import UTC, datetime
+
+    from app.services.approval import sync_allowed_modules
+
+    mr = ModuleRequest(
+        server_id=None,
+        tool_id=None,
+        module_name="paho.mqtt.client",
+        justification="Need MQTT client",
+        requested_by="dev@example.com",
+        status="approved",
+        reviewed_by="admin",
+        reviewed_at=datetime.now(UTC),
+    )
+    db_session.add(mr)
+    await db_session.flush()
+
+    modules = await sync_allowed_modules(db_session)
+    assert "paho.mqtt.client" in modules  # original
+    assert "paho" in modules  # derived: base module
+
+
+@pytest.mark.asyncio
+async def test_create_module_request_detects_pypi_equivalent(
+    db_session: AsyncSession,
+    draft_tool: Tool,
+):
+    """Requesting 'paho.mqtt.client' when 'paho-mqtt' is approved returns already-covered."""
+    from datetime import UTC, datetime
+
+    from app.services.approval import ApprovalService
+
+    # Create an approved module with PyPI name
+    mr = ModuleRequest(
+        server_id=None,
+        tool_id=None,
+        module_name="paho-mqtt",
+        justification="Need MQTT",
+        requested_by="dev@example.com",
+        status="approved",
+        reviewed_by="admin",
+        reviewed_at=datetime.now(UTC),
+    )
+    db_session.add(mr)
+    await db_session.flush()
+
+    service = ApprovalService(db_session)
+    with pytest.raises(ValueError, match="already covered"):
+        await service.create_module_request(
+            tool_id=draft_tool.id,
+            module_name="paho.mqtt.client",
+            justification="Need MQTT client",
+        )
+
+
+@pytest.mark.asyncio
+async def test_create_module_request_detects_reverse_equivalent(
+    db_session: AsyncSession,
+    draft_tool: Tool,
+):
+    """Requesting 'paho-mqtt' when 'paho' is approved returns already-covered."""
+    from datetime import UTC, datetime
+
+    from app.services.approval import ApprovalService
+
+    # Create an approved module with the base import name
+    mr = ModuleRequest(
+        server_id=None,
+        tool_id=None,
+        module_name="paho",
+        justification="Need paho base module",
+        requested_by="dev@example.com",
+        status="approved",
+        reviewed_by="admin",
+        reviewed_at=datetime.now(UTC),
+    )
+    db_session.add(mr)
+    await db_session.flush()
+
+    service = ApprovalService(db_session)
+    with pytest.raises(ValueError, match="already covered"):
+        await service.create_module_request(
+            tool_id=draft_tool.id,
+            module_name="paho-mqtt",
+            justification="Need MQTT client library",
+        )
+
+
+@pytest.mark.asyncio
+async def test_derive_import_names_helper():
+    """Unit test for _derive_import_names helper."""
+    from app.services.approval import _derive_import_names
+
+    # Hyphenated PyPI name
+    assert _derive_import_names("paho-mqtt") == {"paho_mqtt", "paho"}
+    assert _derive_import_names("python-dateutil") == {"python_dateutil", "python"}
+
+    # Dotted import path
+    assert _derive_import_names("paho.mqtt.client") == {"paho"}
+
+    # Simple name — no derivation needed
+    assert _derive_import_names("requests") == set()
+    assert _derive_import_names("numpy") == set()

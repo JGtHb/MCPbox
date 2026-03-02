@@ -135,6 +135,64 @@ class TestNetworkAllowlist:
         # _prepare_pinned_request runs, but that's fine — the allowlist check
         # is more restrictive anyway.
 
+    def test_allowlist_port_specific_blocks_different_port(self):
+        """Port-specific entry 'host:8081' blocks requests to host:1883."""
+        client = self._make_client(allowed_hosts={"192.168.1.2:8081"})
+
+        with pytest.raises(SSRFError) as exc_info:
+            client._prepare_request("http://192.168.1.2:1883/mqtt", {})
+
+        assert "not approved" in str(exc_info.value)
+
+    @patch("app.ssrf.validate_url_with_pinning")
+    def test_allowlist_port_specific_permits_matching_port(self, mock_validate):
+        """Port-specific entry 'host:8081' permits requests to host:8081."""
+        mock_validated = MagicMock()
+        mock_validated.get_pinned_url.return_value = "http://192.168.1.2:8081/api"
+        mock_validated.hostname = "192.168.1.2"
+        mock_validated.scheme = "http"
+        mock_validated.pinned_ip = "192.168.1.2"
+        mock_validate.return_value = mock_validated
+
+        client = self._make_client(allowed_hosts={"192.168.1.2:8081"})
+        url, _ = client._prepare_request("http://192.168.1.2:8081/api", {})
+        assert url is not None
+
+    def test_allowlist_any_port_permits_all_ports(self):
+        """Any-port entry 'host' (no port suffix) permits requests on any port."""
+        client = self._make_client(allowed_hosts={"192.168.1.2"})
+        # Should not raise — any port is allowed
+        url, _ = client._prepare_request("http://192.168.1.2:8081/api", {})
+        assert "192.168.1.2" in url
+
+    def test_allowlist_port_specific_blocks_default_port(self):
+        """Port-specific entry 'host:8081' blocks requests on default port 80."""
+        client = self._make_client(allowed_hosts={"192.168.1.2:8081"})
+
+        with pytest.raises(SSRFError):
+            client._prepare_request("http://192.168.1.2/api", {})
+
+    @patch("app.ssrf.validate_url_with_pinning")
+    def test_allowlist_multiple_ports_same_host(self, mock_validate):
+        """Multiple port-specific entries for the same host work independently."""
+        mock_validated = MagicMock()
+        mock_validated.get_pinned_url.return_value = "http://192.168.1.2:1883/mqtt"
+        mock_validated.hostname = "192.168.1.2"
+        mock_validated.scheme = "http"
+        mock_validated.pinned_ip = "192.168.1.2"
+        mock_validate.return_value = mock_validated
+
+        client = self._make_client(
+            allowed_hosts={"192.168.1.2:8081", "192.168.1.2:1883"}
+        )
+        # Port 1883 should be permitted
+        url, _ = client._prepare_request("http://192.168.1.2:1883/mqtt", {})
+        assert url is not None
+
+        # Port 22 should be blocked
+        with pytest.raises(SSRFError):
+            client._prepare_request("http://192.168.1.2:22/ssh", {})
+
 
 # =============================================================================
 # Proxy Mode Tests
@@ -333,6 +391,78 @@ class TestAdminApprovedMode:
         client = self._make_client(allowed_hosts={"127.0.0.1"}, proxy_mode=True)
         with pytest.raises(SSRFError, match="Blocked"):
             client._prepare_request("http://127.0.0.1/api", {})
+
+
+# =============================================================================
+# Port Enforcement Tests
+# =============================================================================
+
+
+class TestPortEnforcement:
+    """Tests for port-level enforcement in allowed_hosts."""
+
+    def _make_client(self, allowed_hosts=None, proxy_mode=None):
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        return SSRFProtectedAsyncHttpClient(
+            mock_client, allowed_hosts=allowed_hosts, proxy_mode=proxy_mode
+        )
+
+    def test_host_port_entry_allows_matching_port(self):
+        """host:port entry allows requests to that specific port."""
+        client = self._make_client(allowed_hosts={"192.168.1.2:8081"}, proxy_mode=True)
+        url, _ = client._prepare_request("http://192.168.1.2:8081/api", {})
+        assert "192.168.1.2:8081" in url
+
+    def test_host_port_entry_blocks_different_port(self):
+        """host:port entry blocks requests to a different port."""
+        client = self._make_client(allowed_hosts={"192.168.1.2:8081"}, proxy_mode=True)
+        with pytest.raises(SSRFError, match="not approved"):
+            client._prepare_request("http://192.168.1.2:9090/api", {})
+
+    def test_host_only_entry_allows_any_port(self):
+        """host entry (no port) allows requests to any port."""
+        client = self._make_client(allowed_hosts={"192.168.1.2"}, proxy_mode=True)
+        url1, _ = client._prepare_request("http://192.168.1.2:8081/api", {})
+        assert "192.168.1.2" in url1
+        url2, _ = client._prepare_request("http://192.168.1.2:9090/api", {})
+        assert "192.168.1.2" in url2
+
+    def test_mixed_entries_both_formats(self):
+        """Mix of host-only and host:port entries work together."""
+        client = self._make_client(
+            allowed_hosts={"10.0.0.1", "192.168.1.2:8081"}, proxy_mode=True
+        )
+        # 10.0.0.1 any port → allowed
+        url, _ = client._prepare_request("http://10.0.0.1:443/api", {})
+        assert "10.0.0.1" in url
+        # 192.168.1.2:8081 specific → allowed
+        url, _ = client._prepare_request("http://192.168.1.2:8081/api", {})
+        assert "192.168.1.2" in url
+        # 192.168.1.2:22 → blocked
+        with pytest.raises(SSRFError, match="not approved"):
+            client._prepare_request("http://192.168.1.2:22/api", {})
+
+    def test_https_default_port_443(self):
+        """HTTPS URLs without explicit port default to 443."""
+        client = self._make_client(
+            allowed_hosts={"api.example.com:443"}, proxy_mode=True
+        )
+        url, _ = client._prepare_request("https://api.example.com/api", {})
+        assert "api.example.com" in url
+
+    def test_http_default_port_80(self):
+        """HTTP URLs without explicit port default to 80."""
+        client = self._make_client(
+            allowed_hosts={"api.example.com:80"}, proxy_mode=True
+        )
+        url, _ = client._prepare_request("http://api.example.com/api", {})
+        assert "api.example.com" in url
+
+    def test_error_message_includes_port(self):
+        """Error message shows host:port to help users request the right access."""
+        client = self._make_client(allowed_hosts={"192.168.1.2:8081"}, proxy_mode=True)
+        with pytest.raises(SSRFError, match="192.168.1.2:9090"):
+            client._prepare_request("http://192.168.1.2:9090/api", {})
 
 
 # =============================================================================

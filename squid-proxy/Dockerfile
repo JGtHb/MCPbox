@@ -19,7 +19,8 @@ RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/check-approved-private.
 # Squid needs to write to certain directories.
 # /shared/squid-acl is the mount point for the shared volume with sandbox.
 RUN mkdir -p /var/spool/squid /var/log/squid /var/run/squid /tmp /shared/squid-acl && \
-    chown -R squid:squid /var/spool/squid /var/log/squid /var/run/squid /etc/squid /tmp /shared/squid-acl
+    chown -R squid:squid /var/spool/squid /var/log/squid /var/run/squid /etc/squid /tmp && \
+    chmod 1777 /shared/squid-acl
 
 USER squid
 

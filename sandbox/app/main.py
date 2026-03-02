@@ -8,6 +8,7 @@ import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -80,11 +81,48 @@ def _check_security_configuration():
         )
 
 
+def _check_squid_acl_volume():
+    """Verify the squid ACL shared volume is writable at startup.
+
+    The sandbox writes approved-private-host entries to this volume so
+    the squid proxy's external ACL helper can allow LAN traffic.  If
+    the volume has stale permissions (e.g. from a pre-fix image), the
+    sandbox cannot write and all approved LAN access will be blocked.
+    """
+    from app.registry import _SQUID_ACL_PATH
+
+    acl_dir = _SQUID_ACL_PATH.parent
+    if not acl_dir.exists():
+        logger.debug(
+            "Squid ACL volume not mounted at %s (expected in dev/test)", acl_dir
+        )
+        return
+
+    # Try writing a probe file to verify write access
+    probe = acl_dir / ".write-probe"
+    try:
+        probe.write_text("")
+        probe.unlink()
+        logger.info("Squid ACL volume at %s is writable", acl_dir)
+    except OSError as e:
+        logger.error(
+            "STARTUP WARNING: Squid ACL volume at %s is NOT writable: %s. "
+            "Approved LAN network access will be blocked by the proxy. "
+            "Fix: run 'docker compose down && docker compose up -d' to "
+            "recreate containers, or manually run "
+            "'docker run --rm -v mcpbox-squid-acl:/vol alpine chmod 1777 /vol' "
+            "to fix volume permissions.",
+            acl_dir,
+            e,
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     logger.info("Sandbox service starting up")
     _check_security_configuration()
+    _check_squid_acl_volume()
 
     # Start background task to sync packages with backend
     # This runs asynchronously so the service can start accepting requests immediately
@@ -104,10 +142,22 @@ async def lifespan(app: FastAPI):
     await tool_registry.clear_all()
 
 
+def _read_version() -> str:
+    """Read version from the VERSION file (single source of truth)."""
+    candidates = [
+        Path("/app/VERSION"),
+        Path(__file__).resolve().parents[2] / "VERSION",
+    ]
+    for p in candidates:
+        if p.is_file():
+            return p.read_text().strip()
+    return "0.0.0-unknown"
+
+
 app = FastAPI(
     title="MCPbox Sandbox",
     description="Shared sandbox for executing MCP tools",
-    version="0.2.1",
+    version=_read_version(),
     lifespan=lifespan,
 )
 

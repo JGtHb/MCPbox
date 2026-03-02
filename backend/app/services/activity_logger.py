@@ -9,7 +9,7 @@ import uuid
 from collections import deque
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from sqlalchemy import delete, select
@@ -489,10 +489,15 @@ class ActivityLoggerService:
         """
         cutoff = datetime.now(UTC) - timedelta(days=retention_days)
 
-        result = await db.execute(delete(ActivityLog).where(ActivityLog.created_at < cutoff))
+        from sqlalchemy.engine import CursorResult
+
+        cursor_result = cast(
+            CursorResult[Any],
+            await db.execute(delete(ActivityLog).where(ActivityLog.created_at < cutoff)),
+        )
         await db.commit()
 
-        deleted_count: int = result.rowcount  # type: ignore[attr-defined]
+        deleted_count: int = cursor_result.rowcount
         if deleted_count > 0:
             logger.info(f"Cleaned up {deleted_count} logs older than {retention_days} days")
 

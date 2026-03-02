@@ -272,11 +272,7 @@ result = dict(sorted(data.items()))
         so print() inside main() was lost. Fixed by overriding print()
         in the namespace builtins.
         """
-        code = (
-            "async def main():\n"
-            "    print('hello from main')\n"
-            "    return 'done'\n"
-        )
+        code = "async def main():\n    print('hello from main')\n    return 'done'\n"
         response = client.post(
             "/execute",
             json={"code": code, "arguments": {}},
@@ -290,10 +286,7 @@ result = dict(sorted(data.items()))
     def test_execute_print_both_phases(self, client):
         """Test that print() is captured in both module-level and main()."""
         code = (
-            "print('phase1')\n"
-            "async def main():\n"
-            "    print('phase2')\n"
-            "    return 'ok'\n"
+            "print('phase1')\nasync def main():\n    print('phase2')\n    return 'ok'\n"
         )
         response = client.post(
             "/execute",
@@ -307,11 +300,7 @@ result = dict(sorted(data.items()))
 
     def test_execute_print_inside_sync_main(self, client):
         """Test that print() inside sync def main() is captured."""
-        code = (
-            "def main():\n"
-            "    print('sync hello')\n"
-            "    return 'sync done'\n"
-        )
+        code = "def main():\n    print('sync hello')\n    return 'sync done'\n"
         response = client.post(
             "/execute",
             json={"code": code, "arguments": {}},
@@ -343,10 +332,7 @@ result = dict(sorted(data.items()))
 
     def test_execute_result_under_limit_not_truncated(self, client):
         """Test that results under the size limit are returned in full."""
-        code = (
-            "async def main():\n"
-            "    return 'hello world'\n"
-        )
+        code = "async def main():\n    return 'hello world'\n"
         response = client.post(
             "/execute",
             json={"code": code, "arguments": {}},
@@ -799,3 +785,138 @@ class TestHTTPErrorInfoExtraction:
 
         info = _extract_http_info(ValueError("not http"))
         assert info is None
+
+
+class TestExecutionResultSerialization:
+    """Tests for ExecutionResult.to_dict() handling edge cases."""
+
+    def test_non_serializable_result_converted_to_string(self):
+        """Non-JSON-serializable results should be converted to strings."""
+        from app.executor import ExecutionResult
+
+        class CustomObj:
+            def __str__(self):
+                return "custom_repr"
+
+        result = ExecutionResult(success=True, result=CustomObj(), stdout="output")
+        d = result.to_dict()
+        assert d["success"] is True
+        assert d["result"] == "custom_repr"
+
+    def test_non_serializable_with_broken_str(self):
+        """Objects that can't be stringified should get a fallback message."""
+        from app.executor import ExecutionResult
+
+        class BrokenObj:
+            def __str__(self):
+                raise RuntimeError("broken str")
+
+        result = ExecutionResult(success=True, result=BrokenObj(), stdout="output")
+        d = result.to_dict()
+        assert d["success"] is True
+        assert d["result"] == "<unserializable result>"
+
+    def test_stdout_never_none(self):
+        """stdout should always be a string, never None."""
+        from app.executor import ExecutionResult
+
+        result = ExecutionResult(success=True, result="ok", stdout="")
+        d = result.to_dict()
+        assert d["stdout"] == ""
+        assert d["stdout"] is not None
+
+    def test_error_fields_on_failure(self):
+        """Failed execution should always have error populated."""
+        from app.executor import ExecutionResult
+
+        result = ExecutionResult(
+            success=False, error="something failed", stdout="debug line"
+        )
+        d = result.to_dict()
+        assert d["success"] is False
+        assert d["error"] == "something failed"
+        assert d["stdout"] == "debug line"
+
+
+class TestMCPEndpointMetadata:
+    """Tests for _meta.execution in MCP tools/call responses."""
+
+    def test_mcp_success_includes_meta(self, client):
+        """Successful MCP tool calls include _meta with execution metadata."""
+        client.post(
+            "/servers/register",
+            json={
+                "server_id": "meta-srv",
+                "server_name": "MetaSrv",
+                "tools": [
+                    {
+                        "name": "meta_tool",
+                        "description": "Returns a value",
+                        "parameters": {},
+                        "python_code": (
+                            "async def main():\n"
+                            "    print('captured output')\n"
+                            "    return 'hello'\n"
+                        ),
+                    }
+                ],
+            },
+        )
+
+        response = client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "MetaSrv__meta_tool", "arguments": {}},
+            },
+        )
+        data = response.json()
+
+        # Should have _meta with execution metadata
+        assert "_meta" in data.get("result", {})
+        meta = data["result"]["_meta"]
+        assert "execution" in meta
+        assert "stdout" in meta["execution"]
+        assert "duration_ms" in meta["execution"]
+
+    def test_mcp_failure_includes_meta(self, client):
+        """Failed MCP tool calls include _meta with execution metadata."""
+        client.post(
+            "/servers/register",
+            json={
+                "server_id": "meta-fail-srv",
+                "server_name": "MetaFailSrv",
+                "tools": [
+                    {
+                        "name": "fail_tool",
+                        "description": "Crashes",
+                        "parameters": {},
+                        "python_code": (
+                            "async def main():\n"
+                            "    print('debug before crash')\n"
+                            "    raise ValueError('boom')\n"
+                        ),
+                    }
+                ],
+            },
+        )
+
+        response = client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {"name": "MetaFailSrv__fail_tool", "arguments": {}},
+            },
+        )
+        data = response.json()
+
+        # Should have _meta with execution metadata even on failure
+        assert "_meta" in data.get("result", {})
+        meta = data["result"]["_meta"]
+        assert "execution" in meta
+        assert "stdout" in meta["execution"]
+        assert "duration_ms" in meta["execution"]

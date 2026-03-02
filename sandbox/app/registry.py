@@ -73,6 +73,104 @@ class RegisteredServer:
     allowed_hosts: Optional[set[str]] = None
 
 
+def _parse_host_from_entry(entry: str) -> str:
+    """Extract the bare host from an allowed_hosts entry.
+
+    Entries may be ``host`` (any port) or ``host:port`` (specific port).
+    Returns the host part only, used for private-IP / LAN detection.
+    """
+    if ":" in entry:
+        # Could be host:port — split on the LAST colon so IPv6 literals
+        # like ``[::1]:8080`` are handled (though those are blocked by
+        # _ALWAYS_BLOCKED_NETWORKS anyway).
+        host, _, maybe_port = entry.rpartition(":")
+        if maybe_port.isdigit():
+            return host
+    return entry
+
+
+def _filter_private_hosts(hosts: set[str]) -> list[str]:
+    """Filter a set of allowed_hosts entries to those that look private/LAN.
+
+    Entries can be ``host`` or ``host:port``.  The host part is checked
+    against private IP ranges and common LAN suffixes; the full entry
+    (including ``:port`` if present) is returned so port enforcement
+    flows through to the squid ACL helper.
+
+    Public hostnames (e.g. ``api.example.com``) are omitted — squid
+    already allows those.
+    """
+    private: list[str] = []
+    for entry in sorted(hosts):
+        host = _parse_host_from_entry(entry).lower()
+        try:
+            ip = ipaddress.ip_address(host)
+            if ip.is_private:
+                private.append(entry.lower())
+            continue
+        except ValueError:
+            pass
+        if host.endswith((".local", ".lan", ".home", ".internal")) or "." not in host:
+            private.append(entry.lower())
+    return private
+
+
+def _write_squid_acl(private_hosts: list[str]) -> None:
+    """Write private hosts to the squid ACL file (low-level)."""
+    try:
+        _SQUID_ACL_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _SQUID_ACL_PATH.write_text(
+            "\n".join(private_hosts) + "\n" if private_hosts else ""
+        )
+        logger.debug(
+            "Updated squid ACL file with %d approved private host(s)",
+            len(private_hosts),
+        )
+    except OSError as e:
+        if not _SQUID_ACL_PATH.parent.exists():
+            logger.debug("Squid ACL volume not mounted, skipping: %s", e)
+        else:
+            logger.error(
+                "Failed to write squid ACL file %s: %s. "
+                "Approved private hosts will be blocked by the proxy. "
+                "Check volume permissions (sandbox user needs write access).",
+                _SQUID_ACL_PATH,
+                e,
+            )
+
+
+def ensure_private_hosts_in_squid_acl(hosts: list[str] | None) -> None:
+    """Ensure the given hosts are present in the squid ACL file.
+
+    Merges *hosts* with any existing entries so that hosts from
+    registered servers are not removed.  Used by the ``/execute``
+    endpoint which bypasses the registry and therefore doesn't
+    trigger ``_update_squid_approved_hosts``.
+
+    The file is rebuilt from scratch on the next ``register_server``
+    or ``unregister_server`` call, so temporary entries added here
+    are cleaned up naturally.
+    """
+    if not hosts:
+        return
+
+    new_private = set(_filter_private_hosts(set(hosts)))
+    if not new_private:
+        return
+
+    # Read existing entries to avoid clobbering hosts from running servers.
+    existing: set[str] = set()
+    try:
+        if _SQUID_ACL_PATH.exists():
+            existing = set(_SQUID_ACL_PATH.read_text().strip().split("\n")) - {""}
+    except OSError:
+        pass
+
+    merged = existing | new_private
+    if merged != existing:
+        _write_squid_acl(sorted(merged))
+
+
 class ToolRegistry:
     """Registry for managing MCP tools.
 
@@ -160,53 +258,21 @@ class ToolRegistry:
         return len(server.tools)
 
     def _update_squid_approved_hosts(self) -> None:
-        """Write all admin-approved hosts to the squid ACL file.
+        """Rebuild the squid ACL file from all registered servers.
 
         The squid proxy's external ACL helper reads this file to decide
         whether to allow requests to private IP destinations that would
         otherwise be blocked by the ``blocked_dst`` ACL.
 
-        Only hosts that *look* private are written: literal private IPs
-        and common LAN hostname suffixes (.local, .lan, .home, .internal)
-        or single-label names.  Public hostnames (e.g. ``api.example.com``)
-        are omitted — squid already allows those.
+        This is a full rebuild (not a merge) so that host removals from
+        server unregistration or revocation are reflected immediately.
         """
         all_hosts: set[str] = set()
         for server in self.servers.values():
             if server.allowed_hosts:
                 all_hosts.update(server.allowed_hosts)
 
-        # Filter to hosts that are likely private / LAN targets.
-        private_hosts: list[str] = []
-        for host in sorted(all_hosts):
-            host_lower = host.lower()
-            # Literal private IP?
-            try:
-                ip = ipaddress.ip_address(host_lower)
-                if ip.is_private:
-                    private_hosts.append(host_lower)
-                continue
-            except ValueError:
-                pass
-            # Common LAN TLDs or single-label hostname?
-            if (
-                host_lower.endswith((".local", ".lan", ".home", ".internal"))
-                or "." not in host_lower
-            ):
-                private_hosts.append(host_lower)
-
-        try:
-            _SQUID_ACL_PATH.parent.mkdir(parents=True, exist_ok=True)
-            _SQUID_ACL_PATH.write_text(
-                "\n".join(private_hosts) + "\n" if private_hosts else ""
-            )
-            logger.debug(
-                "Updated squid ACL file with %d approved private host(s)",
-                len(private_hosts),
-            )
-        except OSError:
-            # Shared volume not mounted (e.g. in tests) — silently skip.
-            pass
+        _write_squid_acl(_filter_private_hosts(all_hosts))
 
     def update_secrets(self, server_id: str, secrets: dict[str, str]) -> bool:
         """Update secrets for a running server.
@@ -350,8 +416,14 @@ class ToolRegistry:
             return result.to_dict()
 
         finally:
-            # Always close the per-request client
-            await http_client.aclose()
+            # Always close the per-request client.
+            # Catch exceptions to prevent aclose() failures from
+            # suppressing the execution result (the finally block
+            # would replace a successful return with an exception).
+            try:
+                await http_client.aclose()
+            except Exception as e:
+                logger.warning(f"Error closing HTTP client: {e}")
 
     async def _execute_passthrough_tool(
         self,
