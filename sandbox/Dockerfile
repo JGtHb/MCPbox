@@ -2,11 +2,12 @@
 # Dynamically loads and executes MCP tools
 # Multi-stage build: excludes setuptools/wheel from runtime image
 # NOTE: pip is kept because package_installer.py uses `python -m pip install`
+# NOTE: Build context is the project root (not ./sandbox) so VERSION is accessible.
 
 # Builder stage — install Python dependencies
 FROM python:3.14.3-slim AS builder
 
-COPY requirements.txt /tmp/requirements.txt
+COPY sandbox/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 # Runtime stage — minimal image without setuptools/wheel
@@ -32,8 +33,9 @@ ENV PYTHONPATH="/app/site-packages:${PYTHONPATH}"
 # Set working directory
 WORKDIR /app
 
-# Copy application code
-COPY --chown=sandbox:sandbox app/ /app/app/
+# Copy application code and version file
+COPY --chown=sandbox:sandbox sandbox/app/ /app/app/
+COPY --chown=sandbox:sandbox VERSION /app/VERSION
 
 # Switch to non-root user
 USER sandbox

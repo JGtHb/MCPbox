@@ -189,6 +189,44 @@ jobs:
           cd backend
           mypy app --ignore-missing-imports
 
+  version-check:
+    name: Version Sync
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Verify all versions match VERSION file
+        run: |
+          VERSION=$(cat VERSION)
+          echo "Expected version: $VERSION"
+          FAIL=0
+
+          check() {
+            if [ "$2" != "$VERSION" ]; then
+              echo "MISMATCH: $1 has '$2'"
+              FAIL=1
+            fi
+          }
+
+          check "backend/pyproject.toml" "$(grep -m1 '^version' backend/pyproject.toml | sed 's/version = "\(.*\)"/\1/')"
+          check "sandbox/pyproject.toml" "$(grep -m1 '^version' sandbox/pyproject.toml | sed 's/version = "\(.*\)"/\1/')"
+          check "frontend/package.json" "$(node -p "require('./frontend/package.json').version")"
+          check "worker/package.json" "$(node -p "require('./worker/package.json').version")"
+
+          if [ $FAIL -eq 0 ]; then
+            echo "All versions match: $VERSION"
+          else
+            echo ""
+            echo "Fix with: ./scripts/bump-version.sh $VERSION --no-commit"
+            exit 1
+          fi
+
   audit:
     name: Dependency Audit
     runs-on: ubuntu-latest

@@ -171,8 +171,8 @@ services:
   # ============================================================
   sandbox:
     build:
-      context: ./sandbox
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: sandbox/Dockerfile
     environment:
       - SANDBOX_API_KEY=${SANDBOX_API_KEY:?SANDBOX_API_KEY is required}
       # SECURITY (F-03): MCPBOX_ENCRYPTION_KEY intentionally excluded from sandbox.
