@@ -38,7 +38,7 @@ def get_client_ip(request: Request) -> str | None:
     """
     # Priority 1: CF-Connecting-IP header (Cloudflare-specific, most secure)
     # This header is set by Cloudflare and cannot be spoofed by clients
-    cf_ip = request.headers.get("CF-Connecting-IP")
+    cf_ip: str | None = request.headers.get("CF-Connecting-IP")
     if cf_ip:
         ip = cf_ip.strip()
         if _is_valid_ip(ip):
@@ -50,7 +50,7 @@ def get_client_ip(request: Request) -> str | None:
     # This prevents IP spoofing attacks from external clients
     # (Legitimate proxies like nginx running locally can set this header)
     if request.client and request.client.host in ("127.0.0.1", "::1", "localhost"):
-        real_ip = request.headers.get("X-Real-IP")
+        real_ip: str | None = request.headers.get("X-Real-IP")
         if real_ip:
             ip = real_ip.strip()
             if _is_valid_ip(ip):
@@ -61,6 +61,7 @@ def get_client_ip(request: Request) -> str | None:
     # Priority 3: Fall back to direct client connection
     # This is used for local admin panel access
     if request.client:
-        return request.client.host
+        host: str = request.client.host
+        return host
 
     return None

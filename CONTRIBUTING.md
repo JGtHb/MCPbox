@@ -12,7 +12,7 @@ Thanks for your interest in contributing! MCPbox is a self-extending MCP platfor
 - **Feature work**: branch from `develop`, open a PR back to `develop`
 - **Releases**: open a PR from `develop` → `main`, merge it, then tag `vX.Y.Z`
 - **Hotfixes**: branch from `main`, PR to both `main` and `develop`
-- **Never push directly to `main` or `develop`** — all changes go through PRs
+- **All changes to `main` and `develop` go through PRs** — never push directly
 
 ## Getting Started
 

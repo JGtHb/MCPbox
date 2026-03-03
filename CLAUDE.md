@@ -89,27 +89,22 @@ Two modes: **Local** (no auth, local MCP client → localhost:8000/mcp) and **Re
 
 ## Branching Model
 
-- **`develop`** — default branch. CI runs on push and PR.
-- **`main`** — releases only.
-- **Never push directly to `main` or `develop`** — all changes go through PRs.
+- **`develop`** — default branch. All PRs merge here. CI runs on push and PR.
+- **`main`** — releases only. **Never push directly** — always merge via PR.
+- **All changes to `main` and `develop` go through PRs** — direct pushes are not allowed.
 - **Feature work** — branch from `develop`, PR back to `develop`.
-- **Hotfixes** — branch from `main`, PR to `main`, then merge `main → develop` to sync.
+- **Hotfixes** — branch from `main`, fix, PR to `main`, then merge `main → develop` to sync.
 - **Releases** — open a PR from `develop → main`, merge it, then tag `vX.Y.Z`. Pushing a `v*` tag triggers `.github/workflows/release.yml`, which creates a GitHub Release with auto-generated notes.
 - End users install from `main` (stable). Contributors work on `develop`.
 
-### Version Bump Checklist
+### Version Bumping
 
-Before a release, bump the version in **all 5 locations** (the sidebar reads from the backend dynamically):
-
-```
-backend/pyproject.toml          → version = "X.Y.Z"
-backend/app/core/config.py      → app_version: str = "X.Y.Z"
-frontend/package.json            → "version": "X.Y.Z"
-worker/package.json              → "version": "X.Y.Z"
-sandbox/pyproject.toml           → version = "X.Y.Z"
+```bash
+./scripts/bump-version.sh X.Y.Z             # bump + commit + tag
+./scripts/bump-version.sh X.Y.Z --no-commit # bump only (e.g. during PR)
 ```
 
-Then regenerate lock files: `cd frontend && npm install --package-lock-only && cd ../worker && npm install --package-lock-only`
+The `VERSION` file at repo root is the single source of truth. The bump script updates all 5 secondary locations (2 `pyproject.toml`, 2 `package.json` + lock files) and optionally commits + tags. Python components (`backend`, `sandbox`) read `VERSION` at runtime — no hardcoded version strings. CI validates all locations stay in sync (`version-check` job).
 
 ## Workflow Rules
 

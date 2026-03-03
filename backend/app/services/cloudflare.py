@@ -93,14 +93,16 @@ class CloudflareService:
         result = await self.db.execute(
             select(CloudflareConfig).order_by(CloudflareConfig.created_at.desc()).limit(1)
         )
-        return result.scalar_one_or_none()
+        config: CloudflareConfig | None = result.scalar_one_or_none()
+        return config
 
     async def get_config_by_id(self, config_id: UUID) -> CloudflareConfig | None:
         """Get a configuration by ID."""
         result = await self.db.execute(
             select(CloudflareConfig).where(CloudflareConfig.id == config_id)
         )
-        return result.scalar_one_or_none()
+        config: CloudflareConfig | None = result.scalar_one_or_none()
+        return config
 
     async def get_status(self) -> WizardStatusResponse:
         """Get current wizard status."""

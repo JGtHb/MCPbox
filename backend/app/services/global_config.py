@@ -70,7 +70,8 @@ class GlobalConfigService:
         result = await self.db.execute(
             select(GlobalConfig).where(GlobalConfig.config_key == "main")
         )
-        return result.scalar_one_or_none()
+        config: GlobalConfig | None = result.scalar_one_or_none()
+        return config
 
     async def get_or_create_config(self) -> GlobalConfig:
         """Get or create the global configuration."""
@@ -89,7 +90,8 @@ class GlobalConfigService:
         """
         config = await self.get_config()
         if config and config.allowed_modules:
-            return config.allowed_modules
+            modules: list[str] = config.allowed_modules
+            return modules
         return DEFAULT_ALLOWED_MODULES.copy()
 
     async def set_allowed_modules(self, modules: list[str]) -> GlobalConfig:

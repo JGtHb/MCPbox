@@ -73,7 +73,7 @@ def encrypt(plaintext: str, aad: str) -> bytes:
     iv = secrets.token_bytes(12)
 
     aad_bytes = aad.encode("utf-8")
-    ciphertext = aesgcm.encrypt(iv, plaintext.encode("utf-8"), aad_bytes)
+    ciphertext: bytes = aesgcm.encrypt(iv, plaintext.encode("utf-8"), aad_bytes)
 
     # Return IV + ciphertext (tag is appended by AESGCM)
     return iv + ciphertext
@@ -105,7 +105,7 @@ def decrypt(encrypted: bytes, aad: str) -> str:
     try:
         key = get_encryption_key()
         aesgcm = AESGCM(key)
-        plaintext = aesgcm.decrypt(iv, ciphertext, aad_bytes)
+        plaintext: bytes = aesgcm.decrypt(iv, ciphertext, aad_bytes)
         return plaintext.decode("utf-8")
     except InvalidKeyError:
         raise

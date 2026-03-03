@@ -835,6 +835,17 @@ async def _log_tool_execution(
                 else:
                     tool_result = raw_result
 
+            # Extract execution metadata (stdout, duration) from _meta
+            # if present. The sandbox includes this so logging can capture
+            # stdout and structured errors that would otherwise be lost
+            # in the MCP JSON-RPC wrapping. Only MCP result responses
+            # (success or isError) carry _meta; JSON-RPC protocol errors
+            # don't have a result object.
+            if isinstance(raw_result, dict):
+                meta = raw_result.get("_meta", {})
+                execution_meta = meta.get("execution", {}) if isinstance(meta, dict) else {}
+                stdout = execution_meta.get("stdout") if isinstance(execution_meta, dict) else None
+
             log_service = ExecutionLogService(session)
             await log_service.create_log(
                 tool_id=tool.id,

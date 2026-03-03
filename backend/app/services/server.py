@@ -41,12 +41,14 @@ class ServerService:
             )
             .where(Server.id == server_id)
         )
-        return result.scalar_one_or_none()
+        server: Server | None = result.scalar_one_or_none()
+        return server
 
     async def get_by_name(self, name: str) -> Server | None:
         """Get a server by name."""
         result = await self.db.execute(select(Server).where(Server.name == name))
-        return result.scalar_one_or_none()
+        server: Server | None = result.scalar_one_or_none()
+        return server
 
     async def list(self, page: int = 1, page_size: int = 50) -> tuple[builtins.list[Server], int]:
         """List servers with tool counts and pagination.

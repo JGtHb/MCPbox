@@ -171,7 +171,8 @@ class AdminAuthMiddleware(BaseHTTPMiddleware):
 
         Checks Authorization: Bearer <token> header.
         """
-        auth_header = request.headers.get("Authorization", "")
+        auth_header: str = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
-            return auth_header[7:]  # Remove "Bearer " prefix
+            token: str = auth_header[7:]  # Remove "Bearer " prefix
+            return token
         return None

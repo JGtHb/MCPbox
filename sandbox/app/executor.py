@@ -1419,7 +1419,18 @@ class ExecutionResult:
                         f" {MAX_OUTPUT_SIZE // 1024}KB limit] ..."
                     )
             except (TypeError, ValueError):
-                pass  # Non-serializable handled upstream
+                # Non-serializable: convert to string representation
+                try:
+                    result_value = str(result_value)
+                except Exception:
+                    result_value = "<unserializable result>"
+            except Exception as e:
+                # MemoryError, RecursionError, etc. during serialization
+                logger.error(f"Result serialization failed: {type(e).__name__}: {e}")
+                try:
+                    result_value = str(result_value)[:MAX_OUTPUT_SIZE]
+                except Exception:
+                    result_value = f"<result serialization failed: {type(e).__name__}>"
 
         result = {
             "success": self.success,

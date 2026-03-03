@@ -2,7 +2,7 @@
 
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from sqlalchemy import ColumnElement, func, or_, select
@@ -34,12 +34,16 @@ async def sync_allowed_hosts(server_id: UUID, db: AsyncSession) -> list[str]:
     (both LLM-originated via tool.server_id and admin-originated via direct server_id),
     deduplicates, and writes the result to Server.allowed_hosts.
 
+    Entries are formatted as ``host`` (any port) or ``host:port`` (specific port).
+    If a host has both a port-less approval and port-specific approvals, the
+    port-less entry supersedes (any port allowed).
+
     Returns:
         The updated list of allowed hosts.
     """
-    # Get all approved hosts for this server from both paths
+    # Get all approved host+port pairs for this server from both paths
     stmt = (
-        select(NetworkAccessRequest.host)
+        select(NetworkAccessRequest.host, NetworkAccessRequest.port)
         .outerjoin(Tool, NetworkAccessRequest.tool_id == Tool.id)
         .where(
             NetworkAccessRequest.status == "approved",
@@ -50,16 +54,56 @@ async def sync_allowed_hosts(server_id: UUID, db: AsyncSession) -> list[str]:
         )
     )
     result = await db.execute(stmt)
-    hosts = sorted({row[0] for row in result.all()})
+
+    # Group by host: if any approval has port=None, it means "any port"
+    host_ports: dict[str, set[int | None]] = {}
+    for host, port in result.all():
+        host_ports.setdefault(host, set()).add(port)
+
+    entries: list[str] = []
+    for host in sorted(host_ports):
+        ports = host_ports[host]
+        if None in ports:
+            # A port-less approval supersedes all port-specific ones
+            entries.append(host)
+        else:
+            # None was already excluded by the branch above
+            for p in sorted(cast(set[int], ports)):
+                entries.append(f"{host}:{p}")
 
     # Update the server's cached allowed_hosts
     server_result = await db.execute(select(Server).where(Server.id == server_id))
     server = server_result.scalar_one_or_none()
     if server:
-        server.allowed_hosts = hosts
+        server.allowed_hosts = entries
         await db.flush()
 
-    return hosts
+    return entries
+
+
+def _derive_import_names(module_name: str) -> set[str]:
+    """Derive import-time names from a module/package name.
+
+    PyPI package names (e.g., "paho-mqtt") use hyphens but Python import
+    names use dots/underscores.  This function returns additional names that
+    should be allowed so that ``import paho.mqtt.client`` works when
+    "paho-mqtt" is the approved name.
+
+    Returns:
+        A (possibly empty) set of derived import names.
+    """
+    extras: set[str] = set()
+
+    if "-" in module_name:
+        # "paho-mqtt" → also allow "paho_mqtt" and "paho" (the top-level import)
+        extras.add(module_name.replace("-", "_"))
+        extras.add(module_name.split("-")[0])
+
+    if "." in module_name:
+        # "paho.mqtt.client" → also allow "paho" (the base module)
+        extras.add(module_name.split(".")[0])
+
+    return extras
 
 
 async def sync_allowed_modules(db: AsyncSession) -> list[str]:
@@ -67,6 +111,10 @@ async def sync_allowed_modules(db: AsyncSession) -> list[str]:
 
     Queries all approved module requests, unions with DEFAULT_ALLOWED_MODULES,
     and writes the result to GlobalConfig.allowed_modules.
+
+    For each approved name that looks like a PyPI package (contains hyphens)
+    or a submodule path (contains dots), the corresponding base import name
+    is also included so that ``import <base>.<sub>`` works at runtime.
 
     Returns:
         The updated list of allowed modules.
@@ -78,8 +126,13 @@ async def sync_allowed_modules(db: AsyncSession) -> list[str]:
     result = await db.execute(stmt)
     approved_modules = {row[0] for row in result.all()}
 
-    # Union with defaults
-    all_modules = sorted(set(DEFAULT_ALLOWED_MODULES) | approved_modules)
+    # Derive additional import names from approved modules
+    derived: set[str] = set()
+    for name in approved_modules:
+        derived.update(_derive_import_names(name))
+
+    # Union with defaults and derived import names
+    all_modules = sorted(set(DEFAULT_ALLOWED_MODULES) | approved_modules | derived)
 
     # Update GlobalConfig
     config_service = GlobalConfigService(db)
@@ -119,7 +172,7 @@ class ApprovalService:
         """
         stmt = select(Tool).where(Tool.id == tool_id)
         result = await self.db.execute(stmt)
-        tool = result.scalar_one_or_none()
+        tool: Tool | None = result.scalar_one_or_none()
 
         if not tool:
             raise ValueError(f"Tool {tool_id} not found")
@@ -183,7 +236,7 @@ class ApprovalService:
         # Eagerly load server relationship for post-approval refresh
         stmt = select(Tool).where(Tool.id == tool_id).options(selectinload(Tool.server))
         result = await self.db.execute(stmt)
-        tool = result.scalar_one_or_none()
+        tool: Tool | None = result.scalar_one_or_none()
 
         if not tool:
             raise ValueError(f"Tool {tool_id} not found")
@@ -226,7 +279,7 @@ class ApprovalService:
         """
         stmt = select(Tool).where(Tool.id == tool_id)
         result = await self.db.execute(stmt)
-        tool = result.scalar_one_or_none()
+        tool: Tool | None = result.scalar_one_or_none()
 
         if not tool:
             raise ValueError(f"Tool {tool_id} not found")
@@ -378,7 +431,7 @@ class ApprovalService:
             Created module request
 
         Raises:
-            ValueError: If tool not found or duplicate request exists
+            ValueError: If tool not found, duplicate exists, or module already approved
         """
         # Derive server_id from tool if tool_id is provided
         tool_name_str = "admin"
@@ -390,6 +443,54 @@ class ApprovalService:
                 raise ValueError(f"Tool {tool_id} not found")
             server_id = tool.server_id
             tool_name_str = tool.name
+
+        # Check if this module is already approved (modules are global, not per-server).
+        # Also check equivalent names: e.g., requesting "paho.mqtt.client" when
+        # "paho-mqtt" is already approved, or vice versa.
+        names_to_check = {module_name} | _derive_import_names(module_name)
+        # Also check the base module
+        base = module_name.split(".")[0]
+        names_to_check.add(base)
+
+        approved_stmt = select(ModuleRequest).where(
+            ModuleRequest.status == "approved",
+        )
+        approved_result = await self.db.execute(approved_stmt)
+        approved_modules = {r.module_name for r in approved_result.scalars().all()}
+
+        # Check direct match or if any approved module covers this one
+        matching_approved = names_to_check & approved_modules
+        if not matching_approved:
+            # Also check the reverse: does any approved hyphenated name cover
+            # the requested module's base import name?
+            for approved in approved_modules:
+                if "-" in approved and approved.split("-")[0] == base:
+                    matching_approved = {approved}
+                    break
+
+        if matching_approved:
+            matched = next(iter(matching_approved))
+            raise ValueError(
+                f"Module '{module_name}' is already covered by approved module '{matched}'. "
+                "No new request needed — the tool can use it immediately."
+            )
+
+        # Check if this exact tool already has a rejected request for this module
+        if tool_id:
+            existing_stmt = select(ModuleRequest).where(
+                ModuleRequest.tool_id == tool_id,
+                ModuleRequest.module_name == module_name,
+                ModuleRequest.status == "rejected",
+            )
+            existing_result = await self.db.execute(existing_stmt)
+            existing = existing_result.scalar_one_or_none()
+            if existing:
+                raise ValueError(
+                    f"A request for module '{module_name}' was already rejected "
+                    f"for this tool. Rejection reason: {existing.rejection_reason or 'Not specified'}. "
+                    "The admin can delete the rejected request from the approval queue "
+                    "if you'd like to re-request it."
+                )
 
         request = ModuleRequest(
             tool_id=tool_id,
@@ -445,7 +546,7 @@ class ApprovalService:
             .where(ModuleRequest.id == request_id)
         )
         result = await self.db.execute(stmt)
-        request = result.scalar_one_or_none()
+        request: ModuleRequest | None = result.scalar_one_or_none()
 
         if not request:
             raise ValueError(f"Module request {request_id} not found")
@@ -513,7 +614,7 @@ class ApprovalService:
         """
         stmt = select(ModuleRequest).where(ModuleRequest.id == request_id)
         result = await self.db.execute(stmt)
-        request = result.scalar_one_or_none()
+        request: ModuleRequest | None = result.scalar_one_or_none()
 
         if not request:
             raise ValueError(f"Module request {request_id} not found")
@@ -654,7 +755,7 @@ class ApprovalService:
             Created network access request
 
         Raises:
-            ValueError: If tool not found or duplicate request exists
+            ValueError: If tool not found, duplicate exists, or host already approved
         """
         # Derive server_id from tool if tool_id is provided
         tool_name_str = "admin"
@@ -669,10 +770,59 @@ class ApprovalService:
         elif not server_id:
             raise ValueError("Either tool_id or server_id must be provided")
 
+        host_lower = host.strip().lower().rstrip(".")
+        port_str = f":{port}" if port else ""
+
+        # Check if this host+port is already approved for the server (via any tool or admin).
+        # An any-port approval (port IS NULL) covers all ports.
+        # A port-specific approval only covers that exact port.
+        approved_stmt = (
+            select(NetworkAccessRequest)
+            .outerjoin(Tool, NetworkAccessRequest.tool_id == Tool.id)
+            .where(
+                NetworkAccessRequest.status == "approved",
+                NetworkAccessRequest.host == host_lower,
+                or_(
+                    NetworkAccessRequest.port.is_(None),  # any-port approval covers all
+                    NetworkAccessRequest.port == port,  # exact port match
+                ),
+                or_(
+                    NetworkAccessRequest.server_id == server_id,
+                    Tool.server_id == server_id,
+                ),
+            )
+            .limit(1)
+        )
+        approved_result = await self.db.execute(approved_stmt)
+        if approved_result.scalar_one_or_none():
+            raise ValueError(
+                f"Host '{host_lower}{port_str}' is already approved for this server. "
+                "No new request needed — the tool can use it immediately."
+            )
+
+        # Check if this exact tool already has a non-pending request for this host+port
+        # (rejected requests that the LLM is re-requesting)
+        if tool_id:
+            existing_stmt = select(NetworkAccessRequest).where(
+                NetworkAccessRequest.tool_id == tool_id,
+                NetworkAccessRequest.host == host_lower,
+                NetworkAccessRequest.port == port,
+                NetworkAccessRequest.status == "rejected",
+            )
+            existing_result = await self.db.execute(existing_stmt)
+            existing = existing_result.scalar_one_or_none()
+            if existing:
+                raise ValueError(
+                    f"A request for host '{host_lower}{port_str}' was already rejected "
+                    f"for this tool. Rejection reason: {existing.rejection_reason or 'Not specified'}. "
+                    "The admin can delete the rejected request from the approval queue "
+                    "if you'd like to re-request it."
+                )
+
         request = NetworkAccessRequest(
             tool_id=tool_id,
             server_id=server_id,
-            host=host,
+            host=host_lower,
             port=port,
             justification=justification,
             requested_by=requested_by,
@@ -687,15 +837,14 @@ class ApprovalService:
             # Database constraint prevents duplicate pending requests
             # This is atomic and race-condition safe
             await self.db.rollback()
-            port_str = f":{port}" if port else ""
             raise ValueError(
-                f"A pending request for host '{host}{port_str}' already exists for this tool"
+                f"A pending request for host '{host_lower}{port_str}' already exists for this tool"
             ) from e
 
         await self.db.refresh(request)
 
         logger.info(
-            f"Network access request created: {host} for tool {tool_name_str} by {requested_by}"
+            f"Network access request created: {host_lower} for tool {tool_name_str} by {requested_by}"
         )
         return request
 
@@ -722,7 +871,7 @@ class ApprovalService:
             .where(NetworkAccessRequest.id == request_id)
         )
         result = await self.db.execute(stmt)
-        request = result.scalar_one_or_none()
+        request: NetworkAccessRequest | None = result.scalar_one_or_none()
 
         if not request:
             raise ValueError(f"Network access request {request_id} not found")
@@ -767,7 +916,7 @@ class ApprovalService:
         """
         stmt = select(NetworkAccessRequest).where(NetworkAccessRequest.id == request_id)
         result = await self.db.execute(stmt)
-        request = result.scalar_one_or_none()
+        request: NetworkAccessRequest | None = result.scalar_one_or_none()
 
         if not request:
             raise ValueError(f"Network access request {request_id} not found")
@@ -1102,7 +1251,7 @@ class ApprovalService:
         """
         stmt = select(Tool).where(Tool.id == tool_id).options(selectinload(Tool.server))
         result = await self.db.execute(stmt)
-        tool = result.scalar_one_or_none()
+        tool: Tool | None = result.scalar_one_or_none()
 
         if not tool:
             raise ValueError(f"Tool {tool_id} not found")
@@ -1151,7 +1300,7 @@ class ApprovalService:
             .where(ModuleRequest.id == request_id)
         )
         result = await self.db.execute(stmt)
-        request = result.scalar_one_or_none()
+        request: ModuleRequest | None = result.scalar_one_or_none()
 
         if not request:
             raise ValueError(f"Module request {request_id} not found")
@@ -1204,7 +1353,7 @@ class ApprovalService:
             .where(NetworkAccessRequest.id == request_id)
         )
         result = await self.db.execute(stmt)
-        request = result.scalar_one_or_none()
+        request: NetworkAccessRequest | None = result.scalar_one_or_none()
 
         if not request:
             raise ValueError(f"Network access request {request_id} not found")
@@ -1230,6 +1379,104 @@ class ApprovalService:
 
         logger.info(f"Network access request {request_id} ({request.host}) revoked by {revoked_by}")
         return request
+
+    # =========================================================================
+    # Deletion (hard delete for rejected/pending requests)
+    # =========================================================================
+
+    async def delete_module_request(
+        self,
+        request_id: UUID,
+        deleted_by: str,
+    ) -> dict[str, str]:
+        """Permanently delete a module request.
+
+        Only pending or rejected requests can be deleted. Approved requests
+        must be revoked first.
+
+        No sandbox re-registration is needed because only non-active
+        (pending/rejected) requests are deletable — they were never
+        applied to the sandbox configuration.
+
+        Args:
+            request_id: ID of the module request to delete
+            deleted_by: Email of the admin deleting
+
+        Returns:
+            Dict with deleted request details
+
+        Raises:
+            ValueError: If request not found or currently approved
+        """
+        stmt = select(ModuleRequest).where(ModuleRequest.id == request_id)
+        result = await self.db.execute(stmt)
+        request = result.scalar_one_or_none()
+
+        if not request:
+            raise ValueError(f"Module request {request_id} not found")
+
+        if request.status == "approved":
+            raise ValueError("Cannot delete an approved request. Revoke it first, then delete.")
+
+        module_name = request.module_name
+        request_status = request.status
+
+        await self.db.delete(request)
+        await self.db.commit()
+
+        logger.info(
+            f"Module request {request_id} ({module_name}, was {request_status}) "
+            f"deleted by {deleted_by}"
+        )
+        return {"module_name": module_name, "status": request_status}
+
+    async def delete_network_access_request(
+        self,
+        request_id: UUID,
+        deleted_by: str,
+    ) -> dict[str, str | None]:
+        """Permanently delete a network access request.
+
+        Only pending or rejected requests can be deleted. Approved requests
+        must be revoked first.
+
+        No sandbox re-registration is needed because only non-active
+        (pending/rejected) requests are deletable — they were never
+        applied to the sandbox configuration.
+
+        Args:
+            request_id: ID of the network request to delete
+            deleted_by: Email of the admin deleting
+
+        Returns:
+            Dict with deleted request details
+
+        Raises:
+            ValueError: If request not found or currently approved
+        """
+        stmt = select(NetworkAccessRequest).where(NetworkAccessRequest.id == request_id)
+        result = await self.db.execute(stmt)
+        request = result.scalar_one_or_none()
+
+        if not request:
+            raise ValueError(f"Network access request {request_id} not found")
+
+        if request.status == "approved":
+            raise ValueError("Cannot delete an approved request. Revoke it first, then delete.")
+
+        host = request.host
+        port = request.port
+        request_status = request.status
+
+        await self.db.delete(request)
+        await self.db.commit()
+
+        port_str = f":{port}" if port else ""
+        logger.info(
+            f"Network access request {request_id} ({host}{port_str}, was {request_status}) "
+            f"deleted by {deleted_by}"
+        )
+        return {"host": host, "port": str(port) if port else None, "status": request_status}
 
     # =========================================================================
     # Bulk Actions

@@ -131,4 +131,5 @@ async def get_execution_log(
             detail=f"Execution log {log_id} not found",
         )
 
-    return ExecutionLogResponse.model_validate(log)
+    response: ExecutionLogResponse = ExecutionLogResponse.model_validate(log)
+    return response

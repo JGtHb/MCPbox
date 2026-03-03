@@ -29,6 +29,7 @@ MODULE_TO_PACKAGE: dict[str, str] = {
     "lxml": "lxml",
     "chardet": "chardet",
     "dns": "dnspython",
+    "paho": "paho-mqtt",
     "gi": "pygobject",
     "wx": "wxpython",
     "MySQLdb": "mysqlclient",
