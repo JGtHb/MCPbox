@@ -13,7 +13,9 @@ Two operating modes:
   tunnels.
 """
 
+import asyncio
 import ipaddress
+import logging
 import os
 import socket
 from dataclasses import dataclass
@@ -277,6 +279,146 @@ def validate_url_with_pinning(
     )
 
 
+logger = logging.getLogger(__name__)
+
+
+async def async_validate_url_with_pinning(
+    url: str,
+    *,
+    admin_approved: bool = False,
+    dns_cache: dict[tuple[str, int], str] | None = None,
+) -> ValidatedURL:
+    """Async version of validate_url_with_pinning using non-blocking DNS.
+
+    Uses asyncio.get_running_loop().getaddrinfo() instead of the synchronous
+    socket.getaddrinfo() to avoid blocking the event loop during DNS resolution.
+
+    Args:
+        url: The URL to validate
+        admin_approved: When True, RFC 1918 private IPs are allowed
+        dns_cache: Optional per-execution cache mapping (hostname, port) to
+            resolved IP. Avoids redundant DNS lookups when a tool makes
+            multiple requests to the same host.
+
+    Returns:
+        ValidatedURL with pinned IP address
+
+    Raises:
+        SSRFError: If the URL targets internal resources
+    """
+    if not url:
+        raise SSRFError("URL cannot be empty")
+
+    try:
+        parsed = urlparse(str(url))
+    except Exception as e:
+        raise SSRFError(f"Invalid URL format: {e}")
+
+    if parsed.scheme not in ("http", "https"):
+        raise SSRFError(f"Invalid scheme: {parsed.scheme}. Only http/https allowed.")
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise SSRFError("URL must have a hostname")
+
+    hostname_lower = hostname.lower()
+    if hostname_lower in BLOCKED_HOSTNAMES:
+        raise SSRFError(f"Blocked hostname: {hostname}")
+
+    port = parsed.port
+    if port is None:
+        port = 443 if parsed.scheme == "https" else 80
+
+    pinned_ip: Optional[str] = None
+
+    # Check if hostname is an IP address in blocked range
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if admin_approved:
+            if _is_always_blocked_ip(hostname):
+                raise SSRFError(f"URL targets blocked IP range: {hostname}")
+        else:
+            for blocked_range in BLOCKED_IP_RANGES:
+                if ip in blocked_range:
+                    raise SSRFError(f"URL targets blocked IP range: {hostname}")
+        pinned_ip = hostname
+    except ValueError:
+        # Not an IP address, it's a hostname — resolve it
+        cache_key = (hostname_lower, port)
+
+        # Check DNS cache first
+        if dns_cache is not None and cache_key in dns_cache:
+            pinned_ip = dns_cache[cache_key]
+        else:
+            try:
+                loop = asyncio.get_running_loop()
+                addr_info = await loop.getaddrinfo(
+                    hostname, port, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM
+                )
+                for result in addr_info:
+                    ip_str = result[4][0]
+                    if admin_approved:
+                        if _is_always_blocked_ip(ip_str):
+                            raise SSRFError(
+                                f"Hostname {hostname} resolves to blocked IP: {ip_str}"
+                            )
+                    elif _is_private_ip(ip_str):
+                        raise SSRFError(
+                            f"Hostname {hostname} resolves to blocked IP: {ip_str}"
+                        )
+                    if pinned_ip is None:
+                        pinned_ip = ip_str
+            except socket.gaierror as e:
+                raise SSRFError(f"DNS resolution failed for {hostname}: {e}")
+
+            # Cache the resolved IP for future requests to the same host
+            if dns_cache is not None and pinned_ip is not None:
+                dns_cache[cache_key] = pinned_ip
+
+    if pinned_ip is None:
+        raise SSRFError(f"No valid IP addresses found for '{hostname}'")
+
+    return ValidatedURL(
+        original_url=url,
+        pinned_ip=pinned_ip,
+        hostname=hostname,
+        port=port,
+        scheme=parsed.scheme,
+    )
+
+
+async def _async_prepare_pinned_request(
+    url: str,
+    kwargs: dict,
+    *,
+    admin_approved: bool = False,
+    dns_cache: dict[tuple[str, int], str] | None = None,
+) -> tuple[str, dict]:
+    """Async version of _prepare_pinned_request using non-blocking DNS.
+
+    Returns the pinned URL and updated kwargs with Host header and SNI hostname.
+    """
+    validated = await async_validate_url_with_pinning(
+        str(url), admin_approved=admin_approved, dns_cache=dns_cache
+    )
+    pinned_url = validated.get_pinned_url()
+
+    # Set Host header to original hostname
+    headers = kwargs.get("headers", {})
+    if isinstance(headers, dict):
+        headers = dict(headers)  # Don't modify original
+    headers["Host"] = validated.hostname
+    kwargs["headers"] = headers
+
+    # Set SNI hostname for HTTPS connections with IP pinning.
+    if validated.scheme == "https" and validated.pinned_ip != validated.hostname:
+        extensions = kwargs.get("extensions", {})
+        extensions["sni_hostname"] = validated.hostname.encode("ascii")
+        kwargs["extensions"] = extensions
+
+    return pinned_url, kwargs
+
+
 def _prepare_pinned_request(
     url: str, kwargs: dict, *, admin_approved: bool = False
 ) -> tuple[str, dict]:
@@ -426,7 +568,7 @@ class SSRFProtectedAsyncHttpClient:
     standard SSRF blocklist checks).
     """
 
-    __slots__ = ("__wrapped_client", "__allowed_hosts", "__proxy_mode")
+    __slots__ = ("__wrapped_client", "__allowed_hosts", "__proxy_mode", "__dns_cache")
 
     def __init__(
         self,
@@ -449,6 +591,12 @@ class SSRFProtectedAsyncHttpClient:
             "_SSRFProtectedAsyncHttpClient__proxy_mode",
             proxy_mode if proxy_mode is not None else _PROXY_MODE,
         )
+        # Per-instance DNS cache: (hostname, port) → pinned_ip.
+        # Scoped to a single tool execution (the instance is created and
+        # garbage-collected per invocation), so no TTL is needed.
+        # Avoids redundant blocking DNS lookups when a tool makes multiple
+        # requests to the same host (e.g., 14 requests to boards-api.greenhouse.io).
+        object.__setattr__(self, "_SSRFProtectedAsyncHttpClient__dns_cache", {})
 
     def __getattr__(self, name: str):
         raise AttributeError(
@@ -459,10 +607,10 @@ class SSRFProtectedAsyncHttpClient:
     def __setattr__(self, name: str, value):
         raise AttributeError("Cannot set attributes on the HTTP client")
 
-    def _prepare_request(self, url: str, kwargs: dict) -> tuple[str, dict]:
-        """Validate URL and prepare request.
+    async def _prepare_request(self, url: str, kwargs: dict) -> tuple[str, dict]:
+        """Validate URL and prepare request (async, non-blocking DNS).
 
-        In direct mode: full IP pinning with DNS resolution.
+        In direct mode: full IP pinning with async DNS resolution.
         In proxy mode: hostname-only validation (proxy handles DNS/IP checks).
         Also enforces the per-server network allowlist if configured.
 
@@ -470,6 +618,11 @@ class SSRFProtectedAsyncHttpClient:
         the network-access-request flow), ``admin_approved=True`` is forwarded
         to the SSRF validation functions so that RFC 1918 private IPs are
         permitted while loopback / link-local / metadata remain blocked.
+
+        Uses ``asyncio.get_running_loop().getaddrinfo()`` instead of the
+        synchronous ``socket.getaddrinfo()`` to avoid blocking the event loop
+        during DNS resolution.  A per-instance DNS cache avoids redundant
+        lookups when a tool makes multiple requests to the same host.
         """
         # Force-disable redirects to prevent redirect-based SSRF bypass.
         # The underlying client may have been configured with follow_redirects=True;
@@ -500,36 +653,38 @@ class SSRFProtectedAsyncHttpClient:
 
         if self.__proxy_mode:
             return _validate_hostname_only(url, kwargs, admin_approved=admin_approved)
-        return _prepare_pinned_request(url, kwargs, admin_approved=admin_approved)
+        return await _async_prepare_pinned_request(
+            url, kwargs, admin_approved=admin_approved, dns_cache=self.__dns_cache
+        )
 
     async def get(self, url, **kwargs):
-        pinned_url, kwargs = self._prepare_request(url, kwargs)
+        pinned_url, kwargs = await self._prepare_request(url, kwargs)
         return await self.__wrapped_client.get(pinned_url, **kwargs)
 
     async def post(self, url, **kwargs):
-        pinned_url, kwargs = self._prepare_request(url, kwargs)
+        pinned_url, kwargs = await self._prepare_request(url, kwargs)
         return await self.__wrapped_client.post(pinned_url, **kwargs)
 
     async def put(self, url, **kwargs):
-        pinned_url, kwargs = self._prepare_request(url, kwargs)
+        pinned_url, kwargs = await self._prepare_request(url, kwargs)
         return await self.__wrapped_client.put(pinned_url, **kwargs)
 
     async def patch(self, url, **kwargs):
-        pinned_url, kwargs = self._prepare_request(url, kwargs)
+        pinned_url, kwargs = await self._prepare_request(url, kwargs)
         return await self.__wrapped_client.patch(pinned_url, **kwargs)
 
     async def delete(self, url, **kwargs):
-        pinned_url, kwargs = self._prepare_request(url, kwargs)
+        pinned_url, kwargs = await self._prepare_request(url, kwargs)
         return await self.__wrapped_client.delete(pinned_url, **kwargs)
 
     async def head(self, url, **kwargs):
-        pinned_url, kwargs = self._prepare_request(url, kwargs)
+        pinned_url, kwargs = await self._prepare_request(url, kwargs)
         return await self.__wrapped_client.head(pinned_url, **kwargs)
 
     async def options(self, url, **kwargs):
-        pinned_url, kwargs = self._prepare_request(url, kwargs)
+        pinned_url, kwargs = await self._prepare_request(url, kwargs)
         return await self.__wrapped_client.options(pinned_url, **kwargs)
 
     async def request(self, method, url, **kwargs):
-        pinned_url, kwargs = self._prepare_request(url, kwargs)
+        pinned_url, kwargs = await self._prepare_request(url, kwargs)
         return await self.__wrapped_client.request(method, pinned_url, **kwargs)

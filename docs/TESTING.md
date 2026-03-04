@@ -7,7 +7,7 @@ MCPbox maintains **1,300+ test functions** across backend, sandbox, frontend, an
 | Component | Test Files | Test Functions | Estimated Coverage | Grade |
 |-----------|-----------|---------------|-------------------|-------|
 | Backend | 46 | ~840 | 65-70% | B |
-| Sandbox | 13 | ~350 | 75-80% | A |
+| Sandbox | 13 | ~400 | 75-80% | A |
 | Frontend | 4 | ~50 | 15-20% | D |
 | Worker | 1 | ~72 | 85% | A |
 
@@ -59,7 +59,7 @@ MCPbox maintains **1,300+ test functions** across backend, sandbox, frontend, an
 | Module | Unit Tests | Integration Tests | E2E Tests | Estimated Coverage | Critical Gaps |
 |--------|-----------|-------------------|-----------|-------------------|---------------|
 | `executor.py` | 40+ safety, 30+ escape, 30+ hardening | 15+ execute | - | 80% | Concurrent execution untested |
-| `ssrf.py` | 95+ tests (direct, proxy, admin-approved) | - | - | 95% | Integration: sandbox → squid → internet |
+| `ssrf.py` | 110+ tests (direct, proxy, admin-approved, async DNS, DNS cache) | - | - | 95% | Integration: sandbox → squid → internet |
 | `registry.py` | 15+ tests | - | - | 75% | - |
 | `mcp_client.py` | 20+ tests | - | - | 70% | SSRF validation gap untested |
 | `mcp_session_pool.py` | 15+ tests | - | - | 70% | - |
