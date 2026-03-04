@@ -106,6 +106,7 @@ The following issues were identified and fixed in the February 2026 API security
 - **F-07**: Import endpoint rejects unsigned or tampered export files (previously only warned)
 - **F-08**: Rate limiter logs a warning at startup that state is in-memory and non-persistent
 - **F-09**: `_handle_tools_list` requires a database session (no longer optional) to ensure approval filtering always runs
+- **F-10**: SSRF URL validation uses async DNS resolution (`loop.getaddrinfo()`) instead of blocking `socket.getaddrinfo()` to prevent event loop stalls during repeated tool executions; per-invocation DNS cache avoids redundant lookups for tools making many requests to the same host
 
 ## Operator Responsibilities
 
