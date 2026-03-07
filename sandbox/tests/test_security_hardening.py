@@ -46,7 +46,24 @@ class TestNetworkAllowlist:
         mock_validated.pinned_ip = "93.184.216.34"
         mock_validate.return_value = mock_validated
 
-        client = self._make_client(allowed_hosts=None)
+        # Set up mock to support the streaming interface used by
+        # _request_with_size_limit (build_request → send → aiter_bytes)
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        mock_response = AsyncMock()
+        mock_response.headers = httpx.Headers({})
+
+        async def empty_aiter_bytes(chunk_size=65536):
+            return
+            yield  # Make this an async generator
+
+        mock_response.aiter_bytes = empty_aiter_bytes
+        mock_response.aclose = AsyncMock()
+        mock_client.build_request.return_value = MagicMock()
+        mock_client.send = AsyncMock(return_value=mock_response)
+
+        client = SSRFProtectedAsyncHttpClient(
+            mock_client, allowed_hosts=None, proxy_mode=False
+        )
         # Should not raise — no allowlist means no restriction
         await client.get("https://api.example.com/api")
 

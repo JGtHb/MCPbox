@@ -24,6 +24,12 @@ from urllib.parse import urlparse, urlunparse
 
 import httpx
 
+logger = logging.getLogger(__name__)
+
+# Maximum response body size (configurable, default 50MB).
+# Prevents tools from consuming all process memory on huge API responses.
+MAX_RESPONSE_SIZE = int(os.environ.get("SANDBOX_MAX_RESPONSE_SIZE", 50 * 1024 * 1024))
+
 # Auto-detect proxy mode from environment.
 # When set, the sandbox routes all traffic through squid; IP pinning is
 # delegated to the proxy (squid blocks private IPs via dst ACLs).
@@ -109,6 +115,10 @@ class SSRFError(Exception):
     This includes private IPs, loopback addresses, cloud metadata endpoints,
     and any URL that resolves to a blocked IP range.
     """
+
+
+class ResponseTooLargeError(Exception):
+    """Raised when an HTTP response body exceeds the size limit."""
 
 
 @dataclass
@@ -568,13 +578,20 @@ class SSRFProtectedAsyncHttpClient:
     standard SSRF blocklist checks).
     """
 
-    __slots__ = ("__wrapped_client", "__allowed_hosts", "__proxy_mode", "__dns_cache")
+    __slots__ = (
+        "__wrapped_client",
+        "__allowed_hosts",
+        "__proxy_mode",
+        "__max_response_size",
+        "__dns_cache",
+    )
 
     def __init__(
         self,
         client: httpx.AsyncClient,
         allowed_hosts: set[str] | None = None,
         proxy_mode: bool | None = None,
+        max_response_size: int = MAX_RESPONSE_SIZE,
     ):
         # Use object.__setattr__ to bypass our __setattr__ guard
         object.__setattr__(
@@ -590,6 +607,11 @@ class SSRFProtectedAsyncHttpClient:
             self,
             "_SSRFProtectedAsyncHttpClient__proxy_mode",
             proxy_mode if proxy_mode is not None else _PROXY_MODE,
+        )
+        object.__setattr__(
+            self,
+            "_SSRFProtectedAsyncHttpClient__max_response_size",
+            max_response_size,
         )
         # Per-instance DNS cache: (hostname, port) → pinned_ip.
         # Scoped to a single tool execution (the instance is created and
@@ -657,25 +679,71 @@ class SSRFProtectedAsyncHttpClient:
             url, kwargs, admin_approved=admin_approved, dns_cache=self.__dns_cache
         )
 
-    async def get(self, url, **kwargs):
+    async def _request_with_size_limit(self, method: str, url: str, **kwargs):
+        """Make a request with response body size limiting.
+
+        Uses httpx streaming to read the response body in chunks, aborting
+        before the process runs out of memory if the response is too large.
+        """
         pinned_url, kwargs = await self._prepare_request(url, kwargs)
-        return await self.__wrapped_client.get(pinned_url, **kwargs)
+        max_size = self.__max_response_size
+
+        request = self.__wrapped_client.build_request(method, pinned_url, **kwargs)
+        response = await self.__wrapped_client.send(request, stream=True)
+
+        try:
+            # Fast path: check Content-Length header before reading body
+            content_length = response.headers.get("content-length")
+            if content_length:
+                try:
+                    size = int(content_length)
+                    if size > max_size:
+                        raise ResponseTooLargeError(
+                            f"Response too large: server reported {size:,} bytes. "
+                            f"Maximum allowed: {max_size:,} bytes "
+                            f"({max_size // (1024 * 1024)}MB). "
+                            f"Consider using pagination or filtering."
+                        )
+                except (ValueError, TypeError):
+                    pass  # Malformed Content-Length, fall through to streaming check
+
+            # Read body in chunks with size enforcement
+            chunks = []
+            total = 0
+            async for chunk in response.aiter_bytes(chunk_size=65536):
+                total += len(chunk)
+                if total > max_size:
+                    raise ResponseTooLargeError(
+                        f"Response body exceeded {max_size:,} byte limit "
+                        f"({max_size // (1024 * 1024)}MB) while streaming. "
+                        f"Read {total:,} bytes before aborting. "
+                        f"Consider using pagination or filtering."
+                    )
+                chunks.append(chunk)
+
+            # Set response content so .text, .json(), .content work normally
+            response._content = b"".join(chunks)
+        except ResponseTooLargeError:
+            raise
+        finally:
+            await response.aclose()
+
+        return response
+
+    async def get(self, url, **kwargs):
+        return await self._request_with_size_limit("GET", url, **kwargs)
 
     async def post(self, url, **kwargs):
-        pinned_url, kwargs = await self._prepare_request(url, kwargs)
-        return await self.__wrapped_client.post(pinned_url, **kwargs)
+        return await self._request_with_size_limit("POST", url, **kwargs)
 
     async def put(self, url, **kwargs):
-        pinned_url, kwargs = await self._prepare_request(url, kwargs)
-        return await self.__wrapped_client.put(pinned_url, **kwargs)
+        return await self._request_with_size_limit("PUT", url, **kwargs)
 
     async def patch(self, url, **kwargs):
-        pinned_url, kwargs = await self._prepare_request(url, kwargs)
-        return await self.__wrapped_client.patch(pinned_url, **kwargs)
+        return await self._request_with_size_limit("PATCH", url, **kwargs)
 
     async def delete(self, url, **kwargs):
-        pinned_url, kwargs = await self._prepare_request(url, kwargs)
-        return await self.__wrapped_client.delete(pinned_url, **kwargs)
+        return await self._request_with_size_limit("DELETE", url, **kwargs)
 
     async def head(self, url, **kwargs):
         pinned_url, kwargs = await self._prepare_request(url, kwargs)
@@ -686,5 +754,4 @@ class SSRFProtectedAsyncHttpClient:
         return await self.__wrapped_client.options(pinned_url, **kwargs)
 
     async def request(self, method, url, **kwargs):
-        pinned_url, kwargs = await self._prepare_request(url, kwargs)
-        return await self.__wrapped_client.request(method, pinned_url, **kwargs)
+        return await self._request_with_size_limit(method, url, **kwargs)

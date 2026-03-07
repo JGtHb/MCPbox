@@ -441,7 +441,21 @@ async def mcp_endpoint(request: Request, body: dict[str, Any]):
     )
 
     if method == "tools/list":
-        tools = tool_registry.list_tools()
+        try:
+            tools = tool_registry.list_tools()
+        except Exception as e:
+            logger.error(
+                f"MCP tools/list failed: {type(e).__name__}: {e}",
+                exc_info=True,
+            )
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {
+                    "code": -32603,
+                    "message": f"Failed to list tools: {type(e).__name__}: {e}",
+                },
+            }
         logger.info(f"MCP tools/list: returning {len(tools)} tools")
         return {
             "jsonrpc": "2.0",
