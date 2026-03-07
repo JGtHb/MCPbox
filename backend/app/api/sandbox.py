@@ -12,6 +12,12 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import (
+    get_global_config_service,
+    get_server_service,
+    get_tool_service,
+    require_found,
+)
 from app.core import get_db
 from app.services.external_mcp_source import ExternalMCPSourceService
 from app.services.global_config import GlobalConfigService
@@ -41,21 +47,6 @@ class ServerLogsResponse(BaseModel):
     message: str
 
 
-def get_server_service(db: AsyncSession = Depends(get_db)) -> ServerService:
-    """Dependency to get server service."""
-    return ServerService(db)
-
-
-def get_tool_service(db: AsyncSession = Depends(get_db)) -> ToolService:
-    """Dependency to get tool service."""
-    return ToolService(db)
-
-
-def get_global_config_service(db: AsyncSession = Depends(get_db)) -> GlobalConfigService:
-    """Dependency to get global config service."""
-    return GlobalConfigService(db)
-
-
 @router.post(
     "/servers/{server_id}/start",
     response_model=ServerStatusResponse,
@@ -73,11 +64,7 @@ async def start_server(
     The server must have tools defined.
     """
     server = await server_service.get(server_id)
-    if not server:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Server {server_id} not found",
-        )
+    require_found(server, "Server", server_id)
 
     if server.status == "running":
         raise HTTPException(
@@ -165,11 +152,7 @@ async def stop_server(
 ) -> ServerStatusResponse:
     """Stop a server by unregistering its tools from the sandbox."""
     server = await server_service.get(server_id)
-    if not server:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Server {server_id} not found",
-        )
+    require_found(server, "Server", server_id)
 
     if server.status != "running":
         raise HTTPException(
@@ -219,11 +202,7 @@ async def restart_server(
 ) -> ServerStatusResponse:
     """Restart a server by re-registering its tools."""
     server = await server_service.get(server_id)
-    if not server:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Server {server_id} not found",
-        )
+    require_found(server, "Server", server_id)
 
     # Unregister first (ignore errors)
     await sandbox_client.unregister_server(str(server_id))
@@ -301,11 +280,7 @@ async def get_server_status(
 ) -> ServerStatusResponse:
     """Get current status of a server."""
     server = await server_service.get(server_id)
-    if not server:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Server {server_id} not found",
-        )
+    require_found(server, "Server", server_id)
 
     # Check if registered in sandbox
     tools = await sandbox_client.list_tools(str(server_id))
@@ -331,11 +306,7 @@ async def get_server_logs(
     are available through the Activity page instead.
     """
     server = await server_service.get(server_id)
-    if not server:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Server {server_id} not found",
-        )
+    require_found(server, "Server", server_id)
 
     return ServerLogsResponse(
         server_id=str(server_id),

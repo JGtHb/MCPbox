@@ -7,8 +7,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import get_server_service, get_source_service
 from app.core import get_db
-from app.models.server import Server
 from app.schemas.external_mcp_source import (
     DiscoverToolsResponse,
     ExternalMCPSourceCreate,
@@ -38,78 +38,6 @@ from app.services.server_secret import ServerSecretService
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/external-sources", tags=["external-mcp-sources"])
-
-
-async def _refresh_server_after_import(server: Server, db: AsyncSession) -> bool:
-    """Re-register a running server with the sandbox after importing new tools.
-
-    Loads all approved+enabled tools from DB and re-registers the full set
-    with the sandbox, so newly imported tools are immediately available.
-    Includes mcp_passthrough tool definitions and external source configs.
-
-    Returns True if successful, False otherwise.
-    """
-    try:
-        from app.api.sandbox import _build_external_source_configs, _build_tool_definitions
-        from app.services.global_config import GlobalConfigService
-        from app.services.server_secret import ServerSecretService as SecretSvc
-        from app.services.tool import ToolService
-
-        # Get all tools for this server (the builder filters as needed)
-        tool_service = ToolService(db)
-        tools, _ = await tool_service.list_by_server(server.id)
-
-        # Filter to approved + enabled only
-        active_tools = [t for t in tools if t.enabled and t.approval_status == "approved"]
-
-        # Build tool definitions (handles both python_code and mcp_passthrough)
-        tool_defs = _build_tool_definitions(active_tools)
-
-        # Get decrypted secrets
-        secret_service = SecretSvc(db)
-        secrets = await secret_service.get_decrypted_for_injection(server.id)
-
-        # Get global allowed modules
-        config_service = GlobalConfigService(db)
-        allowed_modules = await config_service.get_allowed_modules()
-
-        # Build external source configs for passthrough tools
-        external_sources_data = await _build_external_source_configs(db, server.id, secrets)
-
-        # Re-register with sandbox
-        sandbox_client = SandboxClient.get_instance()
-        reg_result = await sandbox_client.register_server(
-            server_id=str(server.id),
-            server_name=server.name,
-            tools=tool_defs,
-            allowed_modules=allowed_modules,
-            secrets=secrets,
-            external_sources=external_sources_data,
-            allowed_hosts=server.allowed_hosts or [],
-        )
-
-        success = (
-            bool(reg_result.get("success")) if isinstance(reg_result, dict) else bool(reg_result)
-        )
-        if success:
-            logger.info(
-                f"Server {server.name} re-registered with {len(tool_defs)} tools after import"
-            )
-        else:
-            logger.warning(f"Failed to re-register server {server.name} after import")
-        return success
-
-    except Exception as e:
-        logger.error(f"Error refreshing server registration after import: {e}")
-        return False
-
-
-def get_server_service(db: AsyncSession = Depends(get_db)) -> ServerService:
-    return ServerService(db)
-
-
-def get_source_service(db: AsyncSession = Depends(get_db)) -> ExternalMCPSourceService:
-    return ExternalMCPSourceService(db)
 
 
 def _source_to_response(source: Any) -> dict[str, Any]:
@@ -360,13 +288,11 @@ async def import_tools(
     # are immediately available without requiring a server restart
     if result.created:
         try:
-            server = await server_service.get(source.server_id)
-            if server and server.status == "running":
-                await _refresh_server_after_import(server, db)
+            from app.api.sandbox import reregister_server
+            from app.services.tool_change_notifier import fire_and_forget_notify
 
-                from app.services.tool_change_notifier import fire_and_forget_notify
-
-                fire_and_forget_notify()
+            await reregister_server(source.server_id, db)
+            fire_and_forget_notify()
         except Exception as e:
             logger.warning(f"Failed to refresh server after import: {e}")
 

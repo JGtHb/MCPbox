@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import calc_pages, get_server_service, require_found
 from app.api.sandbox import reregister_server
 from app.core import get_db
 from app.models.network_access_request import NetworkAccessRequest
@@ -36,11 +37,6 @@ router = APIRouter(
     prefix="/servers",
     tags=["servers"],
 )
-
-
-def get_server_service(db: AsyncSession = Depends(get_db)) -> ServerService:
-    """Dependency to get server service."""
-    return ServerService(db)
 
 
 @router.post("", response_model=ServerResponse, status_code=status.HTTP_201_CREATED)
@@ -73,13 +69,12 @@ async def list_servers(
         )
         for s in servers
     ]
-    pages = (total + page_size - 1) // page_size if total > 0 else 0
     return ServerListPaginatedResponse(
         items=items,
         total=total,
         page=page,
         page_size=page_size,
-        pages=pages,
+        pages=calc_pages(total, page_size),
     )
 
 
@@ -90,11 +85,7 @@ async def get_server(
 ) -> ServerResponse:
     """Get a server by ID."""
     server = await service.get(server_id)
-    if not server:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Server {server_id} not found",
-        )
+    require_found(server, "Server", server_id)
     return _to_response(server)
 
 
@@ -106,11 +97,7 @@ async def update_server(
 ) -> ServerResponse:
     """Update a server."""
     server = await service.update(server_id, data)
-    if not server:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Server {server_id} not found",
-        )
+    require_found(server, "Server", server_id)
     return _to_response(server)
 
 
@@ -121,11 +108,7 @@ async def delete_server(
 ) -> None:
     """Delete a server and all associated data."""
     deleted = await service.delete(server_id)
-    if not deleted:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Server {server_id} not found",
-        )
+    require_found(deleted, "Server", server_id)
     return None
 
 
@@ -142,11 +125,7 @@ async def add_allowed_host(
     Re-registers the server with the sandbox if it's running.
     """
     server = await service.get(server_id)
-    if not server:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Server {server_id} not found",
-        )
+    require_found(server, "Server", server_id)
 
     host = data.host.strip().lower()
 
@@ -201,11 +180,7 @@ async def remove_allowed_host(
     Re-registers the server with the sandbox if it's running.
     """
     server = await service.get(server_id)
-    if not server:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Server {server_id} not found",
-        )
+    require_found(server, "Server", server_id)
 
     host = host.strip().lower()
     if host not in (server.allowed_hosts or []):
