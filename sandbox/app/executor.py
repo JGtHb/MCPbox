@@ -1,6 +1,7 @@
 """Python Executor - safely executes user-provided Python code."""
 
 import asyncio
+import gc
 import json
 import logging
 import os
@@ -1427,6 +1428,8 @@ class ExecutionResult:
             except Exception as e:
                 # MemoryError, RecursionError, etc. during serialization
                 logger.error(f"Result serialization failed: {type(e).__name__}: {e}")
+                if isinstance(e, MemoryError):
+                    gc.collect()
                 try:
                     result_value = str(result_value)[:MAX_OUTPUT_SIZE]
                 except Exception:
@@ -2056,6 +2059,11 @@ class PythonExecutor:
             # Capture full traceback for debugging
             tb = traceback.format_exc()
             logger.error(f"Execution error: {tb}")
+
+            # After MemoryError, force garbage collection to reclaim memory
+            # and prevent the sandbox process from staying in a degraded state.
+            if isinstance(e, MemoryError):
+                gc.collect()
 
             error_detail = extract_error_detail(e, python_code)
 
