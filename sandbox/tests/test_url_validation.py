@@ -8,6 +8,7 @@ from app.ssrf import (
     SSRFError,
     _is_always_blocked_ip,
     _validate_hostname_only,
+    async_validate_url_with_pinning,
     validate_url_with_pinning,
 )
 
@@ -474,3 +475,207 @@ class TestAdminApprovedIntegration:
                 validate_url_with_pinning(
                     "http://evil.example.com/api", admin_approved=True
                 )
+
+
+# =============================================================================
+# Async URL Validation — Unit Tests
+# =============================================================================
+
+
+class TestAsyncValidateUrl:
+    """Tests for async_validate_url_with_pinning (non-blocking DNS)."""
+
+    @patch("socket.getaddrinfo", mock_getaddrinfo)
+    @pytest.mark.asyncio
+    async def test_valid_https_url(self):
+        """HTTPS URLs are accepted with async DNS."""
+        url = "https://api.example.com/v1/data"
+        result = await async_validate_url_with_pinning(url)
+        assert result.original_url == url
+        assert result.pinned_ip == "93.184.216.34"
+
+    @pytest.mark.asyncio
+    async def test_empty_url_rejected(self):
+        """Empty URL is rejected."""
+        with pytest.raises(SSRFError, match="cannot be empty"):
+            await async_validate_url_with_pinning("")
+
+    @pytest.mark.asyncio
+    async def test_localhost_rejected(self):
+        """localhost is rejected."""
+        with pytest.raises(SSRFError, match="Blocked hostname"):
+            await async_validate_url_with_pinning("http://localhost/api")
+
+    @pytest.mark.asyncio
+    async def test_private_ip_rejected(self):
+        """Private IPs are rejected."""
+        with pytest.raises(SSRFError, match="blocked IP range"):
+            await async_validate_url_with_pinning("http://10.0.0.1/api")
+
+    @pytest.mark.asyncio
+    async def test_public_ip_accepted(self):
+        """Public IP addresses are accepted without DNS."""
+        result = await async_validate_url_with_pinning("http://8.8.8.8/dns")
+        assert result.pinned_ip == "8.8.8.8"
+
+    @pytest.mark.asyncio
+    async def test_admin_approved_allows_private_ip(self):
+        """admin_approved=True allows private IP."""
+        result = await async_validate_url_with_pinning(
+            "http://192.168.1.50:8080/api", admin_approved=True
+        )
+        assert result.pinned_ip == "192.168.1.50"
+
+    @pytest.mark.asyncio
+    async def test_admin_approved_blocks_loopback(self):
+        """Loopback is always blocked even with admin_approved=True."""
+        with pytest.raises(SSRFError, match="Blocked"):
+            await async_validate_url_with_pinning(
+                "http://127.0.0.1/api", admin_approved=True
+            )
+
+    @patch("socket.getaddrinfo", mock_getaddrinfo)
+    @pytest.mark.asyncio
+    async def test_uses_async_dns_not_blocking_sync(self):
+        """Async validation uses loop.getaddrinfo (delegates to thread pool)."""
+        # The async function uses loop.getaddrinfo() which internally calls
+        # socket.getaddrinfo() via run_in_executor, keeping the event loop free.
+        result = await async_validate_url_with_pinning(
+            "https://api.example.com/v1/data"
+        )
+        assert result.pinned_ip == "93.184.216.34"
+
+    @pytest.mark.asyncio
+    async def test_dns_failure_raises_ssrf_error(self):
+        """DNS resolution failure raises SSRFError."""
+        import socket
+
+        def failing_dns(*args, **kwargs):
+            raise socket.gaierror("Name resolution failed")
+
+        with patch("socket.getaddrinfo", failing_dns):
+            with pytest.raises(SSRFError, match="DNS resolution failed"):
+                await async_validate_url_with_pinning("https://nonexistent.example.com")
+
+
+# =============================================================================
+# DNS Cache — Unit Tests
+# =============================================================================
+
+
+class TestDNSCache:
+    """Tests for per-instance DNS caching in async_validate_url_with_pinning."""
+
+    @patch("socket.getaddrinfo", mock_getaddrinfo)
+    @pytest.mark.asyncio
+    async def test_dns_cache_stores_resolved_ip(self):
+        """DNS cache stores resolved IP after first lookup."""
+        cache: dict[tuple[str, int], str] = {}
+        await async_validate_url_with_pinning(
+            "https://api.example.com/v1/data", dns_cache=cache
+        )
+        assert ("api.example.com", 443) in cache
+        assert cache[("api.example.com", 443)] == "93.184.216.34"
+
+    @pytest.mark.asyncio
+    async def test_dns_cache_avoids_redundant_lookups(self):
+        """Cached DNS result prevents repeated lookups for the same host."""
+        cache: dict[tuple[str, int], str] = {}
+        call_count = 0
+
+        def counting_getaddrinfo(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return mock_getaddrinfo(*args, **kwargs)
+
+        with patch("socket.getaddrinfo", counting_getaddrinfo):
+            # First call: DNS lookup happens
+            await async_validate_url_with_pinning(
+                "https://api.example.com/v1/data", dns_cache=cache
+            )
+            assert call_count == 1
+
+            # Second call: uses cache, no DNS lookup
+            await async_validate_url_with_pinning(
+                "https://api.example.com/v1/other", dns_cache=cache
+            )
+            assert call_count == 1  # Still 1 — cache hit
+
+    @pytest.mark.asyncio
+    async def test_dns_cache_different_hosts_resolve_separately(self):
+        """Different hostnames are cached separately."""
+        cache: dict[tuple[str, int], str] = {}
+        call_count = 0
+        ip_map = {
+            "host1.example.com": "1.2.3.4",
+            "host2.example.com": "5.6.7.8",
+        }
+
+        def routing_getaddrinfo(host, port, *args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            ip = ip_map.get(host, "93.184.216.34")
+            return [(2, 1, 6, "", (ip, port))]
+
+        with patch("socket.getaddrinfo", routing_getaddrinfo):
+            await async_validate_url_with_pinning(
+                "https://host1.example.com/api", dns_cache=cache
+            )
+            await async_validate_url_with_pinning(
+                "https://host2.example.com/api", dns_cache=cache
+            )
+
+            assert call_count == 2
+            assert cache[("host1.example.com", 443)] == "1.2.3.4"
+            assert cache[("host2.example.com", 443)] == "5.6.7.8"
+
+    @pytest.mark.asyncio
+    async def test_dns_cache_not_used_for_ip_literals(self):
+        """IP literals bypass DNS cache entirely."""
+        cache: dict[tuple[str, int], str] = {}
+        result = await async_validate_url_with_pinning(
+            "http://8.8.8.8/dns", dns_cache=cache
+        )
+        assert result.pinned_ip == "8.8.8.8"
+        assert len(cache) == 0  # IP literals don't populate cache
+
+    @pytest.mark.asyncio
+    async def test_dns_cache_none_disables_caching(self):
+        """dns_cache=None disables caching (every call does DNS)."""
+        call_count = 0
+
+        def counting_getaddrinfo(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return mock_getaddrinfo(*args, **kwargs)
+
+        with patch("socket.getaddrinfo", counting_getaddrinfo):
+            await async_validate_url_with_pinning(
+                "https://api.example.com/v1/data", dns_cache=None
+            )
+            await async_validate_url_with_pinning(
+                "https://api.example.com/v1/other", dns_cache=None
+            )
+            assert call_count == 2  # No caching, two DNS lookups
+
+    @pytest.mark.asyncio
+    async def test_sequential_requests_same_host_single_dns(self):
+        """Simulates 14 sequential requests to same host — only 1 DNS lookup."""
+        cache: dict[tuple[str, int], str] = {}
+        call_count = 0
+
+        def counting_getaddrinfo(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return mock_getaddrinfo(*args, **kwargs)
+
+        with patch("socket.getaddrinfo", counting_getaddrinfo):
+            for i in range(14):
+                result = await async_validate_url_with_pinning(
+                    f"https://boards-api.greenhouse.io/v1/boards/company{i}/jobs",
+                    dns_cache=cache,
+                )
+                assert result.pinned_ip == "93.184.216.34"
+
+            # Only 1 DNS lookup despite 14 requests
+            assert call_count == 1

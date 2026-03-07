@@ -35,7 +35,7 @@ class TestNetworkAllowlist:
             mock_client, allowed_hosts=allowed_hosts, proxy_mode=False
         )
 
-    @patch("app.ssrf.validate_url_with_pinning")
+    @patch("app.ssrf.async_validate_url_with_pinning", new_callable=AsyncMock)
     @pytest.mark.asyncio
     async def test_no_allowlist_allows_any_public_host(self, mock_validate):
         """When allowed_hosts is None, any public host is permitted."""
@@ -67,19 +67,20 @@ class TestNetworkAllowlist:
         # Should not raise — no allowlist means no restriction
         await client.get("https://api.example.com/api")
 
-    def test_empty_allowlist_blocks_all_hosts(self):
+    @pytest.mark.asyncio
+    async def test_empty_allowlist_blocks_all_hosts(self):
         """When allowed_hosts is empty set, all requests are blocked."""
         client = self._make_client(allowed_hosts=set())
 
         with pytest.raises(SSRFError) as exc_info:
-            # _prepare_request is sync, but we test it directly
-            client._prepare_request("https://api.example.com/api", {})
+            await client._prepare_request("https://api.example.com/api", {})
 
         assert "not approved" in str(exc_info.value)
         assert "api.example.com" in str(exc_info.value)
 
-    @patch("app.ssrf.validate_url_with_pinning")
-    def test_allowlist_permits_approved_host(self, mock_validate):
+    @patch("app.ssrf.async_validate_url_with_pinning", new_callable=AsyncMock)
+    @pytest.mark.asyncio
+    async def test_allowlist_permits_approved_host(self, mock_validate):
         """Requests to approved hosts pass the allowlist check."""
         mock_validated = MagicMock()
         mock_validated.get_pinned_url.return_value = "https://93.184.216.34/api"
@@ -90,28 +91,33 @@ class TestNetworkAllowlist:
 
         client = self._make_client(allowed_hosts={"api.example.com"})
         # Should not raise
-        pinned_url, kwargs = client._prepare_request("https://api.example.com/api", {})
+        pinned_url, kwargs = await client._prepare_request(
+            "https://api.example.com/api", {}
+        )
         assert pinned_url is not None
 
-    def test_allowlist_blocks_unapproved_host(self):
+    @pytest.mark.asyncio
+    async def test_allowlist_blocks_unapproved_host(self):
         """Requests to unapproved hosts are blocked."""
         client = self._make_client(allowed_hosts={"api.example.com"})
 
         with pytest.raises(SSRFError) as exc_info:
-            client._prepare_request("https://attacker.com/exfil", {})
+            await client._prepare_request("https://attacker.com/exfil", {})
 
         assert "not approved" in str(exc_info.value)
         assert "attacker.com" in str(exc_info.value)
 
-    def test_allowlist_case_insensitive(self):
+    @pytest.mark.asyncio
+    async def test_allowlist_case_insensitive(self):
         """Hostname matching in allowlist is case-insensitive."""
         client = self._make_client(allowed_hosts={"api.example.com"})
 
         with pytest.raises(SSRFError):
-            client._prepare_request("https://ATTACKER.COM/exfil", {})
+            await client._prepare_request("https://ATTACKER.COM/exfil", {})
 
-    @patch("app.ssrf.validate_url_with_pinning")
-    def test_allowlist_with_multiple_hosts(self, mock_validate):
+    @patch("app.ssrf.async_validate_url_with_pinning", new_callable=AsyncMock)
+    @pytest.mark.asyncio
+    async def test_allowlist_with_multiple_hosts(self, mock_validate):
         """Multiple approved hosts are all permitted."""
         mock_validated = MagicMock()
         mock_validated.get_pinned_url.return_value = "https://1.2.3.4/api"
@@ -124,10 +130,13 @@ class TestNetworkAllowlist:
             allowed_hosts={"api1.example.com", "api2.example.com", "api3.example.com"}
         )
         # Should not raise — host is in the allowlist
-        pinned_url, kwargs = client._prepare_request("https://api2.example.com/api", {})
+        pinned_url, kwargs = await client._prepare_request(
+            "https://api2.example.com/api", {}
+        )
         assert pinned_url is not None
 
-    def test_allowlist_allows_private_ips(self):
+    @pytest.mark.asyncio
+    async def test_allowlist_allows_private_ips(self):
         """Private IPs in allowed_hosts are permitted (admin-approved).
 
         When a host is in allowed_hosts it means the admin explicitly
@@ -135,34 +144,37 @@ class TestNetworkAllowlist:
         Loopback/metadata IPs are always blocked regardless.
         """
         client = self._make_client(allowed_hosts={"10.0.0.1"})
-        url, _ = client._prepare_request("http://10.0.0.1/internal", {})
+        url, _ = await client._prepare_request("http://10.0.0.1/internal", {})
         assert "10.0.0.1" in url
 
-    def test_redirects_disabled_with_allowlist(self):
+    @pytest.mark.asyncio
+    async def test_redirects_disabled_with_allowlist(self):
         """Redirects are always disabled regardless of allowlist."""
         client = self._make_client(allowed_hosts=set())
 
         # Even though this will fail the allowlist check, verify the redirect
         # disable happens in the kwargs
         try:
-            client._prepare_request("https://blocked.com/api", {})
+            await client._prepare_request("https://blocked.com/api", {})
         except SSRFError:
             pass  # Expected
         # Note: we can't check kwargs here since the error is raised before
         # _prepare_pinned_request runs, but that's fine — the allowlist check
         # is more restrictive anyway.
 
-    def test_allowlist_port_specific_blocks_different_port(self):
+    @pytest.mark.asyncio
+    async def test_allowlist_port_specific_blocks_different_port(self):
         """Port-specific entry 'host:8081' blocks requests to host:1883."""
         client = self._make_client(allowed_hosts={"192.168.1.2:8081"})
 
         with pytest.raises(SSRFError) as exc_info:
-            client._prepare_request("http://192.168.1.2:1883/mqtt", {})
+            await client._prepare_request("http://192.168.1.2:1883/mqtt", {})
 
         assert "not approved" in str(exc_info.value)
 
-    @patch("app.ssrf.validate_url_with_pinning")
-    def test_allowlist_port_specific_permits_matching_port(self, mock_validate):
+    @patch("app.ssrf.async_validate_url_with_pinning", new_callable=AsyncMock)
+    @pytest.mark.asyncio
+    async def test_allowlist_port_specific_permits_matching_port(self, mock_validate):
         """Port-specific entry 'host:8081' permits requests to host:8081."""
         mock_validated = MagicMock()
         mock_validated.get_pinned_url.return_value = "http://192.168.1.2:8081/api"
@@ -172,25 +184,28 @@ class TestNetworkAllowlist:
         mock_validate.return_value = mock_validated
 
         client = self._make_client(allowed_hosts={"192.168.1.2:8081"})
-        url, _ = client._prepare_request("http://192.168.1.2:8081/api", {})
+        url, _ = await client._prepare_request("http://192.168.1.2:8081/api", {})
         assert url is not None
 
-    def test_allowlist_any_port_permits_all_ports(self):
+    @pytest.mark.asyncio
+    async def test_allowlist_any_port_permits_all_ports(self):
         """Any-port entry 'host' (no port suffix) permits requests on any port."""
         client = self._make_client(allowed_hosts={"192.168.1.2"})
         # Should not raise — any port is allowed
-        url, _ = client._prepare_request("http://192.168.1.2:8081/api", {})
+        url, _ = await client._prepare_request("http://192.168.1.2:8081/api", {})
         assert "192.168.1.2" in url
 
-    def test_allowlist_port_specific_blocks_default_port(self):
+    @pytest.mark.asyncio
+    async def test_allowlist_port_specific_blocks_default_port(self):
         """Port-specific entry 'host:8081' blocks requests on default port 80."""
         client = self._make_client(allowed_hosts={"192.168.1.2:8081"})
 
         with pytest.raises(SSRFError):
-            client._prepare_request("http://192.168.1.2/api", {})
+            await client._prepare_request("http://192.168.1.2/api", {})
 
-    @patch("app.ssrf.validate_url_with_pinning")
-    def test_allowlist_multiple_ports_same_host(self, mock_validate):
+    @patch("app.ssrf.async_validate_url_with_pinning", new_callable=AsyncMock)
+    @pytest.mark.asyncio
+    async def test_allowlist_multiple_ports_same_host(self, mock_validate):
         """Multiple port-specific entries for the same host work independently."""
         mock_validated = MagicMock()
         mock_validated.get_pinned_url.return_value = "http://192.168.1.2:1883/mqtt"
@@ -203,12 +218,12 @@ class TestNetworkAllowlist:
             allowed_hosts={"192.168.1.2:8081", "192.168.1.2:1883"}
         )
         # Port 1883 should be permitted
-        url, _ = client._prepare_request("http://192.168.1.2:1883/mqtt", {})
+        url, _ = await client._prepare_request("http://192.168.1.2:1883/mqtt", {})
         assert url is not None
 
         # Port 22 should be blocked
         with pytest.raises(SSRFError):
-            client._prepare_request("http://192.168.1.2:22/ssh", {})
+            await client._prepare_request("http://192.168.1.2:22/ssh", {})
 
 
 # =============================================================================
@@ -232,16 +247,18 @@ class TestProxyMode:
 
     # --- Mode detection ---
 
-    def test_proxy_mode_from_env_var(self):
+    @pytest.mark.asyncio
+    async def test_proxy_mode_from_env_var(self):
         """proxy_mode auto-detects _PROXY_MODE (set from HTTPS_PROXY env var)."""
         with patch("app.ssrf._PROXY_MODE", True):
             client = self._make_client()
             # In proxy mode, URL should NOT be rewritten (no IP pinning)
-            url, _ = client._prepare_request("https://api.example.com/data", {})
+            url, _ = await client._prepare_request("https://api.example.com/data", {})
             assert url == "https://api.example.com/data"
 
-    @patch("app.ssrf.validate_url_with_pinning")
-    def test_direct_mode_default(self, mock_validate):
+    @patch("app.ssrf.async_validate_url_with_pinning", new_callable=AsyncMock)
+    @pytest.mark.asyncio
+    async def test_direct_mode_default(self, mock_validate):
         """Without HTTPS_PROXY, direct mode is used (IP pinning)."""
         mock_validated = MagicMock()
         mock_validated.get_pinned_url.return_value = "https://93.184.216.34/data"
@@ -252,19 +269,21 @@ class TestProxyMode:
 
         with patch("app.ssrf._PROXY_MODE", False):
             client = self._make_client()
-            url, _ = client._prepare_request("https://api.example.com/data", {})
+            url, _ = await client._prepare_request("https://api.example.com/data", {})
             assert url == "https://93.184.216.34/data"  # IP-pinned
             mock_validate.assert_called_once()
 
-    def test_explicit_proxy_mode_overrides_env(self):
+    @pytest.mark.asyncio
+    async def test_explicit_proxy_mode_overrides_env(self):
         """Explicit proxy_mode=True overrides _PROXY_MODE=False."""
         with patch("app.ssrf._PROXY_MODE", False):
             client = self._make_client(proxy_mode=True)
-            url, _ = client._prepare_request("https://api.example.com/data", {})
+            url, _ = await client._prepare_request("https://api.example.com/data", {})
             assert url == "https://api.example.com/data"  # Not pinned
 
-    @patch("app.ssrf.validate_url_with_pinning")
-    def test_explicit_direct_mode_overrides_env(self, mock_validate):
+    @patch("app.ssrf.async_validate_url_with_pinning", new_callable=AsyncMock)
+    @pytest.mark.asyncio
+    async def test_explicit_direct_mode_overrides_env(self, mock_validate):
         """Explicit proxy_mode=False overrides _PROXY_MODE=True."""
         mock_validated = MagicMock()
         mock_validated.get_pinned_url.return_value = "https://93.184.216.34/data"
@@ -275,75 +294,87 @@ class TestProxyMode:
 
         with patch("app.ssrf._PROXY_MODE", True):
             client = self._make_client(proxy_mode=False)
-            url, _ = client._prepare_request("https://api.example.com/data", {})
+            url, _ = await client._prepare_request("https://api.example.com/data", {})
             assert url == "https://93.184.216.34/data"  # Forced IP-pinned
             mock_validate.assert_called_once()
 
     # --- Proxy mode security checks ---
 
-    def test_proxy_mode_blocks_private_ip_literal(self):
+    @pytest.mark.asyncio
+    async def test_proxy_mode_blocks_private_ip_literal(self):
         """Proxy mode still blocks literal private IPs in URLs."""
         client = self._make_client(proxy_mode=True)
         with pytest.raises(SSRFError, match="blocked IP range"):
-            client._prepare_request("http://10.0.0.1/internal", {})
+            await client._prepare_request("http://10.0.0.1/internal", {})
 
-    def test_proxy_mode_blocks_localhost(self):
+    @pytest.mark.asyncio
+    async def test_proxy_mode_blocks_localhost(self):
         """Proxy mode still blocks localhost."""
         client = self._make_client(proxy_mode=True)
         with pytest.raises(SSRFError, match="Blocked hostname"):
-            client._prepare_request("http://localhost/api", {})
+            await client._prepare_request("http://localhost/api", {})
 
-    def test_proxy_mode_blocks_metadata_endpoint(self):
+    @pytest.mark.asyncio
+    async def test_proxy_mode_blocks_metadata_endpoint(self):
         """Proxy mode still blocks cloud metadata endpoints."""
         client = self._make_client(proxy_mode=True)
         with pytest.raises(SSRFError, match="Blocked"):
-            client._prepare_request("http://169.254.169.254/latest/meta-data/", {})
+            await client._prepare_request(
+                "http://169.254.169.254/latest/meta-data/", {}
+            )
 
-    def test_proxy_mode_disables_redirects(self):
+    @pytest.mark.asyncio
+    async def test_proxy_mode_disables_redirects(self):
         """Redirects are disabled in proxy mode too."""
         client = self._make_client(proxy_mode=True)
-        _, kwargs = client._prepare_request("https://api.example.com/data", {})
+        _, kwargs = await client._prepare_request("https://api.example.com/data", {})
         assert kwargs["follow_redirects"] is False
 
     # --- Allowlist + proxy mode interaction ---
 
-    def test_proxy_mode_enforces_allowlist(self):
+    @pytest.mark.asyncio
+    async def test_proxy_mode_enforces_allowlist(self):
         """Per-server allowlist is enforced in proxy mode."""
         client = self._make_client(allowed_hosts={"api.example.com"}, proxy_mode=True)
         with pytest.raises(SSRFError, match="not approved"):
-            client._prepare_request("https://attacker.com/exfil", {})
+            await client._prepare_request("https://attacker.com/exfil", {})
 
-    def test_proxy_mode_permits_approved_host(self):
+    @pytest.mark.asyncio
+    async def test_proxy_mode_permits_approved_host(self):
         """Approved hosts pass in proxy mode."""
         client = self._make_client(allowed_hosts={"api.example.com"}, proxy_mode=True)
-        url, _ = client._prepare_request("https://api.example.com/data", {})
+        url, _ = await client._prepare_request("https://api.example.com/data", {})
         assert url == "https://api.example.com/data"
 
-    def test_proxy_mode_empty_allowlist_blocks_all(self):
+    @pytest.mark.asyncio
+    async def test_proxy_mode_empty_allowlist_blocks_all(self):
         """Empty allowlist blocks all hosts in proxy mode."""
         client = self._make_client(allowed_hosts=set(), proxy_mode=True)
         with pytest.raises(SSRFError, match="not approved"):
-            client._prepare_request("https://api.example.com/data", {})
+            await client._prepare_request("https://api.example.com/data", {})
 
     # --- Proxy mode does NOT add IP pinning artifacts ---
 
-    def test_proxy_mode_no_host_header_override(self):
+    @pytest.mark.asyncio
+    async def test_proxy_mode_no_host_header_override(self):
         """Proxy mode doesn't add Host header (squid handles routing)."""
         client = self._make_client(proxy_mode=True)
-        _, kwargs = client._prepare_request("https://api.example.com/data", {})
+        _, kwargs = await client._prepare_request("https://api.example.com/data", {})
         assert "Host" not in kwargs.get("headers", {})
 
-    def test_proxy_mode_no_sni_override(self):
+    @pytest.mark.asyncio
+    async def test_proxy_mode_no_sni_override(self):
         """Proxy mode doesn't set SNI extension (squid handles TLS)."""
         client = self._make_client(proxy_mode=True)
-        _, kwargs = client._prepare_request("https://api.example.com/data", {})
+        _, kwargs = await client._prepare_request("https://api.example.com/data", {})
         assert "sni_hostname" not in kwargs.get("extensions", {})
 
-    def test_proxy_mode_no_dns_resolution(self):
+    @pytest.mark.asyncio
+    async def test_proxy_mode_no_dns_resolution(self):
         """Proxy mode does not resolve DNS (delegated to squid)."""
         with patch("app.ssrf.socket.getaddrinfo") as mock_dns:
             client = self._make_client(proxy_mode=True)
-            client._prepare_request("https://api.example.com/data", {})
+            await client._prepare_request("https://api.example.com/data", {})
             mock_dns.assert_not_called()
 
 
@@ -361,53 +392,63 @@ class TestAdminApprovedMode:
             mock_client, allowed_hosts=allowed_hosts, proxy_mode=proxy_mode
         )
 
-    def test_proxy_mode_allows_private_ip_via_allowlist(self):
+    @pytest.mark.asyncio
+    async def test_proxy_mode_allows_private_ip_via_allowlist(self):
         """When private IP is in allowed_hosts, proxy mode allows it."""
         client = self._make_client(allowed_hosts={"192.168.1.50"}, proxy_mode=True)
-        url, _ = client._prepare_request("http://192.168.1.50:8080/api", {})
+        url, _ = await client._prepare_request("http://192.168.1.50:8080/api", {})
         assert url == "http://192.168.1.50:8080/api"
 
-    def test_proxy_mode_blocks_private_ip_not_in_allowlist(self):
+    @pytest.mark.asyncio
+    async def test_proxy_mode_blocks_private_ip_not_in_allowlist(self):
         """Private IP not in allowed_hosts is blocked in proxy mode."""
         client = self._make_client(allowed_hosts={"api.example.com"}, proxy_mode=True)
         with pytest.raises(SSRFError, match="not approved"):
-            client._prepare_request("http://192.168.1.50/api", {})
+            await client._prepare_request("http://192.168.1.50/api", {})
 
-    def test_proxy_mode_blocks_private_ip_without_allowlist(self):
+    @pytest.mark.asyncio
+    async def test_proxy_mode_blocks_private_ip_without_allowlist(self):
         """Private IP blocked when no allowlist set (admin_approved=False)."""
         client = self._make_client(proxy_mode=True)
         with pytest.raises(SSRFError, match="blocked IP range"):
-            client._prepare_request("http://10.0.0.1/api", {})
+            await client._prepare_request("http://10.0.0.1/api", {})
 
-    def test_proxy_mode_allows_10_x_via_allowlist(self):
+    @pytest.mark.asyncio
+    async def test_proxy_mode_allows_10_x_via_allowlist(self):
         """10.x.x.x private IP allowed when in allowed_hosts."""
         client = self._make_client(allowed_hosts={"10.0.0.5"}, proxy_mode=True)
-        url, _ = client._prepare_request("http://10.0.0.5:9090/api", {})
+        url, _ = await client._prepare_request("http://10.0.0.5:9090/api", {})
         assert "10.0.0.5" in url
 
-    def test_allowlist_blocks_even_if_other_privates_approved(self):
+    @pytest.mark.asyncio
+    async def test_allowlist_blocks_even_if_other_privates_approved(self):
         """Per-server allowlist blocks IPs not in its list."""
         client = self._make_client(allowed_hosts={"api.example.com"}, proxy_mode=True)
         with pytest.raises(SSRFError, match="not approved"):
-            client._prepare_request("http://192.168.1.50:8080/api", {})
+            await client._prepare_request("http://192.168.1.50:8080/api", {})
 
-    def test_localhost_always_blocked_even_in_allowlist(self):
+    @pytest.mark.asyncio
+    async def test_localhost_always_blocked_even_in_allowlist(self):
         """Localhost is always blocked even if in allowed_hosts."""
         client = self._make_client(allowed_hosts={"localhost"}, proxy_mode=True)
         with pytest.raises(SSRFError, match="Blocked hostname"):
-            client._prepare_request("http://localhost/api", {})
+            await client._prepare_request("http://localhost/api", {})
 
-    def test_metadata_always_blocked_even_in_allowlist(self):
+    @pytest.mark.asyncio
+    async def test_metadata_always_blocked_even_in_allowlist(self):
         """Cloud metadata IP is always blocked even if in allowed_hosts."""
         client = self._make_client(allowed_hosts={"169.254.169.254"}, proxy_mode=True)
         with pytest.raises(SSRFError, match="Blocked"):
-            client._prepare_request("http://169.254.169.254/latest/meta-data/", {})
+            await client._prepare_request(
+                "http://169.254.169.254/latest/meta-data/", {}
+            )
 
-    def test_loopback_always_blocked_even_in_allowlist(self):
+    @pytest.mark.asyncio
+    async def test_loopback_always_blocked_even_in_allowlist(self):
         """Loopback IP is always blocked even if in allowed_hosts."""
         client = self._make_client(allowed_hosts={"127.0.0.1"}, proxy_mode=True)
         with pytest.raises(SSRFError, match="Blocked"):
-            client._prepare_request("http://127.0.0.1/api", {})
+            await client._prepare_request("http://127.0.0.1/api", {})
 
 
 # =============================================================================
@@ -424,62 +465,69 @@ class TestPortEnforcement:
             mock_client, allowed_hosts=allowed_hosts, proxy_mode=proxy_mode
         )
 
-    def test_host_port_entry_allows_matching_port(self):
+    @pytest.mark.asyncio
+    async def test_host_port_entry_allows_matching_port(self):
         """host:port entry allows requests to that specific port."""
         client = self._make_client(allowed_hosts={"192.168.1.2:8081"}, proxy_mode=True)
-        url, _ = client._prepare_request("http://192.168.1.2:8081/api", {})
+        url, _ = await client._prepare_request("http://192.168.1.2:8081/api", {})
         assert "192.168.1.2:8081" in url
 
-    def test_host_port_entry_blocks_different_port(self):
+    @pytest.mark.asyncio
+    async def test_host_port_entry_blocks_different_port(self):
         """host:port entry blocks requests to a different port."""
         client = self._make_client(allowed_hosts={"192.168.1.2:8081"}, proxy_mode=True)
         with pytest.raises(SSRFError, match="not approved"):
-            client._prepare_request("http://192.168.1.2:9090/api", {})
+            await client._prepare_request("http://192.168.1.2:9090/api", {})
 
-    def test_host_only_entry_allows_any_port(self):
+    @pytest.mark.asyncio
+    async def test_host_only_entry_allows_any_port(self):
         """host entry (no port) allows requests to any port."""
         client = self._make_client(allowed_hosts={"192.168.1.2"}, proxy_mode=True)
-        url1, _ = client._prepare_request("http://192.168.1.2:8081/api", {})
+        url1, _ = await client._prepare_request("http://192.168.1.2:8081/api", {})
         assert "192.168.1.2" in url1
-        url2, _ = client._prepare_request("http://192.168.1.2:9090/api", {})
+        url2, _ = await client._prepare_request("http://192.168.1.2:9090/api", {})
         assert "192.168.1.2" in url2
 
-    def test_mixed_entries_both_formats(self):
+    @pytest.mark.asyncio
+    async def test_mixed_entries_both_formats(self):
         """Mix of host-only and host:port entries work together."""
         client = self._make_client(
             allowed_hosts={"10.0.0.1", "192.168.1.2:8081"}, proxy_mode=True
         )
         # 10.0.0.1 any port → allowed
-        url, _ = client._prepare_request("http://10.0.0.1:443/api", {})
+        url, _ = await client._prepare_request("http://10.0.0.1:443/api", {})
         assert "10.0.0.1" in url
         # 192.168.1.2:8081 specific → allowed
-        url, _ = client._prepare_request("http://192.168.1.2:8081/api", {})
+        url, _ = await client._prepare_request("http://192.168.1.2:8081/api", {})
         assert "192.168.1.2" in url
         # 192.168.1.2:22 → blocked
         with pytest.raises(SSRFError, match="not approved"):
-            client._prepare_request("http://192.168.1.2:22/api", {})
+            await client._prepare_request("http://192.168.1.2:22/api", {})
 
-    def test_https_default_port_443(self):
+    @pytest.mark.asyncio
+    async def test_https_default_port_443(self):
         """HTTPS URLs without explicit port default to 443."""
         client = self._make_client(
             allowed_hosts={"api.example.com:443"}, proxy_mode=True
         )
-        url, _ = client._prepare_request("https://api.example.com/api", {})
+        url, _ = await client._prepare_request("https://api.example.com/api", {})
         assert "api.example.com" in url
 
-    def test_http_default_port_80(self):
+    @pytest.mark.asyncio
+    async def test_http_default_port_80(self):
         """HTTP URLs without explicit port default to 80."""
         client = self._make_client(
             allowed_hosts={"api.example.com:80"}, proxy_mode=True
         )
-        url, _ = client._prepare_request("http://api.example.com/api", {})
+        url, _ = await client._prepare_request("http://api.example.com/api", {})
         assert "api.example.com" in url
 
-    def test_error_message_includes_port(self):
+    @pytest.mark.asyncio
+    async def test_error_message_includes_port(self):
         """Error message shows host:port to help users request the right access."""
         client = self._make_client(allowed_hosts={"192.168.1.2:8081"}, proxy_mode=True)
         with pytest.raises(SSRFError, match="192.168.1.2:9090"):
-            client._prepare_request("http://192.168.1.2:9090/api", {})
+            await client._prepare_request("http://192.168.1.2:9090/api", {})
 
 
 # =============================================================================
