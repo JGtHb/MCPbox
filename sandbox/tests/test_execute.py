@@ -485,6 +485,87 @@ class TestAllowedModulesNotOverridable:
         assert data["success"] is True
 
 
+class TestSocketModuleImport:
+    """Tests for socket module import via SafeSocket."""
+
+    def test_socket_blocked_when_not_in_allowed_modules(self, client):
+        """socket import fails when not in allowed_modules list."""
+        response = client.post(
+            "/execute",
+            json={
+                "code": "import socket\nresult = 'imported'",
+                "arguments": {},
+                "allowed_modules": ["json"],  # socket intentionally absent
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+        assert "socket" in data["error"]
+
+    def test_socket_returns_safe_module_when_approved(self, client):
+        """socket import returns SafeSocket module when in allowed_modules."""
+        response = client.post(
+            "/execute",
+            json={
+                "code": (
+                    "import socket\n"
+                    "result = {\n"
+                    "    'af_inet': socket.AF_INET,\n"
+                    "    'sock_stream': socket.SOCK_STREAM,\n"
+                    "    'module_name': socket.__name__,\n"
+                    "}"
+                ),
+                "arguments": {},
+                "allowed_modules": ["socket"],
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        result = data["result"]
+        assert result["af_inet"] == 2  # AF_INET value
+        assert result["sock_stream"] == 1  # SOCK_STREAM value
+        assert result["module_name"] == "socket"
+
+    def test_socket_create_connection_requires_proxy(self, client):
+        """socket.create_connection fails without proxy (expected in tests)."""
+        response = client.post(
+            "/execute",
+            json={
+                "code": (
+                    "import socket\n"
+                    "try:\n"
+                    "    sock = socket.create_connection(('example.com', 80), timeout=0.1)\n"
+                    "    result = 'connected'\n"
+                    "except (ConnectionError, OSError) as e:\n"
+                    "    result = str(e)\n"
+                ),
+                "arguments": {},
+                "allowed_modules": ["socket"],
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        # Should fail because no SOCKS5 proxy in test env
+        assert "proxy" in data["result"].lower() or "connect" in data["result"].lower()
+
+    def test_socket_blocked_by_default(self, client):
+        """socket is NOT in DEFAULT_ALLOWED_MODULES."""
+        response = client.post(
+            "/execute",
+            json={
+                "code": "import socket\nresult = 'imported'",
+                "arguments": {},
+                # No allowed_modules → uses DEFAULT_ALLOWED_MODULES
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+
+
 class TestErrorSanitization:
     """Tests that error responses don't leak internal details."""
 

@@ -1896,7 +1896,7 @@ async def test_revoke_admin_network_request_triggers_server_reregistration(
     """Revoking an admin-initiated network request re-registers the server.
 
     Regression test: ensures admin-initiated revocations also trigger
-    sandbox re-registration to remove the host from Squid ACL.
+    sandbox re-registration to remove the host from the proxy ACL.
     """
     mock_sandbox_client.register_server = AsyncMock(
         return_value={"success": True, "tools_registered": 0}

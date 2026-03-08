@@ -34,6 +34,31 @@ REQUIRE_RESOURCE_LIMITS = (
 )
 
 
+def _parse_socks_proxy_env() -> tuple[str, int] | None:
+    """Parse SOCKS_PROXY env var into (host, port) tuple.
+
+    Expected format: ``socks5://host:port``
+    Returns None if not configured.
+    """
+    raw = os.environ.get("SOCKS_PROXY")
+    if not raw:
+        return None
+    # Strip scheme prefix
+    addr = raw
+    for prefix in ("socks5://", "socks5h://", "socks://"):
+        if addr.lower().startswith(prefix):
+            addr = addr[len(prefix) :]
+            break
+    # Parse host:port
+    if ":" in addr:
+        host, port_str = addr.rsplit(":", 1)
+        try:
+            return (host, int(port_str))
+        except ValueError:
+            pass
+    return (addr, 1080)
+
+
 @dataclass
 class ResourceLimitStatus:
     """Track which resource limits were successfully applied."""
@@ -922,6 +947,8 @@ ALLOWED_BUILTIN_NAMES = {
 
 def create_safe_builtins(
     allowed_modules: set[str] | None = None,
+    allowed_hosts: set[str] | None = None,
+    socks_proxy_addr: tuple[str, int] | None = None,
 ) -> dict[str, Any]:
     """Create a restricted builtins dict for safe code execution.
 
@@ -931,6 +958,10 @@ def create_safe_builtins(
     Args:
         allowed_modules: Set of module names that can be imported.
                         If None, uses DEFAULT_ALLOWED_MODULES.
+        allowed_hosts: Per-server network allowlist for SafeSocket
+                      (None = no restriction, passed to safe socket module).
+        socks_proxy_addr: SOCKS5 proxy (host, port) tuple for SafeSocket
+                         routing (None = not configured).
 
     Returns:
         A dict suitable for use as __builtins__ in exec().
@@ -960,6 +991,16 @@ def create_safe_builtins(
                 f"Import of '{name}' is not allowed. "
                 f"Use mcpbox_request_module to request it be whitelisted. "
                 f"Allowed modules: {sorted(allowed_modules)}"
+            )
+
+        # Special handling for socket module: return SOCKS5-routing wrapper
+        # instead of real socket module (mirrors regex special case below).
+        if name == "socket":
+            from app.safe_socket import create_safe_socket_module
+
+            return create_safe_socket_module(
+                allowed_hosts=allowed_hosts,
+                socks_proxy_addr=socks_proxy_addr,
             )
 
         module = real_import(name, globals, locals, fromlist, level)
@@ -1786,13 +1827,19 @@ class PythonExecutor:
     def _create_safe_builtins(
         self,
         allowed_modules: set[str] | None = None,
+        allowed_hosts: set[str] | None = None,
+        socks_proxy_addr: tuple[str, int] | None = None,
     ) -> dict[str, Any]:
         """Create a restricted builtins dict for safe execution.
 
         Delegates to the module-level create_safe_builtins() which is the
         single source of truth for sandbox builtins.
         """
-        return create_safe_builtins(allowed_modules=allowed_modules)
+        return create_safe_builtins(
+            allowed_modules=allowed_modules,
+            allowed_hosts=allowed_hosts,
+            socks_proxy_addr=socks_proxy_addr,
+        )
 
     def _create_execution_namespace(
         self,
@@ -1817,8 +1864,18 @@ class PythonExecutor:
             http_client, allowed_hosts=allowed_hosts
         )
 
+        # Parse SOCKS5 proxy address for SafeSocket routing.
+        # SafeSocket is only used when 'socket' is in allowed_modules;
+        # the address is passed to create_safe_builtins() so it's captured
+        # in the safe_import closure.
+        socks_proxy_addr = _parse_socks_proxy_env()
+
         namespace = {
-            "__builtins__": self._create_safe_builtins(allowed_modules),
+            "__builtins__": self._create_safe_builtins(
+                allowed_modules,
+                allowed_hosts=allowed_hosts,
+                socks_proxy_addr=socks_proxy_addr,
+            ),
             # Inject SSRF-protected HTTP client
             "http": protected_client,
             # Inject commonly used modules wrapped in SafeModuleProxy

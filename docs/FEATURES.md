@@ -150,6 +150,14 @@ Features are sorted by status, with broken/partial items at the top for visibili
 - **Test coverage**: Existing frontend tests; standards enforced via documentation
 - **Security notes**: None (UI-only changes)
 
+### Raw TCP / WebSocket Support (SOCKS5 Proxy)
+- **Status**: Complete
+- **Description**: Tools can use raw TCP protocols (MQTT, WebSocket, custom TCP) via the `socket` module. All sandbox outbound traffic (HTTP + raw TCP) routes through a single SOCKS5 proxy. The `socket` module is not in `DEFAULT_ALLOWED_MODULES` — admins must approve it per-server. When approved, `import socket` returns a `SafeSocket` wrapper that enforces per-server `allowed_hosts` and routes connections through the SOCKS5 proxy. DNS resolution happens proxy-side to prevent DNS rebinding. The proxy blocks private IPs unless admin-approved via ACL file.
+- **Owner modules**: `socks-proxy/proxy.py`, `sandbox/app/safe_socket.py`, `sandbox/app/executor.py` (socket special case in `safe_import`)
+- **Dependencies**: SOCKS5 proxy container, `socksio` (httpx SOCKS5 transport)
+- **Test coverage**: `socks-proxy/tests/test_proxy.py` (IP validation, ACL, SOCKS5 protocol), `sandbox/tests/test_safe_socket.py` (SafeSocket, module interface, SOCKS5 handshake), `sandbox/tests/test_execute.py::TestSocketModuleImport` (4 tests)
+- **Security notes**: Two-layer enforcement: SafeSocket checks `allowed_hosts` + always-blocked IPs before connecting; SOCKS5 proxy resolves DNS and re-validates IPs. `socket` stays out of default modules — admin opt-in only. `bind()`, `listen()`, `accept()` blocked. Only TCP (`SOCK_STREAM`) allowed.
+
 ### Rate Limiting
 - **Status**: Complete
 - **Description**: Per-IP rate limiting on API endpoints (100 req/min default). Login rate limiting (5/min). Service token failure rate limiting (10/min). Sandbox tool rate limiting (60/min).

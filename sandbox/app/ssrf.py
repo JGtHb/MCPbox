@@ -8,7 +8,7 @@ Two operating modes:
   validation and the resolved IP is used for the actual request, preventing
   DNS rebinding attacks.
 - **Proxy mode** (HTTPS_PROXY set): Hostname-only validation — DNS resolution
-  and private IP blocking are handled by the squid proxy at the network level.
+  and private IP blocking are handled by the SOCKS5 proxy at the network level.
   IP pinning is skipped because rewriting URLs to IPs breaks TLS via CONNECT
   tunnels.
 """
@@ -31,8 +31,8 @@ logger = logging.getLogger(__name__)
 MAX_RESPONSE_SIZE = int(os.environ.get("SANDBOX_MAX_RESPONSE_SIZE", 50 * 1024 * 1024))
 
 # Auto-detect proxy mode from environment.
-# When set, the sandbox routes all traffic through squid; IP pinning is
-# delegated to the proxy (squid blocks private IPs via dst ACLs).
+# When set, the sandbox routes all traffic through the SOCKS5 proxy; IP pinning is
+# delegated to the proxy (it blocks private IPs via ACL).
 _PROXY_MODE = bool(os.environ.get("HTTPS_PROXY"))
 
 
@@ -463,7 +463,7 @@ def _validate_hostname_only(
 ) -> tuple[str, dict]:
     """Validate URL hostname without IP pinning (proxy mode).
 
-    In proxy mode, squid handles DNS resolution and private IP blocking.
+    In proxy mode, the SOCKS5 proxy handles DNS resolution and private IP blocking.
     We still check for blocked hostnames and literal private IP addresses
     in the URL, but skip DNS resolution and IP pinning since that would
     break TLS via CONNECT tunnels (the proxy sees an IP instead of a
@@ -569,7 +569,7 @@ class SSRFProtectedAsyncHttpClient:
 
     In direct mode (no proxy): uses IP pinning to prevent DNS rebinding.
     In proxy mode (HTTPS_PROXY set): validates hostnames only; IP pinning
-    and private IP blocking are handled by the squid proxy.
+    and private IP blocking are handled by the SOCKS5 proxy.
 
     Uses __slots__ to prevent sandbox code from accessing the underlying
     client via attribute access (e.g., http._client).

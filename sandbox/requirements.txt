@@ -2,6 +2,7 @@
 # Dynamically loads and executes MCP tools
 
 httpx==0.28.1
+socksio==1.0.0  # SOCKS5 proxy support for httpx (all traffic routes through socks-proxy)
 fastapi==0.133.1
 uvicorn==0.40.0
 pydantic==2.12.5

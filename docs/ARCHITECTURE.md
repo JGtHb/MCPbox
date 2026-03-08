@@ -119,6 +119,7 @@ services:
   backend         # Python FastAPI admin API (127.0.0.1:8000)
   mcp-gateway     # Separate FastAPI service for /mcp (internal :8002, tunnel-exposed)
   sandbox         # Shared sandbox for tool execution (internal :8001)
+  socks-proxy     # SOCKS5 egress proxy for sandbox (internal :1080)
   postgres        # Configuration and state storage (internal :5432)
   cloudflared     # Cloudflare tunnel daemon (optional, requires tunnel token)
 ```
@@ -129,8 +130,8 @@ services:
 |---------|----------|----------|---------|
 | `mcpbox-internal` | frontend, backend, mcp-gateway, cloudflared | No | Service communication (nginx proxy, tunnel) |
 | `mcpbox-sandbox` | backend, mcp-gateway, sandbox | Yes | Sandbox access (no external egress) |
-| `mcpbox-sandbox-proxy` | sandbox, squid-proxy | Yes | Sandbox → squid proxy (all outbound traffic) |
-| `mcpbox-sandbox-external` | squid-proxy | No | Squid outbound to internet (sandbox NOT on this network) |
+| `mcpbox-sandbox-proxy` | sandbox, socks-proxy | Yes | Sandbox → SOCKS5 proxy (all outbound traffic) |
+| `mcpbox-sandbox-external` | socks-proxy | No | SOCKS5 proxy outbound to internet (sandbox NOT on this network) |
 | `mcpbox-db` | backend, mcp-gateway, postgres | Yes | Database access (no external egress) |
 
 ---
@@ -179,6 +180,8 @@ Tool code runs in a shared sandbox container with application-level protections:
 - SSRF prevention with IP pinning, private IP blocking, DNS rebinding protection
 - Per-server allowed hosts configuration
 - `httpx.AsyncClient` provided with `follow_redirects=False` to prevent redirect-based SSRF
+- Raw TCP support via `SafeSocket` wrapper — routes through SOCKS5 proxy with per-server `allowed_hosts` enforcement
+- All outbound traffic (HTTP + raw TCP) forced through a single SOCKS5 proxy
 
 **Code Safety Validation:**
 - `validate_code_safety()` called on all execution paths
@@ -357,6 +360,7 @@ sandbox/
 |   +-- registry.py            # Dynamic tool registration
 |   +-- executor.py            # Python code execution with safety checks
 |   +-- ssrf.py                # SSRF prevention for HTTP clients
+|   +-- safe_socket.py         # SafeSocket wrapper for raw TCP via SOCKS5
 |   +-- osv_client.py          # OSV vulnerability checking for modules
 |   +-- pypi_client.py         # PyPI package info client
 +-- requirements.txt
