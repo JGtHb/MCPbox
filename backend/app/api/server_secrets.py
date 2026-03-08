@@ -4,9 +4,8 @@ import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
+from app.api.deps import get_secret_service, get_server_service, require_found
 from app.schemas.server_secret import (
     SecretCreate,
     SecretListResponse,
@@ -23,14 +22,6 @@ router = APIRouter(
     prefix="/servers/{server_id}/secrets",
     tags=["secrets"],
 )
-
-
-def get_secret_service(db: AsyncSession = Depends(get_db)) -> ServerSecretService:
-    return ServerSecretService(db)
-
-
-def get_server_service(db: AsyncSession = Depends(get_db)) -> ServerService:
-    return ServerService(db)
 
 
 async def _sync_secrets_to_sandbox(
@@ -65,10 +56,7 @@ async def list_secrets(
 ) -> SecretListResponse:
     """List all secrets for a server (values never exposed)."""
     server = await server_service.get(server_id)
-    if not server:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Server {server_id} not found"
-        )
+    server = require_found(server, "Server", server_id)
 
     secrets = await service.list_by_server(server_id)
     return SecretListResponse(
@@ -97,10 +85,7 @@ async def create_secret(
 ) -> SecretResponse:
     """Create an empty secret placeholder."""
     server = await server_service.get(server_id)
-    if not server:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Server {server_id} not found"
-        )
+    server = require_found(server, "Server", server_id)
 
     try:
         secret = await service.create(
