@@ -1001,3 +1001,141 @@ class TestMCPEndpointMetadata:
         assert "execution" in meta
         assert "stdout" in meta["execution"]
         assert "duration_ms" in meta["execution"]
+
+
+class TestErrorCategory:
+    """Tests for error_category field in execution responses."""
+
+    def test_successful_execution_has_no_error_category(self, client):
+        """Successful executions should have null error_category."""
+        response = client.post(
+            "/execute",
+            json={"code": "result = 42", "arguments": {}},
+        )
+        data = response.json()
+        assert data["success"] is True
+        assert data["error_category"] is None
+
+    def test_code_error_category_for_known_exceptions(self, client):
+        """Known safe exceptions (ValueError, etc.) return error_category='code_error'."""
+        response = client.post(
+            "/execute",
+            json={"code": "raise ValueError('bad')", "arguments": {}},
+        )
+        data = response.json()
+        assert data["success"] is False
+        assert data["error_category"] == "code_error"
+
+    def test_code_error_category_for_zero_division(self, client):
+        """ZeroDivisionError returns error_category='code_error'."""
+        response = client.post(
+            "/execute",
+            json={"code": "result = 1 / 0", "arguments": {}},
+        )
+        data = response.json()
+        assert data["success"] is False
+        assert data["error_category"] == "code_error"
+
+    def test_sandbox_error_category_for_unexpected_exceptions(self, client):
+        """Unexpected exceptions (RuntimeError, etc.) return error_category='sandbox_error'."""
+        response = client.post(
+            "/execute",
+            json={
+                "code": "raise RuntimeError('unexpected')",
+                "arguments": {},
+            },
+        )
+        data = response.json()
+        assert data["success"] is False
+        assert data["error_category"] == "sandbox_error"
+
+    def test_validation_error_category_for_long_code(self, client):
+        """Overly long code returns error_category='validation_error'."""
+        response = client.post(
+            "/execute",
+            json={"code": "x = 1\n" * 50001, "arguments": {}},
+        )
+        data = response.json()
+        assert data["success"] is False
+        assert data["error_category"] == "validation_error"
+
+    def test_network_error_category_for_ssrf_block(self, client):
+        """SSRF-blocked requests return error_category='network_error'."""
+        code = (
+            "async def main():\n"
+            "    response = await http.get('https://example.com')\n"
+            "    return response.status_code\n"
+        )
+        response = client.post(
+            "/execute",
+            json={"code": code, "arguments": {}, "allowed_hosts": []},
+        )
+        data = response.json()
+        assert data["success"] is False
+        assert data["error_category"] == "network_error"
+
+    def test_tool_call_includes_error_category(self, client):
+        """Tool call endpoint propagates error_category from executor."""
+        client.post(
+            "/servers/register",
+            json={
+                "server_id": "cat-srv",
+                "server_name": "CatSrv",
+                "tools": [
+                    {
+                        "name": "bad_tool",
+                        "description": "Raises ValueError",
+                        "parameters": {},
+                        "python_code": (
+                            "async def main():\n"
+                            "    raise ValueError('bad input')\n"
+                        ),
+                    }
+                ],
+            },
+        )
+        response = client.post(
+            "/tools/CatSrv__bad_tool/call",
+            json={"arguments": {}},
+        )
+        data = response.json()
+        assert data["success"] is False
+        assert data["error_category"] == "code_error"
+
+
+class TestExecutionResultErrorCategory:
+    """Tests for error_category in ExecutionResult.to_dict()."""
+
+    def test_error_category_included_in_dict(self):
+        """error_category field is included in to_dict() output."""
+        from app.executor import ExecutionResult
+
+        result = ExecutionResult(
+            success=False,
+            error="something failed",
+            error_category="code_error",
+            stdout="",
+        )
+        d = result.to_dict()
+        assert d["error_category"] == "code_error"
+
+    def test_error_category_none_on_success(self):
+        """Successful results have error_category=None."""
+        from app.executor import ExecutionResult
+
+        result = ExecutionResult(success=True, result="ok", stdout="")
+        d = result.to_dict()
+        assert d["error_category"] is None
+
+    def test_sandbox_error_category(self):
+        """sandbox_error category is preserved in to_dict()."""
+        from app.executor import ExecutionResult
+
+        result = ExecutionResult(
+            success=False,
+            error="Sandbox unavailable",
+            error_category="sandbox_error",
+            stdout="",
+        )
+        d = result.to_dict()
+        assert d["error_category"] == "sandbox_error"

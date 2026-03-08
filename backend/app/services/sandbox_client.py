@@ -537,13 +537,18 @@ class SandboxClient:
                     return {
                         "success": False,
                         "error": f"Sandbox server error: {response.status_code}",
+                        "error_category": "sandbox_error",
                     }
                 try:
                     result: dict[str, Any] = response.json()
                     return result
                 except ValueError as e:
                     logger.error(f"Invalid JSON response from code execution: {e}")
-                    return {"success": False, "error": "Invalid JSON response from sandbox"}
+                    return {
+                        "success": False,
+                        "error": "Invalid JSON response from sandbox",
+                        "error_category": "sandbox_error",
+                    }
 
             result: dict[str, Any] = await retry_async(
                 do_execute,
@@ -557,12 +562,14 @@ class SandboxClient:
             return {
                 "success": False,
                 "error": f"Sandbox temporarily unavailable: {e}",
+                "error_category": "sandbox_error",
             }
         except Exception as e:
             logger.exception(f"Error executing code: {e}")
             return {
                 "success": False,
-                "error": str(e),
+                "error": f"Sandbox communication error: {e}",
+                "error_category": "sandbox_error",
             }
 
     async def discover_external_tools(

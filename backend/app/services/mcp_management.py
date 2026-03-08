@@ -1270,12 +1270,21 @@ class MCPManagementService:
                 allowed_modules=allowed_modules,
             )
         except httpx.TimeoutException:
-            return {"error": "Code execution timed out"}
+            return {
+                "error": "Code execution timed out — sandbox did not respond",
+                "error_category": "sandbox_error",
+            }
         except httpx.RequestError as e:
-            return {"error": f"Sandbox communication failed: {e!s}"}
+            return {
+                "error": f"Sandbox communication failed: {e!s}",
+                "error_category": "sandbox_error",
+            }
         except Exception as e:
             logger.exception(f"Test execution failed: {e}")
-            return {"error": "Test execution failed due to an internal error"}
+            return {
+                "error": "Test execution failed due to an internal error",
+                "error_category": "sandbox_error",
+            }
 
         duration_ms = int((time.monotonic() - start_time) * 1000)
 
