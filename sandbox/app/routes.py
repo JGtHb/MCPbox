@@ -824,7 +824,7 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
                 # (same loop we'll await main() on — avoids event loop affinity issues).
                 # Pass allowed_hosts to enforce the same per-server network allowlist
                 # as production tool execution (None = global SSRF only).
-                _http_client = httpx.AsyncClient()
+                _http_client = httpx.AsyncClient(follow_redirects=False)
                 _allowed_hosts = (
                     set(body.allowed_hosts) if body.allowed_hosts is not None else None
                 )

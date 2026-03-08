@@ -282,11 +282,11 @@ class TestProxyMode:
         with pytest.raises(SSRFError, match="Blocked"):
             client._prepare_request("http://169.254.169.254/latest/meta-data/", {})
 
-    def test_proxy_mode_disables_redirects(self):
-        """Redirects are disabled in proxy mode too."""
+    def test_proxy_mode_does_not_inject_follow_redirects(self):
+        """follow_redirects is NOT injected per-request (set at client construction)."""
         client = self._make_client(proxy_mode=True)
         _, kwargs = client._prepare_request("https://api.example.com/data", {})
-        assert kwargs["follow_redirects"] is False
+        assert "follow_redirects" not in kwargs
 
     # --- Allowlist + proxy mode interaction ---
 

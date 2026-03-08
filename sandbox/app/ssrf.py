@@ -363,8 +363,9 @@ class SSRFProtectedHttpx:
     @classmethod
     def _prepare_request(cls, url: str, kwargs: dict) -> tuple[str, dict]:
         """Validate URL and prepare request with IP pinning."""
-        # Force-disable redirects to prevent redirect-based SSRF bypass
-        kwargs["follow_redirects"] = False
+        # Note: follow_redirects=False is the httpx default, so we don't need
+        # to set it here. Setting it as a per-request kwarg is not supported
+        # in httpx 0.28+ (build_request() rejects it).
         try:
             return _prepare_pinned_request(url, kwargs)
         except SSRFError as e:
@@ -471,10 +472,10 @@ class SSRFProtectedAsyncHttpClient:
         to the SSRF validation functions so that RFC 1918 private IPs are
         permitted while loopback / link-local / metadata remain blocked.
         """
-        # Force-disable redirects to prevent redirect-based SSRF bypass.
-        # The underlying client may have been configured with follow_redirects=True;
-        # per-request kwargs override the client-level setting in httpx.
-        kwargs["follow_redirects"] = False
+        # Redirects are disabled via follow_redirects=False on the underlying
+        # httpx.AsyncClient at construction time. We do NOT inject it as a
+        # per-request kwarg because httpx 0.28+ does not accept
+        # follow_redirects in build_request().
 
         # Enforce network allowlist before SSRF validation.
         # If allowed_hosts is set (even if empty), only those hosts are permitted.
