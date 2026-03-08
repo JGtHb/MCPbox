@@ -1,38 +1,15 @@
+import { APPROVAL_STATUS_COLORS, APPROVAL_STATUS_LABELS } from '../../lib/constants'
+
 // Status badge component for approval items
 export function StatusBadge({ status }: { status: string }) {
-  switch (status) {
-    case 'approved':
-      return (
-        <span className="inline-flex items-center rounded-full bg-foam/10 px-2.5 py-0.5 text-xs font-medium text-foam">
-          Approved
-        </span>
-      )
-    case 'rejected':
-      return (
-        <span className="inline-flex items-center rounded-full bg-love/10 px-2.5 py-0.5 text-xs font-medium text-love">
-          Rejected
-        </span>
-      )
-    case 'pending_review':
-    case 'pending':
-      return (
-        <span className="inline-flex items-center rounded-full bg-gold/10 px-2.5 py-0.5 text-xs font-medium text-gold">
-          Pending
-        </span>
-      )
-    case 'draft':
-      return (
-        <span className="inline-flex items-center rounded-full bg-overlay px-2.5 py-0.5 text-xs font-medium text-subtle">
-          Draft
-        </span>
-      )
-    default:
-      return (
-        <span className="inline-flex items-center rounded-full bg-overlay px-2.5 py-0.5 text-xs font-medium text-subtle">
-          {status}
-        </span>
-      )
-  }
+  const colors = APPROVAL_STATUS_COLORS[status] || 'bg-overlay text-subtle'
+  const label = APPROVAL_STATUS_LABELS[status] || status
+
+  return (
+    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${colors}`}>
+      {label}
+    </span>
+  )
 }
 
 // Format a date string for display
