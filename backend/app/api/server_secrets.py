@@ -56,7 +56,7 @@ async def list_secrets(
 ) -> SecretListResponse:
     """List all secrets for a server (values never exposed)."""
     server = await server_service.get(server_id)
-    require_found(server, "Server", server_id)
+    server = require_found(server, "Server", server_id)
 
     secrets = await service.list_by_server(server_id)
     return SecretListResponse(
@@ -85,7 +85,7 @@ async def create_secret(
 ) -> SecretResponse:
     """Create an empty secret placeholder."""
     server = await server_service.get(server_id)
-    require_found(server, "Server", server_id)
+    server = require_found(server, "Server", server_id)
 
     try:
         secret = await service.create(

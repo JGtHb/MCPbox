@@ -64,7 +64,7 @@ async def start_server(
     The server must have tools defined.
     """
     server = await server_service.get(server_id)
-    require_found(server, "Server", server_id)
+    server = require_found(server, "Server", server_id)
 
     if server.status == "running":
         raise HTTPException(
@@ -152,7 +152,7 @@ async def stop_server(
 ) -> ServerStatusResponse:
     """Stop a server by unregistering its tools from the sandbox."""
     server = await server_service.get(server_id)
-    require_found(server, "Server", server_id)
+    server = require_found(server, "Server", server_id)
 
     if server.status != "running":
         raise HTTPException(
@@ -202,7 +202,7 @@ async def restart_server(
 ) -> ServerStatusResponse:
     """Restart a server by re-registering its tools."""
     server = await server_service.get(server_id)
-    require_found(server, "Server", server_id)
+    server = require_found(server, "Server", server_id)
 
     # Unregister first (ignore errors)
     await sandbox_client.unregister_server(str(server_id))
@@ -280,7 +280,7 @@ async def get_server_status(
 ) -> ServerStatusResponse:
     """Get current status of a server."""
     server = await server_service.get(server_id)
-    require_found(server, "Server", server_id)
+    server = require_found(server, "Server", server_id)
 
     # Check if registered in sandbox
     tools = await sandbox_client.list_tools(str(server_id))
@@ -306,7 +306,7 @@ async def get_server_logs(
     are available through the Activity page instead.
     """
     server = await server_service.get(server_id)
-    require_found(server, "Server", server_id)
+    server = require_found(server, "Server", server_id)
 
     return ServerLogsResponse(
         server_id=str(server_id),

@@ -4,6 +4,7 @@ Centralizes service factory functions and common utilities
 used across multiple API route modules.
 """
 
+from typing import TypeVar
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, status
@@ -80,10 +81,14 @@ def calc_pages(total: int, page_size: int) -> int:
     return (total + page_size - 1) // page_size if total > 0 else 0
 
 
-def require_found(obj: object, resource: str, resource_id: UUID | str) -> None:
-    """Raise 404 if obj is None."""
+_T = TypeVar("_T")
+
+
+def require_found(obj: _T | None, resource: str, resource_id: UUID | str | int) -> _T:
+    """Raise 404 if *obj* is None, otherwise return it (narrowing the type)."""
     if obj is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"{resource} {resource_id} not found",
         )
+    return obj

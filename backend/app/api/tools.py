@@ -250,7 +250,7 @@ async def create_tool(
     """
     # Verify server exists
     server = await server_service.get(server_id)
-    require_found(server, "Server", server_id)
+    server = require_found(server, "Server", server_id)
 
     tool = await tool_service.create(server_id, data)
     return _to_response(tool)
@@ -267,7 +267,7 @@ async def list_tools(
     """List all tools for a server with pagination."""
     # Verify server exists
     server = await server_service.get(server_id)
-    require_found(server, "Server", server_id)
+    server = require_found(server, "Server", server_id)
 
     tools, total = await tool_service.list_by_server(server_id, page=page, page_size=page_size)
     items = [
@@ -300,7 +300,7 @@ async def get_tool(
 ) -> ToolResponse:
     """Get a tool by ID."""
     tool = await tool_service.get(tool_id)
-    require_found(tool, "Tool", tool_id)
+    tool = require_found(tool, "Tool", tool_id)
     return _to_response(tool)
 
 
@@ -319,7 +319,7 @@ async def update_tool(
     notifies MCP clients.
     """
     tool = await tool_service.update(tool_id, data)
-    require_found(tool, "Tool", tool_id)
+    tool = require_found(tool, "Tool", tool_id)
 
     # Check if any MCP-visible fields changed and server is running
     mcp_fields = {"name", "description", "enabled", "python_code"}
@@ -351,7 +351,7 @@ async def delete_tool(
     """
     # Fetch tool first to get server_id for notification
     tool = await tool_service.get(tool_id)
-    require_found(tool, "Tool", tool_id)
+    tool = require_found(tool, "Tool", tool_id)
 
     server_id = tool.server_id
     await tool_service.delete(tool_id)
@@ -460,13 +460,13 @@ async def compare_tool_versions(
     Returns a list of fields that changed between versions.
     """
     tool = await tool_service.get(tool_id)
-    require_found(tool, "Tool", tool_id)
+    tool = require_found(tool, "Tool", tool_id)
 
     v1 = await tool_service.get_version(tool_id, from_version)
-    require_found(v1, "Version", from_version)
+    v1 = require_found(v1, "Version", from_version)
 
     v2 = await tool_service.get_version(tool_id, to_version)
-    require_found(v2, "Version", to_version)
+    v2 = require_found(v2, "Version", to_version)
 
     differences = tool_service.compare_versions(v1, v2)
 
@@ -492,10 +492,10 @@ async def get_tool_version(
     Use this to view what the tool looked like at a point in history.
     """
     tool = await tool_service.get(tool_id)
-    require_found(tool, "Tool", tool_id)
+    tool = require_found(tool, "Tool", tool_id)
 
     version = await tool_service.get_version(tool_id, version_number)
-    require_found(version, "Version", f"{version_number} for tool {tool_id}")
+    version = require_found(version, "Version", f"{version_number} for tool {tool_id}")
 
     return ToolVersionResponse(
         id=version.id,
@@ -530,7 +530,7 @@ async def rollback_tool(
     in the version history.
     """
     tool = await tool_service.get(tool_id)
-    require_found(tool, "Tool", tool_id)
+    tool = require_found(tool, "Tool", tool_id)
 
     if version_number >= tool.current_version:
         raise HTTPException(
@@ -539,6 +539,6 @@ async def rollback_tool(
         )
 
     tool = await tool_service.rollback(tool_id, version_number)
-    require_found(tool, "Version", version_number)
+    tool = require_found(tool, "Version", version_number)
 
     return _to_response(tool)
