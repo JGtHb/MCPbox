@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import calc_pages, get_server_service, get_tool_service, require_found
 from app.core import get_db
 from app.models import Tool
 from app.schemas.tool import (
@@ -36,16 +37,6 @@ from app.services.setting import SettingService
 from app.services.tool import ToolService
 
 router = APIRouter(tags=["tools"])
-
-
-def get_tool_service(db: AsyncSession = Depends(get_db)) -> ToolService:
-    """Dependency to get tool service."""
-    return ToolService(db)
-
-
-def get_server_service(db: AsyncSession = Depends(get_db)) -> ServerService:
-    """Dependency to get server service."""
-    return ServerService(db)
 
 
 # Request/Response schemas for code validation endpoint
@@ -259,11 +250,7 @@ async def create_tool(
     """
     # Verify server exists
     server = await server_service.get(server_id)
-    if not server:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Server {server_id} not found",
-        )
+    server = require_found(server, "Server", server_id)
 
     tool = await tool_service.create(server_id, data)
     return _to_response(tool)
@@ -280,11 +267,7 @@ async def list_tools(
     """List all tools for a server with pagination."""
     # Verify server exists
     server = await server_service.get(server_id)
-    if not server:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Server {server_id} not found",
-        )
+    server = require_found(server, "Server", server_id)
 
     tools, total = await tool_service.list_by_server(server_id, page=page, page_size=page_size)
     items = [
@@ -300,7 +283,7 @@ async def list_tools(
         )
         for t in tools
     ]
-    pages = (total + page_size - 1) // page_size if total > 0 else 0
+    pages = calc_pages(total, page_size)
     return ToolListPaginatedResponse(
         items=items,
         total=total,
@@ -317,11 +300,7 @@ async def get_tool(
 ) -> ToolResponse:
     """Get a tool by ID."""
     tool = await tool_service.get(tool_id)
-    if not tool:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Tool {tool_id} not found",
-        )
+    tool = require_found(tool, "Tool", tool_id)
     return _to_response(tool)
 
 
@@ -340,54 +319,18 @@ async def update_tool(
     notifies MCP clients.
     """
     tool = await tool_service.update(tool_id, data)
-    if not tool:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Tool {tool_id} not found",
-        )
+    tool = require_found(tool, "Tool", tool_id)
 
     # Check if any MCP-visible fields changed and server is running
     mcp_fields = {"name", "description", "enabled", "python_code"}
     update_data = data.model_dump(exclude_unset=True)
     if mcp_fields & update_data.keys():
         try:
-            server = await server_service.get(tool.server_id)
-            if server and server.status == "running":
-                from app.api.sandbox import (
-                    _build_external_source_configs,
-                    _build_tool_definitions,
-                )
-                from app.services.global_config import GlobalConfigService
-                from app.services.server_secret import ServerSecretService
+            from app.api.sandbox import reregister_server
+            from app.services.tool_change_notifier import fire_and_forget_notify
 
-                # Re-register with sandbox
-                all_tools, _ = await tool_service.list_by_server(server.id)
-                active_tools = [
-                    t for t in all_tools if t.enabled and t.approval_status == "approved"
-                ]
-                tool_defs = _build_tool_definitions(active_tools)
-
-                secret_service = ServerSecretService(db)
-                secrets = await secret_service.get_decrypted_for_injection(server.id)
-                config_service = GlobalConfigService(db)
-                allowed_modules = await config_service.get_allowed_modules()
-                external_sources = await _build_external_source_configs(db, server.id, secrets)
-
-                sandbox_client = SandboxClient.get_instance()
-                await sandbox_client.register_server(
-                    server_id=str(server.id),
-                    server_name=server.name,
-                    tools=tool_defs,
-                    allowed_modules=allowed_modules,
-                    secrets=secrets,
-                    external_sources=external_sources,
-                    allowed_hosts=server.allowed_hosts or [],
-                )
-
-                # Notify MCP clients
-                from app.services.tool_change_notifier import fire_and_forget_notify
-
-                fire_and_forget_notify()
+            await reregister_server(tool.server_id, db)
+            fire_and_forget_notify()
         except Exception:
             pass  # Don't fail the update if notification fails
 
@@ -408,50 +351,18 @@ async def delete_tool(
     """
     # Fetch tool first to get server_id for notification
     tool = await tool_service.get(tool_id)
-    if not tool:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Tool {tool_id} not found",
-        )
+    tool = require_found(tool, "Tool", tool_id)
 
     server_id = tool.server_id
     await tool_service.delete(tool_id)
 
     # Re-register with sandbox and notify MCP clients if server is running
     try:
-        server = await server_service.get(server_id)
-        if server and server.status == "running":
-            from app.api.sandbox import (
-                _build_external_source_configs,
-                _build_tool_definitions,
-            )
-            from app.services.global_config import GlobalConfigService
-            from app.services.server_secret import ServerSecretService
+        from app.api.sandbox import reregister_server
+        from app.services.tool_change_notifier import fire_and_forget_notify
 
-            all_tools, _ = await tool_service.list_by_server(server.id)
-            active_tools = [t for t in all_tools if t.enabled and t.approval_status == "approved"]
-            tool_defs = _build_tool_definitions(active_tools)
-
-            secret_service = ServerSecretService(db)
-            secrets = await secret_service.get_decrypted_for_injection(server.id)
-            config_service = GlobalConfigService(db)
-            allowed_modules = await config_service.get_allowed_modules()
-            external_sources = await _build_external_source_configs(db, server.id, secrets)
-
-            sandbox_client = SandboxClient.get_instance()
-            await sandbox_client.register_server(
-                server_id=str(server.id),
-                server_name=server.name,
-                tools=tool_defs,
-                allowed_modules=allowed_modules,
-                secrets=secrets,
-                external_sources=external_sources,
-                allowed_hosts=server.allowed_hosts or [],
-            )
-
-            from app.services.tool_change_notifier import fire_and_forget_notify
-
-            fire_and_forget_notify()
+        await reregister_server(server_id, db)
+        fire_and_forget_notify()
     except Exception:
         pass  # Don't block delete if notification fails
 
@@ -523,7 +434,7 @@ async def list_tool_versions(
         )
         for v in versions
     ]
-    pages = (total + page_size - 1) // page_size if total > 0 else 0
+    pages = calc_pages(total, page_size)
     return ToolVersionListPaginatedResponse(
         items=items,
         total=total,
@@ -549,25 +460,13 @@ async def compare_tool_versions(
     Returns a list of fields that changed between versions.
     """
     tool = await tool_service.get(tool_id)
-    if not tool:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Tool {tool_id} not found",
-        )
+    tool = require_found(tool, "Tool", tool_id)
 
     v1 = await tool_service.get_version(tool_id, from_version)
-    if not v1:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Version {from_version} not found",
-        )
+    v1 = require_found(v1, "Version", from_version)
 
     v2 = await tool_service.get_version(tool_id, to_version)
-    if not v2:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Version {to_version} not found",
-        )
+    v2 = require_found(v2, "Version", to_version)
 
     differences = tool_service.compare_versions(v1, v2)
 
@@ -593,18 +492,10 @@ async def get_tool_version(
     Use this to view what the tool looked like at a point in history.
     """
     tool = await tool_service.get(tool_id)
-    if not tool:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Tool {tool_id} not found",
-        )
+    tool = require_found(tool, "Tool", tool_id)
 
     version = await tool_service.get_version(tool_id, version_number)
-    if not version:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Version {version_number} not found for tool {tool_id}",
-        )
+    version = require_found(version, "Version", f"{version_number} for tool {tool_id}")
 
     return ToolVersionResponse(
         id=version.id,
@@ -639,11 +530,7 @@ async def rollback_tool(
     in the version history.
     """
     tool = await tool_service.get(tool_id)
-    if not tool:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Tool {tool_id} not found",
-        )
+    tool = require_found(tool, "Tool", tool_id)
 
     if version_number >= tool.current_version:
         raise HTTPException(
@@ -652,10 +539,6 @@ async def rollback_tool(
         )
 
     tool = await tool_service.rollback(tool_id, version_number)
-    if not tool:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Version {version_number} not found",
-        )
+    tool = require_found(tool, "Version", version_number)
 
     return _to_response(tool)

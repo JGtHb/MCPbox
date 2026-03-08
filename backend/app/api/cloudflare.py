@@ -14,6 +14,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import get_cloudflare_service
 from app.core.database import get_db
 from app.schemas.cloudflare import (
     ConfigureJwtRequest,
@@ -40,11 +41,6 @@ from app.services.cloudflare import CloudflareAPIError, CloudflareService, Resou
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/cloudflare", tags=["cloudflare"])
-
-
-def get_cloudflare_service(db: AsyncSession = Depends(get_db)) -> CloudflareService:
-    """Dependency to get CloudflareService instance."""
-    return CloudflareService(db)
 
 
 # =============================================================================
