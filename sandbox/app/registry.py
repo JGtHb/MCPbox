@@ -13,11 +13,11 @@ from app.executor import python_executor
 
 logger = logging.getLogger(__name__)
 
-# Path where approved private hosts are written for the squid proxy ACL helper.
-# Must match the shared volume mount in docker-compose.yml and the path
-# in the squid external ACL helper script.
-_SQUID_ACL_PATH = Path(
-    os.environ.get("SQUID_ACL_PATH", "/shared/squid-acl/approved-private.txt")
+# Path where approved private hosts are written for the SOCKS5 proxy ACL.
+# Must match the shared volume mount in docker-compose.yml.
+# The SOCKS5 proxy reads this file to allow connections to private IPs.
+_PROXY_ACL_PATH = Path(
+    os.environ.get("PROXY_ACL_PATH", "/shared/proxy-acl/approved-private.txt")
 )
 
 
@@ -99,16 +99,16 @@ def _filter_private_hosts(hosts: set[str]) -> list[str]:
     Entries can be ``host`` or ``host:port``.  The host part is checked
     against private IP ranges and common LAN suffixes; the full entry
     (including ``:port`` if present) is returned so port enforcement
-    flows through to the squid ACL helper.
+    flows through to the proxy ACL helper.
 
-    Public hostnames (e.g. ``api.example.com``) are omitted — squid
+    Public hostnames (e.g. ``api.example.com``) are omitted — the proxy
     already allows those.
 
     .. note::
         This heuristic cannot detect public-looking hostnames that
         resolve to private IPs (e.g. ``zigbee.example.com`` → 192.168.x.x).
         Use :func:`_normalise_hosts_for_acl` instead, which writes *all*
-        approved hosts to the ACL file so squid can make the final decision
+        approved hosts to the ACL file so the proxy can make the final decision
         after DNS resolution.
     """
     private: list[str] = []
@@ -127,53 +127,51 @@ def _filter_private_hosts(hosts: set[str]) -> list[str]:
 
 
 def _normalise_hosts_for_acl(hosts: set[str]) -> list[str]:
-    """Normalise approved hosts for writing to the squid ACL file.
+    """Normalise approved hosts for writing to the proxy ACL file.
 
-    Returns *all* approved hosts (lowercased, sorted) so the squid
-    external ACL helper can allowlist them before the ``blocked_dst``
-    rule fires.
+    Returns *all* approved hosts (lowercased, sorted) so the SOCKS5
+    proxy can allowlist them before blocking private IP destinations.
 
     Previous versions filtered to only "obviously private" entries, but
     that missed public-looking hostnames that resolve to private IPs
     (e.g. ``zigbee.myhome.me`` → 192.168.1.50).  Since the ACL helper
     only matters for destinations that would otherwise hit ``blocked_dst``,
-    including public hosts is harmless — they pass via ``CONNECT SSL_ports``
-    anyway.
+    including public hosts is harmless — the proxy already allows them.
     """
     return sorted(entry.lower() for entry in hosts)
 
 
-def _write_squid_acl(private_hosts: list[str]) -> None:
-    """Write private hosts to the squid ACL file (low-level)."""
+def _write_proxy_acl(approved_hosts: list[str]) -> None:
+    """Write approved hosts to the proxy ACL file (low-level)."""
     try:
-        _SQUID_ACL_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _SQUID_ACL_PATH.write_text(
-            "\n".join(private_hosts) + "\n" if private_hosts else ""
+        _PROXY_ACL_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _PROXY_ACL_PATH.write_text(
+            "\n".join(approved_hosts) + "\n" if approved_hosts else ""
         )
         logger.debug(
-            "Updated squid ACL file with %d approved private host(s)",
-            len(private_hosts),
+            "Updated proxy ACL file with %d approved host(s)",
+            len(approved_hosts),
         )
     except OSError as e:
-        if not _SQUID_ACL_PATH.parent.exists():
-            logger.debug("Squid ACL volume not mounted, skipping: %s", e)
+        if not _PROXY_ACL_PATH.parent.exists():
+            logger.debug("Proxy ACL volume not mounted, skipping: %s", e)
         else:
             logger.error(
-                "Failed to write squid ACL file %s: %s. "
+                "Failed to write proxy ACL file %s: %s. "
                 "Approved private hosts will be blocked by the proxy. "
                 "Check volume permissions (sandbox user needs write access).",
-                _SQUID_ACL_PATH,
+                _PROXY_ACL_PATH,
                 e,
             )
 
 
-def ensure_private_hosts_in_squid_acl(hosts: list[str] | None) -> None:
-    """Ensure the given hosts are present in the squid ACL file.
+def ensure_private_hosts_in_proxy_acl(hosts: list[str] | None) -> None:
+    """Ensure the given hosts are present in the proxy ACL file.
 
     Merges *hosts* with any existing entries so that hosts from
     registered servers are not removed.  Used by the ``/execute``
     endpoint which bypasses the registry and therefore doesn't
-    trigger ``_update_squid_approved_hosts``.
+    trigger ``_update_proxy_approved_hosts``.
 
     The file is rebuilt from scratch on the next ``register_server``
     or ``unregister_server`` call, so temporary entries added here
@@ -192,14 +190,14 @@ def ensure_private_hosts_in_squid_acl(hosts: list[str] | None) -> None:
     # Read existing entries to avoid clobbering hosts from running servers.
     existing: set[str] = set()
     try:
-        if _SQUID_ACL_PATH.exists():
-            existing = set(_SQUID_ACL_PATH.read_text().strip().split("\n")) - {""}
+        if _PROXY_ACL_PATH.exists():
+            existing = set(_PROXY_ACL_PATH.read_text().strip().split("\n")) - {""}
     except OSError:
         pass
 
     merged = existing | new_entries
     if merged != existing:
-        _write_squid_acl(sorted(merged))
+        _write_proxy_acl(sorted(merged))
 
 
 class ToolRegistry:
@@ -285,15 +283,15 @@ class ToolRegistry:
             f"Registered server {server_name} ({server_id}) with {len(server.tools)} tools"
             f" ({len(server.external_sources)} external sources)"
         )
-        self._update_squid_approved_hosts()
+        self._update_proxy_approved_hosts()
         return len(server.tools)
 
-    def _update_squid_approved_hosts(self) -> None:
-        """Rebuild the squid ACL file from all registered servers.
+    def _update_proxy_approved_hosts(self) -> None:
+        """Rebuild the proxy ACL file from all registered servers.
 
-        The squid proxy's external ACL helper reads this file to decide
-        whether to allow requests to private IP destinations that would
-        otherwise be blocked by the ``blocked_dst`` ACL.
+        The SOCKS5 proxy reads this file to decide whether to allow
+        connections to private IP destinations that would otherwise be
+        blocked.
 
         This is a full rebuild (not a merge) so that host removals from
         server unregistration or revocation are reflected immediately.
@@ -303,7 +301,7 @@ class ToolRegistry:
             if server.allowed_hosts:
                 all_hosts.update(server.allowed_hosts)
 
-        _write_squid_acl(_normalise_hosts_for_acl(all_hosts))
+        _write_proxy_acl(_normalise_hosts_for_acl(all_hosts))
 
     def update_secrets(self, server_id: str, secrets: dict[str, str]) -> bool:
         """Update secrets for a running server.
@@ -333,7 +331,7 @@ class ToolRegistry:
         if server_id in self.servers:
             server = self.servers.pop(server_id)
             logger.info(f"Unregistered server {server.server_name} ({server_id})")
-            self._update_squid_approved_hosts()
+            self._update_proxy_approved_hosts()
             return True
         return False
 

@@ -21,10 +21,11 @@ from app.executor import (
     DEFAULT_ALLOWED_MODULES,
     SafeModuleProxy,
     SizeLimitedStringIO,
+    _parse_socks_proxy_env,
     create_safe_builtins,
     validate_code_safety,
 )
-from app.registry import ensure_private_hosts_in_squid_acl, tool_registry
+from app.registry import ensure_private_hosts_in_proxy_acl, tool_registry
 from app.ssrf import SSRFError
 from app.ssrf import SSRFProtectedAsyncHttpClient
 
@@ -784,9 +785,17 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
         else DEFAULT_ALLOWED_MODULES
     )
 
+    # Parse allowed_hosts and SOCKS proxy for SafeSocket (used when 'socket'
+    # module is approved).  Must be available at exec() time since tool code
+    # may import socket during module-level init.
+    _allowed_hosts = set(body.allowed_hosts) if body.allowed_hosts is not None else None
+    _socks_proxy_addr = _parse_socks_proxy_env()
+
     # Create builtins using the shared function (single source of truth)
     safe_builtins_with_import = create_safe_builtins(
-        allowed_modules=allowed_modules_set
+        allowed_modules=allowed_modules_set,
+        allowed_hosts=_allowed_hosts,
+        socks_proxy_addr=_socks_proxy_addr,
     )
 
     # Create isolated namespace matching published tool environment
@@ -815,11 +824,11 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
         *args, file=stdout_capture, **kwargs
     )
 
-    # Ensure approved private hosts are in the squid ACL file BEFORE execution.
+    # Ensure approved hosts are in the proxy ACL file BEFORE execution.
     # The /execute endpoint bypasses the registry (no register_server() call),
-    # so _update_squid_approved_hosts() is never triggered.  Without this,
-    # the SSRF client allows the request but squid blocks it with 403.
-    ensure_private_hosts_in_squid_acl(body.allowed_hosts)
+    # so _update_proxy_approved_hosts() is never triggered.  Without this,
+    # the SSRF client allows the request but the proxy blocks the connection.
+    ensure_private_hosts_in_proxy_acl(body.allowed_hosts)
 
     # Phase 1: exec() the code to define functions (synchronous, just defines main())
     # Phase 2: If async main() is defined, create http client on THIS loop and await it

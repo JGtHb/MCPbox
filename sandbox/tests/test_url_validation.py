@@ -192,7 +192,7 @@ class TestValidateHostnameOnly:
     """Tests for proxy-mode hostname validation (no IP pinning, no DNS).
 
     In proxy mode, DNS resolution and private IP blocking are delegated to
-    the squid proxy. This function only validates hostnames and literal IPs
+    the SOCKS5 proxy. This function only validates hostnames and literal IPs
     client-side, returning the original URL unchanged.
     """
 
@@ -311,7 +311,7 @@ class TestValidateHostnameOnly:
     # --- Key difference from direct mode: no DNS resolution ---
 
     def test_no_dns_resolution_performed(self):
-        """Hostname URLs don't trigger DNS — that's delegated to squid."""
+        """Hostname URLs don't trigger DNS — that's delegated to the SOCKS5 proxy."""
         with patch("app.ssrf.socket.getaddrinfo") as mock_dns:
             url = "https://api.example.com/v1/data"
             result_url, _ = _validate_hostname_only(url, {})

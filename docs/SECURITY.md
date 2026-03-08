@@ -40,10 +40,11 @@ MCPbox executes LLM-generated Python code in a sandboxed environment. Security i
 
 ### 6. Container & Network Architecture
 - Five isolated Docker networks segment traffic between services
-- Sandbox has no direct internet access — all outbound traffic is forced through the squid proxy via Docker network isolation (`mcpbox-sandbox-proxy` is internal-only; sandbox is not on the external network)
-- Squid proxy blocks private/internal IPs (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 169.254.0.0/16, etc.) and only allows HTTPS CONNECT on port 443
-- **Admin-approved private access**: Tools can request access to LAN hosts (e.g., NAS, Home Assistant) via `mcpbox_request_network_access` with an optional port restriction. When the admin approves, the host (and port if specified) is added to the server's `allowed_hosts`. Both the SSRF client and squid proxy enforce the restriction — if a port was specified, only that port is allowed; if no port was specified, any port is allowed. Squid reads approved private hosts from a shared Docker volume (`mcpbox-squid-acl`) updated by the sandbox registry. Loopback, link-local, and metadata ranges are always rejected regardless of approval.
-- Per-server domain enforcement handled at the application layer (SSRF client) — squid provides network-level isolation that survives Python sandbox escapes
+- Sandbox has no direct internet access — all outbound traffic (HTTP + raw TCP) is forced through a SOCKS5 proxy via Docker network isolation (`mcpbox-sandbox-proxy` is internal-only; sandbox is not on the external network)
+- SOCKS5 proxy resolves DNS proxy-side and blocks private/internal IPs (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 169.254.0.0/16, etc.) for both HTTP and raw TCP connections
+- **Admin-approved private access**: Tools can request access to LAN hosts (e.g., NAS, Home Assistant) via `mcpbox_request_network_access`. When the admin approves, the host is added to the server's `allowed_hosts`. The SSRF client (HTTP), SafeSocket (raw TCP), and SOCKS5 proxy then allow traffic to the approved host. The proxy reads approved private hosts from a shared Docker volume (`mcpbox-proxy-acl`) updated by the sandbox registry. Loopback, link-local, and metadata ranges are always rejected regardless of approval.
+- **Two-layer enforcement**: Per-server domain enforcement at the application layer (SSRF client for HTTP, SafeSocket for raw TCP) — the SOCKS5 proxy provides network-level isolation that survives Python sandbox escapes
+- **Raw TCP support**: The `socket` module can be admin-approved per-server. When approved, `import socket` returns a `SafeSocket` wrapper that enforces `allowed_hosts` and routes all connections through the SOCKS5 proxy. DNS resolution happens proxy-side to prevent DNS rebinding attacks.
 - Sandbox has no direct database access
 - MCP Gateway runs as a separate process with its own middleware stack
 - Cloudflare Tunnel provides remote access without exposing ports
@@ -52,7 +53,7 @@ MCPbox executes LLM-generated Python code in a sandboxed environment. Security i
 - Read-only root filesystems on 5/6 containers (all except postgres)
 - `no-new-privileges:true` on all containers
 - Memory, CPU, and PID limits on all containers
-- Health checks on all 7 containers (including squid-proxy)
+- Health checks on all 7 containers (including socks-proxy)
 - Nginx rate limiting on authentication endpoints (5r/s per IP)
 - HSTS conditionally enabled via `MCPBOX_ENABLE_HSTS` (off by default for localhost)
 

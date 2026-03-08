@@ -7,7 +7,7 @@ from app.registry import (
     Tool,
     _filter_private_hosts,
     _normalise_hosts_for_acl,
-    ensure_private_hosts_in_squid_acl,
+    ensure_private_hosts_in_proxy_acl,
 )
 
 
@@ -327,19 +327,18 @@ class TestToolFullName:
         assert tool.full_name == "MyServer__my_tool"
 
 
-class TestSquidACLFileUpdates:
-    """Tests for _update_squid_approved_hosts writing the ACL file."""
+class TestProxyACLFileUpdates:
+    """Tests for _update_proxy_approved_hosts writing the ACL file."""
 
     def test_writes_all_approved_hosts(self, tool_registry, sample_tool_def, tmp_path):
         """All approved hosts (private and public) are written to the ACL file.
 
         Public hosts are included so that hostnames resolving to private IPs
-        (e.g. zigbee.myhome.me → 192.168.x.x) are not blocked by squid's
-        blocked_dst ACL.  Including public hosts is harmless — they'd be
-        allowed by CONNECT SSL_ports anyway.
+        (e.g. zigbee.myhome.me → 192.168.x.x) are not blocked by the proxy.
+        Including public hosts is harmless — the proxy already allows them.
         """
         acl_file = tmp_path / "approved-private.txt"
-        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+        with patch("app.registry._PROXY_ACL_PATH", acl_file):
             tool_registry.register_server(
                 server_id="s1",
                 server_name="S1",
@@ -355,7 +354,7 @@ class TestSquidACLFileUpdates:
     def test_writes_lan_hostnames(self, tool_registry, sample_tool_def, tmp_path):
         """LAN hostname patterns (.local, .lan, single-label) are written."""
         acl_file = tmp_path / "approved-private.txt"
-        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+        with patch("app.registry._PROXY_ACL_PATH", acl_file):
             tool_registry.register_server(
                 server_id="s1",
                 server_name="S1",
@@ -371,7 +370,7 @@ class TestSquidACLFileUpdates:
     def test_aggregates_across_servers(self, tool_registry, sample_tool_def, tmp_path):
         """Hosts from multiple servers are merged into one file."""
         acl_file = tmp_path / "approved-private.txt"
-        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+        with patch("app.registry._PROXY_ACL_PATH", acl_file):
             tool_registry.register_server(
                 server_id="s1",
                 server_name="S1",
@@ -392,7 +391,7 @@ class TestSquidACLFileUpdates:
     def test_unregister_removes_hosts(self, tool_registry, sample_tool_def, tmp_path):
         """Unregistering a server removes its hosts from the ACL file."""
         acl_file = tmp_path / "approved-private.txt"
-        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+        with patch("app.registry._PROXY_ACL_PATH", acl_file):
             tool_registry.register_server(
                 server_id="s1",
                 server_name="S1",
@@ -415,7 +414,7 @@ class TestSquidACLFileUpdates:
     def test_public_hosts_also_written(self, tool_registry, sample_tool_def, tmp_path):
         """Public hosts are also written (needed for FQDNs resolving to private IPs)."""
         acl_file = tmp_path / "approved-private.txt"
-        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+        with patch("app.registry._PROXY_ACL_PATH", acl_file):
             tool_registry.register_server(
                 server_id="s1",
                 server_name="S1",
@@ -431,14 +430,14 @@ class TestSquidACLFileUpdates:
         self, tool_registry, sample_tool_def, tmp_path, caplog
     ):
         """Permission errors are logged (not silently swallowed)."""
-        acl_dir = tmp_path / "squid-acl"
+        acl_dir = tmp_path / "proxy-acl"
         acl_dir.mkdir()
         # Make directory read-only so writes fail
         acl_dir.chmod(stat.S_IRUSR | stat.S_IXUSR)
         acl_file = acl_dir / "approved-private.txt"
 
         try:
-            with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            with patch("app.registry._PROXY_ACL_PATH", acl_file):
                 import logging
 
                 with caplog.at_level(logging.ERROR, logger="app.registry"):
@@ -449,7 +448,7 @@ class TestSquidACLFileUpdates:
                         allowed_hosts=["192.168.1.1"],
                     )
 
-            assert "Failed to write squid ACL file" in caplog.text
+            assert "Failed to write proxy ACL file" in caplog.text
         finally:
             # Restore permissions for cleanup
             acl_dir.chmod(stat.S_IRWXU)
@@ -458,10 +457,10 @@ class TestSquidACLFileUpdates:
         self, tool_registry, sample_tool_def, caplog
     ):
         """When the ACL volume doesn't exist, skip without error logs."""
-        nonexistent = "/nonexistent/squid-acl/approved-private.txt"
+        nonexistent = "/nonexistent/proxy-acl/approved-private.txt"
         from pathlib import Path
 
-        with patch("app.registry._SQUID_ACL_PATH", Path(nonexistent)):
+        with patch("app.registry._PROXY_ACL_PATH", Path(nonexistent)):
             import logging
 
             with caplog.at_level(logging.ERROR, logger="app.registry"):
@@ -473,17 +472,17 @@ class TestSquidACLFileUpdates:
                 )
 
         # Should NOT log an error (volume simply not mounted)
-        assert "Failed to write squid ACL file" not in caplog.text
+        assert "Failed to write proxy ACL file" not in caplog.text
 
 
-class TestEnsurePrivateHostsInSquidACL:
-    """Tests for ensure_private_hosts_in_squid_acl (used by /execute)."""
+class TestEnsurePrivateHostsInProxyACL:
+    """Tests for ensure_private_hosts_in_proxy_acl (used by /execute)."""
 
     def test_creates_file_when_missing(self, tmp_path):
         """Creates ACL file from scratch when it doesn't exist yet."""
         acl_file = tmp_path / "approved-private.txt"
-        with patch("app.registry._SQUID_ACL_PATH", acl_file):
-            ensure_private_hosts_in_squid_acl(["192.168.1.2", "10.0.0.5"])
+        with patch("app.registry._PROXY_ACL_PATH", acl_file):
+            ensure_private_hosts_in_proxy_acl(["192.168.1.2", "10.0.0.5"])
 
         content = acl_file.read_text()
         assert "192.168.1.2" in content
@@ -494,8 +493,8 @@ class TestEnsurePrivateHostsInSquidACL:
         acl_file = tmp_path / "approved-private.txt"
         acl_file.write_text("10.0.0.1\n")
 
-        with patch("app.registry._SQUID_ACL_PATH", acl_file):
-            ensure_private_hosts_in_squid_acl(["192.168.1.2"])
+        with patch("app.registry._PROXY_ACL_PATH", acl_file):
+            ensure_private_hosts_in_proxy_acl(["192.168.1.2"])
 
         content = acl_file.read_text()
         assert "10.0.0.1" in content
@@ -504,8 +503,8 @@ class TestEnsurePrivateHostsInSquidACL:
     def test_includes_all_hosts(self, tmp_path):
         """All approved hosts are written, including public ones."""
         acl_file = tmp_path / "approved-private.txt"
-        with patch("app.registry._SQUID_ACL_PATH", acl_file):
-            ensure_private_hosts_in_squid_acl(["api.example.com", "192.168.1.2"])
+        with patch("app.registry._PROXY_ACL_PATH", acl_file):
+            ensure_private_hosts_in_proxy_acl(["api.example.com", "192.168.1.2"])
 
         content = acl_file.read_text()
         assert "api.example.com" in content
@@ -514,8 +513,8 @@ class TestEnsurePrivateHostsInSquidACL:
     def test_writes_public_hosts(self, tmp_path):
         """Public-only host list still creates the ACL file."""
         acl_file = tmp_path / "approved-private.txt"
-        with patch("app.registry._SQUID_ACL_PATH", acl_file):
-            ensure_private_hosts_in_squid_acl(["api.example.com"])
+        with patch("app.registry._PROXY_ACL_PATH", acl_file):
+            ensure_private_hosts_in_proxy_acl(["api.example.com"])
 
         assert acl_file.exists()
         assert "api.example.com" in acl_file.read_text()
@@ -523,8 +522,8 @@ class TestEnsurePrivateHostsInSquidACL:
     def test_noop_when_hosts_is_none(self, tmp_path):
         """None input is a no-op."""
         acl_file = tmp_path / "approved-private.txt"
-        with patch("app.registry._SQUID_ACL_PATH", acl_file):
-            ensure_private_hosts_in_squid_acl(None)
+        with patch("app.registry._PROXY_ACL_PATH", acl_file):
+            ensure_private_hosts_in_proxy_acl(None)
 
         assert not acl_file.exists()
 
@@ -534,8 +533,8 @@ class TestEnsurePrivateHostsInSquidACL:
         acl_file.write_text("192.168.1.2\n")
         mtime_before = acl_file.stat().st_mtime_ns
 
-        with patch("app.registry._SQUID_ACL_PATH", acl_file):
-            ensure_private_hosts_in_squid_acl(["192.168.1.2"])
+        with patch("app.registry._PROXY_ACL_PATH", acl_file):
+            ensure_private_hosts_in_proxy_acl(["192.168.1.2"])
 
         # File should not have been rewritten
         assert acl_file.stat().st_mtime_ns == mtime_before
@@ -545,9 +544,9 @@ class TestEnsurePrivateHostsInSquidACL:
     ):
         """register_server rebuilds from scratch, removing /execute entries."""
         acl_file = tmp_path / "approved-private.txt"
-        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+        with patch("app.registry._PROXY_ACL_PATH", acl_file):
             # Simulate /execute adding a temporary host
-            ensure_private_hosts_in_squid_acl(["172.16.0.99"])
+            ensure_private_hosts_in_proxy_acl(["172.16.0.99"])
             assert "172.16.0.99" in acl_file.read_text()
 
             # Now register_server rebuilds — 172.16.0.99 should be gone
@@ -603,8 +602,8 @@ class TestFilterPrivateHostsWithPort:
     def test_acl_file_includes_port_entries(self, tmp_path):
         """ACL file written with host:port entries preserved."""
         acl_file = tmp_path / "approved-private.txt"
-        with patch("app.registry._SQUID_ACL_PATH", acl_file):
-            ensure_private_hosts_in_squid_acl(["192.168.1.2:8081", "10.0.0.5"])
+        with patch("app.registry._PROXY_ACL_PATH", acl_file):
+            ensure_private_hosts_in_proxy_acl(["192.168.1.2:8081", "10.0.0.5"])
 
         content = acl_file.read_text()
         assert "192.168.1.2:8081" in content
@@ -643,8 +642,8 @@ class TestFQDNResolvingToPrivateIP:
 
     Public-looking hostnames like zigbee.myhome.example can resolve to private
     IPs (e.g. 192.168.1.50).  The old _filter_private_hosts heuristic
-    missed these, causing squid to block them via the blocked_dst ACL
-    even when the admin had approved them.
+    missed these, causing the proxy to block them even when the admin had
+    approved them.
     """
 
     def test_fqdn_resolving_to_private_ip_written_to_acl(
@@ -652,7 +651,7 @@ class TestFQDNResolvingToPrivateIP:
     ):
         """FQDNs that might resolve to private IPs are written to ACL file."""
         acl_file = tmp_path / "approved-private.txt"
-        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+        with patch("app.registry._PROXY_ACL_PATH", acl_file):
             tool_registry.register_server(
                 server_id="s1",
                 server_name="S1",
@@ -671,9 +670,9 @@ class TestFQDNResolvingToPrivateIP:
         assert "192.168.1.50" in content
 
     def test_ensure_also_writes_fqdn(self, tmp_path):
-        """ensure_private_hosts_in_squid_acl also includes FQDNs."""
+        """ensure_private_hosts_in_proxy_acl also includes FQDNs."""
         acl_file = tmp_path / "approved-private.txt"
-        with patch("app.registry._SQUID_ACL_PATH", acl_file):
-            ensure_private_hosts_in_squid_acl(["zigbee.myhome.example"])
+        with patch("app.registry._PROXY_ACL_PATH", acl_file):
+            ensure_private_hosts_in_proxy_acl(["zigbee.myhome.example"])
 
         assert "zigbee.myhome.example" in acl_file.read_text()

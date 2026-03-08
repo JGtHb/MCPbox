@@ -235,7 +235,7 @@ class TestProxyMode:
     """Tests for proxy mode vs direct mode in SSRFProtectedAsyncHttpClient.
 
     Proxy mode (HTTPS_PROXY set) skips IP pinning and delegates DNS resolution
-    to the squid proxy. Direct mode (default) performs full IP pinning.
+    to the SOCKS5 proxy. Direct mode (default) performs full IP pinning.
     """
 
     def _make_client(self, allowed_hosts=None, proxy_mode=None):
@@ -357,21 +357,21 @@ class TestProxyMode:
 
     @pytest.mark.asyncio
     async def test_proxy_mode_no_host_header_override(self):
-        """Proxy mode doesn't add Host header (squid handles routing)."""
+        """Proxy mode doesn't add Host header (SOCKS5 proxy handles routing)."""
         client = self._make_client(proxy_mode=True)
         _, kwargs = await client._prepare_request("https://api.example.com/data", {})
         assert "Host" not in kwargs.get("headers", {})
 
     @pytest.mark.asyncio
     async def test_proxy_mode_no_sni_override(self):
-        """Proxy mode doesn't set SNI extension (squid handles TLS)."""
+        """Proxy mode doesn't set SNI extension (SOCKS5 proxy handles TLS)."""
         client = self._make_client(proxy_mode=True)
         _, kwargs = await client._prepare_request("https://api.example.com/data", {})
         assert "sni_hostname" not in kwargs.get("extensions", {})
 
     @pytest.mark.asyncio
     async def test_proxy_mode_no_dns_resolution(self):
-        """Proxy mode does not resolve DNS (delegated to squid)."""
+        """Proxy mode does not resolve DNS (delegated to SOCKS5 proxy)."""
         with patch("app.ssrf.socket.getaddrinfo") as mock_dns:
             client = self._make_client(proxy_mode=True)
             await client._prepare_request("https://api.example.com/data", {})
