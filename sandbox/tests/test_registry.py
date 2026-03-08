@@ -3,7 +3,12 @@
 import stat
 from unittest.mock import patch
 
-from app.registry import Tool, _filter_private_hosts, ensure_private_hosts_in_squid_acl
+from app.registry import (
+    Tool,
+    _filter_private_hosts,
+    _normalise_hosts_for_acl,
+    ensure_private_hosts_in_squid_acl,
+)
 
 
 class TestToolRegistry:
@@ -325,8 +330,14 @@ class TestToolFullName:
 class TestSquidACLFileUpdates:
     """Tests for _update_squid_approved_hosts writing the ACL file."""
 
-    def test_writes_private_ips(self, tool_registry, sample_tool_def, tmp_path):
-        """Private IPs from allowed_hosts are written to the ACL file."""
+    def test_writes_all_approved_hosts(self, tool_registry, sample_tool_def, tmp_path):
+        """All approved hosts (private and public) are written to the ACL file.
+
+        Public hosts are included so that hostnames resolving to private IPs
+        (e.g. zigbee.myhome.me → 192.168.x.x) are not blocked by squid's
+        blocked_dst ACL.  Including public hosts is harmless — they'd be
+        allowed by CONNECT SSL_ports anyway.
+        """
         acl_file = tmp_path / "approved-private.txt"
         with patch("app.registry._SQUID_ACL_PATH", acl_file):
             tool_registry.register_server(
@@ -339,8 +350,7 @@ class TestSquidACLFileUpdates:
         content = acl_file.read_text()
         assert "192.168.1.2" in content
         assert "10.0.0.5" in content
-        # Public hostnames must NOT appear (squid already allows them)
-        assert "api.example.com" not in content
+        assert "api.example.com" in content
 
     def test_writes_lan_hostnames(self, tool_registry, sample_tool_def, tmp_path):
         """LAN hostname patterns (.local, .lan, single-label) are written."""
@@ -402,10 +412,8 @@ class TestSquidACLFileUpdates:
         assert "192.168.1.1" not in content
         assert "10.0.0.1" in content
 
-    def test_empty_when_no_private_hosts(
-        self, tool_registry, sample_tool_def, tmp_path
-    ):
-        """File is empty when only public hosts are approved."""
+    def test_public_hosts_also_written(self, tool_registry, sample_tool_def, tmp_path):
+        """Public hosts are also written (needed for FQDNs resolving to private IPs)."""
         acl_file = tmp_path / "approved-private.txt"
         with patch("app.registry._SQUID_ACL_PATH", acl_file):
             tool_registry.register_server(
@@ -416,7 +424,8 @@ class TestSquidACLFileUpdates:
             )
 
         content = acl_file.read_text()
-        assert content == ""
+        assert "api.github.com" in content
+        assert "example.com" in content
 
     def test_logs_warning_on_permission_error(
         self, tool_registry, sample_tool_def, tmp_path, caplog
@@ -492,23 +501,24 @@ class TestEnsurePrivateHostsInSquidACL:
         assert "10.0.0.1" in content
         assert "192.168.1.2" in content
 
-    def test_filters_public_hosts(self, tmp_path):
-        """Public hostnames are not written (squid already allows them)."""
+    def test_includes_all_hosts(self, tmp_path):
+        """All approved hosts are written, including public ones."""
         acl_file = tmp_path / "approved-private.txt"
         with patch("app.registry._SQUID_ACL_PATH", acl_file):
             ensure_private_hosts_in_squid_acl(["api.example.com", "192.168.1.2"])
 
         content = acl_file.read_text()
-        assert "api.example.com" not in content
+        assert "api.example.com" in content
         assert "192.168.1.2" in content
 
-    def test_noop_when_no_private_hosts(self, tmp_path):
-        """No file written when all hosts are public."""
+    def test_writes_public_hosts(self, tmp_path):
+        """Public-only host list still creates the ACL file."""
         acl_file = tmp_path / "approved-private.txt"
         with patch("app.registry._SQUID_ACL_PATH", acl_file):
             ensure_private_hosts_in_squid_acl(["api.example.com"])
 
-        assert not acl_file.exists()
+        assert acl_file.exists()
+        assert "api.example.com" in acl_file.read_text()
 
     def test_noop_when_hosts_is_none(self, tmp_path):
         """None input is a no-op."""
@@ -599,3 +609,71 @@ class TestFilterPrivateHostsWithPort:
         content = acl_file.read_text()
         assert "192.168.1.2:8081" in content
         assert "10.0.0.5" in content
+
+
+class TestNormaliseHostsForACL:
+    """Tests for _normalise_hosts_for_acl (replaces _filter_private_hosts in ACL paths)."""
+
+    def test_includes_all_hosts(self):
+        """All hosts are included, not just private ones."""
+        hosts = {"api.example.com", "192.168.1.2", "zigbee.myhome.me"}
+        result = _normalise_hosts_for_acl(hosts)
+        assert "api.example.com" in result
+        assert "192.168.1.2" in result
+        assert "zigbee.myhome.me" in result
+
+    def test_lowercases_entries(self):
+        """Entries are lowercased for case-insensitive matching."""
+        result = _normalise_hosts_for_acl({"API.Example.COM"})
+        assert result == ["api.example.com"]
+
+    def test_sorted_output(self):
+        """Output is sorted for deterministic file contents."""
+        result = _normalise_hosts_for_acl({"z.com", "a.com", "m.com"})
+        assert result == ["a.com", "m.com", "z.com"]
+
+    def test_preserves_port_suffix(self):
+        """host:port entries are preserved as-is (lowercased)."""
+        result = _normalise_hosts_for_acl({"MyHost.Local:8080"})
+        assert result == ["myhost.local:8080"]
+
+
+class TestFQDNResolvingToPrivateIP:
+    """Regression tests for FQDNs that resolve to private IPs.
+
+    Public-looking hostnames like zigbee.myhome.example can resolve to private
+    IPs (e.g. 192.168.1.50).  The old _filter_private_hosts heuristic
+    missed these, causing squid to block them via the blocked_dst ACL
+    even when the admin had approved them.
+    """
+
+    def test_fqdn_resolving_to_private_ip_written_to_acl(
+        self, tool_registry, sample_tool_def, tmp_path
+    ):
+        """FQDNs that might resolve to private IPs are written to ACL file."""
+        acl_file = tmp_path / "approved-private.txt"
+        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            tool_registry.register_server(
+                server_id="s1",
+                server_name="S1",
+                tools=[sample_tool_def],
+                allowed_hosts=[
+                    "zigbee.myhome.example",
+                    "zwave.myhome.example",
+                    "192.168.1.50",
+                ],
+            )
+
+        content = acl_file.read_text()
+        # All three must appear — zigbee/zwave resolve to private IPs
+        assert "zigbee.myhome.example" in content
+        assert "zwave.myhome.example" in content
+        assert "192.168.1.50" in content
+
+    def test_ensure_also_writes_fqdn(self, tmp_path):
+        """ensure_private_hosts_in_squid_acl also includes FQDNs."""
+        acl_file = tmp_path / "approved-private.txt"
+        with patch("app.registry._SQUID_ACL_PATH", acl_file):
+            ensure_private_hosts_in_squid_acl(["zigbee.myhome.example"])
+
+        assert "zigbee.myhome.example" in acl_file.read_text()
