@@ -92,6 +92,10 @@ def _parse_host_from_entry(entry: str) -> str:
 def _filter_private_hosts(hosts: set[str]) -> list[str]:
     """Filter a set of allowed_hosts entries to those that look private/LAN.
 
+    .. deprecated::
+        No longer used in ACL write paths.  Kept for backward compatibility
+        with tests / callers that may still reference it.
+
     Entries can be ``host`` or ``host:port``.  The host part is checked
     against private IP ranges and common LAN suffixes; the full entry
     (including ``:port`` if present) is returned so port enforcement
@@ -99,6 +103,13 @@ def _filter_private_hosts(hosts: set[str]) -> list[str]:
 
     Public hostnames (e.g. ``api.example.com``) are omitted — squid
     already allows those.
+
+    .. note::
+        This heuristic cannot detect public-looking hostnames that
+        resolve to private IPs (e.g. ``zigbee.example.com`` → 192.168.x.x).
+        Use :func:`_normalise_hosts_for_acl` instead, which writes *all*
+        approved hosts to the ACL file so squid can make the final decision
+        after DNS resolution.
     """
     private: list[str] = []
     for entry in sorted(hosts):
@@ -113,6 +124,23 @@ def _filter_private_hosts(hosts: set[str]) -> list[str]:
         if host.endswith((".local", ".lan", ".home", ".internal")) or "." not in host:
             private.append(entry.lower())
     return private
+
+
+def _normalise_hosts_for_acl(hosts: set[str]) -> list[str]:
+    """Normalise approved hosts for writing to the squid ACL file.
+
+    Returns *all* approved hosts (lowercased, sorted) so the squid
+    external ACL helper can allowlist them before the ``blocked_dst``
+    rule fires.
+
+    Previous versions filtered to only "obviously private" entries, but
+    that missed public-looking hostnames that resolve to private IPs
+    (e.g. ``zigbee.myhome.me`` → 192.168.1.50).  Since the ACL helper
+    only matters for destinations that would otherwise hit ``blocked_dst``,
+    including public hosts is harmless — they pass via ``CONNECT SSL_ports``
+    anyway.
+    """
+    return sorted(entry.lower() for entry in hosts)
 
 
 def _write_squid_acl(private_hosts: list[str]) -> None:
@@ -150,12 +178,15 @@ def ensure_private_hosts_in_squid_acl(hosts: list[str] | None) -> None:
     The file is rebuilt from scratch on the next ``register_server``
     or ``unregister_server`` call, so temporary entries added here
     are cleaned up naturally.
+
+    All approved hosts are written (not just obviously-private ones)
+    so that hostnames resolving to private IPs are also covered.
     """
     if not hosts:
         return
 
-    new_private = set(_filter_private_hosts(set(hosts)))
-    if not new_private:
+    new_entries = set(_normalise_hosts_for_acl(set(hosts)))
+    if not new_entries:
         return
 
     # Read existing entries to avoid clobbering hosts from running servers.
@@ -166,7 +197,7 @@ def ensure_private_hosts_in_squid_acl(hosts: list[str] | None) -> None:
     except OSError:
         pass
 
-    merged = existing | new_private
+    merged = existing | new_entries
     if merged != existing:
         _write_squid_acl(sorted(merged))
 
@@ -272,7 +303,7 @@ class ToolRegistry:
             if server.allowed_hosts:
                 all_hosts.update(server.allowed_hosts)
 
-        _write_squid_acl(_filter_private_hosts(all_hosts))
+        _write_squid_acl(_normalise_hosts_for_acl(all_hosts))
 
     def update_secrets(self, server_id: str, secrets: dict[str, str]) -> bool:
         """Update secrets for a running server.
