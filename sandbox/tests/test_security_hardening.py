@@ -324,11 +324,11 @@ class TestProxyMode:
             )
 
     @pytest.mark.asyncio
-    async def test_proxy_mode_disables_redirects(self):
-        """Redirects are disabled in proxy mode too."""
+    async def test_proxy_mode_does_not_inject_follow_redirects(self):
+        """follow_redirects is NOT injected per-request (set at client construction)."""
         client = self._make_client(proxy_mode=True)
         _, kwargs = await client._prepare_request("https://api.example.com/data", {})
-        assert kwargs["follow_redirects"] is False
+        assert "follow_redirects" not in kwargs
 
     # --- Allowlist + proxy mode interaction ---
 
