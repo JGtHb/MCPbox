@@ -31,6 +31,7 @@ MCPbox executes LLM-generated Python code in a sandboxed environment. Security i
   - Service token validation between Worker and Gateway
 - Admin JWT tokens with server-side blacklist for logout
 - Constant-time token comparison for service tokens
+- Service token and email policy caches use a 30-second TTL; after token rotation, the old token may be accepted for up to 30 seconds while the new token propagates
 
 ### 5. Encryption
 - Server secrets encrypted at rest with AES-256-GCM
@@ -39,7 +40,7 @@ MCPbox executes LLM-generated Python code in a sandboxed environment. Security i
 - All-zeros encryption key rejected at startup outside CI environments
 
 ### 6. Container & Network Architecture
-- Five isolated Docker networks segment traffic between services
+- Six isolated Docker networks segment traffic between services
 - Sandbox has no direct internet access — all outbound traffic (HTTP + raw TCP) is forced through a SOCKS5 proxy via Docker network isolation (`mcpbox-sandbox-proxy` is internal-only; sandbox is not on the external network)
 - SOCKS5 proxy resolves DNS proxy-side and blocks private/internal IPs (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 169.254.0.0/16, etc.) for both HTTP and raw TCP connections
 - **Admin-approved private access**: Tools can request access to LAN hosts (e.g., NAS, Home Assistant) via `mcpbox_request_network_access`. When the admin approves, the host is added to the server's `allowed_hosts`. The SSRF client (HTTP), SafeSocket (raw TCP), and SOCKS5 proxy then allow traffic to the approved host. The proxy reads approved private hosts from a shared Docker volume (`mcpbox-proxy-acl`) updated by the sandbox registry. Loopback, link-local, and metadata ranges are always rejected regardless of approval.
@@ -47,7 +48,7 @@ MCPbox executes LLM-generated Python code in a sandboxed environment. Security i
 - **Raw TCP support**: The `socket` module can be admin-approved per-server. When approved, `import socket` returns a `SafeSocket` wrapper that enforces `allowed_hosts` and routes all connections through the SOCKS5 proxy. DNS resolution happens proxy-side to prevent DNS rebinding attacks.
 - Sandbox has no direct database access
 - MCP Gateway runs as a separate process with its own middleware stack
-- Cloudflare Tunnel provides remote access without exposing ports
+- Cloudflare Tunnel provides remote access without exposing ports; `cloudflared` runs on a dedicated external network (`mcpbox-tunnel`) so that frontend, backend, and gateway containers have no outbound internet access
 - Dedicated `CLOUDFLARED_API_KEY` separates tunnel auth from sandbox auth
 - All containers run with `cap_drop: ALL` (zero Linux capabilities; postgres has minimal exceptions)
 - Read-only root filesystems on 5/6 containers (all except postgres)

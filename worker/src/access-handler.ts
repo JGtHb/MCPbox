@@ -27,6 +27,9 @@ const STATE_KEY_PREFIX = 'oauth_state:';
 // State TTL in KV (5 minutes)
 const STATE_TTL_SECONDS = 300;
 
+// KV key prefix for approval page pending requests
+const PENDING_APPROVAL_PREFIX = 'pending_approval:';
+
 /**
  * Handle all OAuth flow requests: /authorize (GET/POST) and /callback (GET).
  */
@@ -83,11 +86,18 @@ async function handleAuthorizeGet(
     return redirectToAccess(request, env, stateToken, nonce);
   }
 
-  // Show approval dialog for unknown clients
+  // Show approval dialog for unknown clients.
+  // SECURITY: Store oauthReqInfo in KV instead of embedding in form to prevent
+  // client-side manipulation of the OAuth request parameters.
   const csrfToken = generateCSRFToken();
-  const stateB64 = btoa(JSON.stringify({ oauthReqInfo }));
+  const approvalToken = crypto.randomUUID();
+  await env.OAUTH_KV.put(
+    `${PENDING_APPROVAL_PREFIX}${approvalToken}`,
+    JSON.stringify({ oauthReqInfo }),
+    { expirationTtl: STATE_TTL_SECONDS },
+  );
 
-  return new Response(renderApprovalPage(clientId, csrfToken, stateB64), {
+  return new Response(renderApprovalPage(clientId, csrfToken, approvalToken), {
     headers: {
       'Content-Type': 'text/html',
       'Set-Cookie': `mcpbox_csrf=${csrfToken}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=300`,
@@ -122,15 +132,24 @@ async function handleAuthorizePost(
     return new Response('CSRF validation failed', { status: 403 });
   }
 
-  // Extract OAuth request info from form state
-  const encodedState = formData.get('state');
-  if (!encodedState || typeof encodedState !== 'string') {
+  // Retrieve OAuth request info from KV (stored during GET /authorize).
+  // SECURITY: Single-use — deleted after retrieval to prevent replay.
+  const approvalToken = formData.get('state');
+  if (!approvalToken || typeof approvalToken !== 'string') {
     return new Response('Missing state', { status: 400 });
   }
 
+  const kvKey = `${PENDING_APPROVAL_PREFIX}${approvalToken}`;
+  const stored = await env.OAUTH_KV.get(kvKey);
+  if (!stored) {
+    return new Response('Invalid or expired approval request', { status: 400 });
+  }
+  // Delete immediately to prevent replay
+  await env.OAUTH_KV.delete(kvKey);
+
   let state: { oauthReqInfo?: AuthRequest };
   try {
-    state = JSON.parse(atob(encodedState));
+    state = JSON.parse(stored);
   } catch {
     return new Response('Invalid state', { status: 400 });
   }
@@ -550,12 +569,21 @@ async function isKnownClient(redirectUri: string, env: Env): Promise<boolean> {
     return true;
   }
 
-  // Also auto-approve admin-configured redirect URIs
+  // Also auto-approve admin-configured redirect URIs (origin matching)
   const adminConfig = await getAdminConfig(env);
-  for (const prefix of adminConfig.redirectUris) {
-    if (redirectUri.startsWith(prefix)) {
-      return true;
+  try {
+    const redirectOrigin = new URL(redirectUri).origin;
+    for (const allowed of adminConfig.redirectUris) {
+      try {
+        if (redirectOrigin === new URL(allowed).origin) {
+          return true;
+        }
+      } catch {
+        // Skip malformed admin-configured URIs
+      }
     }
+  } catch {
+    // Malformed redirect URI — not a known client
   }
 
   return false;
@@ -693,7 +721,7 @@ function redirectToAccess(
   });
 }
 
-function renderApprovalPage(clientId: string, csrfToken: string, stateB64: string): string {
+function renderApprovalPage(clientId: string, csrfToken: string, approvalToken: string): string {
   // Sanitize clientId for display
   const safeClientId = clientId.replace(/[<>&"']/g, c => ({
     '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#x27;',
@@ -721,7 +749,7 @@ function renderApprovalPage(clientId: string, csrfToken: string, stateB64: strin
     <p>The client <span class="client-id">${safeClientId}</span> wants to connect to your MCPbox server. You'll be redirected to sign in with your identity provider.</p>
     <form method="POST" action="/authorize">
       <input type="hidden" name="csrf_token" value="${csrfToken}">
-      <input type="hidden" name="state" value="${stateB64}">
+      <input type="hidden" name="state" value="${approvalToken}">
       <button type="submit">Approve &amp; Sign In</button>
     </form>
   </div>

@@ -9,7 +9,7 @@ MCPbox maintains **1,350+ test functions** across backend, sandbox, frontend, an
 | Backend | 46 | ~840 | 65-70% | B |
 | Sandbox | 15 | ~380 | 75-80% | A |
 | Frontend | 4 | ~50 | 15-20% | D |
-| Worker | 1 | ~72 | 85% | A |
+| Worker | 1 | ~78 | 85% | A |
 
 **Coverage minimum enforced**: Backend `fail_under = 60` in `pyproject.toml`. No minimum for other components.
 
@@ -90,7 +90,7 @@ MCPbox maintains **1,350+ test functions** across backend, sandbox, frontend, an
 
 | Module | Unit Tests | Integration Tests | E2E Tests | Estimated Coverage | Critical Gaps |
 |--------|-----------|-------------------|-----------|-------------------|---------------|
-| `index.ts` | 72 tests | - | - | 85% | - |
+| `index.ts` | 78 tests | - | - | 85% | - |
 | `access-handler.ts` | tested via index | - | - | 70% | Some OIDC edge cases |
 
 ---
