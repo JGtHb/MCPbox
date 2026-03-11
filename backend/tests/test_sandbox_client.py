@@ -6,7 +6,11 @@ import httpx
 import pytest
 
 from app.core.retry import CircuitBreaker
-from app.services.sandbox_client import SandboxClient, get_sandbox_client
+from app.services.sandbox_client import (
+    SandboxClient,
+    _classify_sandbox_error,
+    get_sandbox_client,
+)
 
 
 class TestSandboxClientSingleton:
@@ -460,3 +464,190 @@ class TestSandboxClientCleanup:
             # Should create new client
             mock_async_client.assert_called_once()
             assert result is mock_new_client
+
+
+class TestClassifySandboxError:
+    """Tests for _classify_sandbox_error helper."""
+
+    def test_read_timeout_produces_timeout_category(self):
+        """ReadTimeout should produce a timeout category with non-empty message."""
+        exc = httpx.ReadTimeout("read timed out")
+        category, message = _classify_sandbox_error(exc)
+
+        assert category == "timeout"
+        assert "timed out" in message.lower()
+        assert "ReadTimeout" in message
+
+    def test_empty_read_timeout_still_produces_message(self):
+        """ReadTimeout with empty str() must still produce a useful message.
+
+        This is the exact bug from the report: str(httpx.ReadTimeout('')) == ''
+        which led to 'Sandbox communication error: ' with no explanation.
+        """
+        exc = httpx.ReadTimeout("")
+        category, message = _classify_sandbox_error(exc)
+
+        assert category == "timeout"
+        assert len(message) > 10  # Must be non-trivial
+        assert message != "Sandbox communication error: "
+
+    def test_connect_timeout(self):
+        """ConnectTimeout is also a TimeoutException."""
+        exc = httpx.ConnectTimeout("connect timed out")
+        category, message = _classify_sandbox_error(exc)
+
+        assert category == "timeout"
+        assert "ConnectTimeout" in message
+
+    def test_pool_timeout(self):
+        """PoolTimeout is also a TimeoutException."""
+        exc = httpx.PoolTimeout("pool exhausted")
+        category, message = _classify_sandbox_error(exc)
+
+        assert category == "timeout"
+        assert "PoolTimeout" in message
+
+    def test_connect_error(self):
+        """ConnectError should produce a connection_error category."""
+        exc = httpx.ConnectError("Connection refused")
+        category, message = _classify_sandbox_error(exc)
+
+        assert category == "connection_error"
+        assert "connect" in message.lower()
+        assert "Connection refused" in message
+
+    def test_connect_error_empty_message(self):
+        """ConnectError with empty message should still produce useful output."""
+        exc = httpx.ConnectError("")
+        category, message = _classify_sandbox_error(exc)
+
+        assert category == "connection_error"
+        assert len(message) > 10
+
+    def test_network_error(self):
+        """Generic NetworkError should produce network_error category."""
+        exc = httpx.NetworkError("reset by peer")
+        category, message = _classify_sandbox_error(exc)
+
+        assert category == "network_error"
+        assert "reset by peer" in message
+
+    def test_os_error_errno_12_memory(self):
+        """OSError with errno 12 is 'Cannot allocate memory'."""
+        exc = OSError(12, "Cannot allocate memory")
+        category, message = _classify_sandbox_error(exc)
+
+        assert category == "resource_exhaustion"
+        assert "memory" in message.lower()
+
+    def test_os_error_other(self):
+        """OSError with non-12 errno should be os_error."""
+        exc = OSError(28, "No space left on device")
+        category, message = _classify_sandbox_error(exc)
+
+        assert category == "os_error"
+        assert "No space left on device" in message
+
+    def test_runtime_error_thread_exhaustion(self):
+        """RuntimeError about threads should be resource_exhaustion."""
+        exc = RuntimeError("can't start new thread")
+        category, message = _classify_sandbox_error(exc)
+
+        assert category == "resource_exhaustion"
+        assert "thread" in message.lower()
+
+    def test_runtime_error_other(self):
+        """Other RuntimeError should be runtime_error."""
+        exc = RuntimeError("something else broke")
+        category, message = _classify_sandbox_error(exc)
+
+        assert category == "runtime_error"
+        assert "something else broke" in message
+
+    def test_unknown_exception_includes_type(self):
+        """Unknown exception types should include the type name."""
+        exc = ValueError("bad value")
+        category, message = _classify_sandbox_error(exc)
+
+        assert category == "sandbox_error"
+        assert "ValueError" in message
+        assert "bad value" in message
+
+    def test_unknown_exception_empty_str_uses_repr(self):
+        """Unknown exception with empty str() should use repr() as fallback."""
+
+        class WeirdError(Exception):
+            def __str__(self):
+                return ""
+
+        exc = WeirdError()
+        category, message = _classify_sandbox_error(exc)
+
+        assert category == "sandbox_error"
+        assert "WeirdError" in message
+        assert len(message) > 10  # Not empty
+
+
+class TestSandboxClientErrorClassification:
+    """Tests that sandbox client methods use error classification."""
+
+    def setup_method(self):
+        """Reset singleton before each test."""
+        SandboxClient._instance = None
+        CircuitBreaker._instances = {}
+
+    @pytest.mark.asyncio
+    async def test_mcp_request_timeout_produces_classified_error(self):
+        """MCP request timeout should produce classified error with category."""
+        client = SandboxClient()
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = AsyncMock()
+            mock_client.post.side_effect = httpx.ReadTimeout("")
+            mock_get_client.return_value = mock_client
+
+            result = await client.mcp_request(
+                {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {}}
+            )
+
+            assert "error" in result
+            error = result["error"]
+            assert error["code"] == -32603
+            assert "timed out" in error["message"].lower()
+            assert error["message"] != "Sandbox communication error: "
+            assert error["data"]["error_category"] == "timeout"
+            assert "circuit_breaker" in error["data"]
+
+    @pytest.mark.asyncio
+    async def test_execute_code_timeout_produces_classified_error(self):
+        """execute_code timeout should produce classified error with category."""
+        client = SandboxClient()
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = AsyncMock()
+            mock_client.post.side_effect = httpx.ReadTimeout("")
+            mock_get_client.return_value = mock_client
+
+            result = await client.execute_code(code="async def main(): pass")
+
+            assert result["success"] is False
+            assert "timed out" in result["error"].lower()
+            assert result["error"] != "Sandbox communication error: "
+            assert result["error_category"] == "timeout"
+            assert "circuit_breaker" in result
+
+    @pytest.mark.asyncio
+    async def test_execute_code_connect_error_produces_classified_error(self):
+        """execute_code connect error should produce connection_error category."""
+        client = SandboxClient()
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = AsyncMock()
+            mock_client.post.side_effect = httpx.ConnectError("Connection refused")
+            mock_get_client.return_value = mock_client
+
+            result = await client.execute_code(code="async def main(): pass")
+
+            assert result["success"] is False
+            assert result["error_category"] == "connection_error"
+            assert "connect" in result["error"].lower()

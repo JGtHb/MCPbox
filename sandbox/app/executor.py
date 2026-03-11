@@ -1430,6 +1430,7 @@ class ExecutionResult:
         success: bool,
         result: Any = None,
         error: Optional[str] = None,
+        error_category: Optional[str] = None,
         error_detail: Optional[ErrorDetail] = None,
         stdout: str = "",
         duration_ms: int = 0,
@@ -1438,6 +1439,7 @@ class ExecutionResult:
         self.success = success
         self.result = result
         self.error = error
+        self.error_category = error_category
         self.error_detail = error_detail
         self.stdout = stdout
         self.duration_ms = duration_ms
@@ -1480,6 +1482,7 @@ class ExecutionResult:
             "success": self.success,
             "result": result_value,
             "error": self.error,
+            "error_category": self.error_category,
             "stdout": self.stdout[:MAX_OUTPUT_SIZE] if self.stdout else "",
             "duration_ms": self.duration_ms,
         }
@@ -1932,6 +1935,7 @@ class PythonExecutor:
             return ExecutionResult(
                 success=False,
                 error=error_msg,
+                error_category="validation_error",
                 error_detail=error_detail,
                 stdout="",
                 duration_ms=int((time.monotonic() - start_time) * 1000),
@@ -1956,6 +1960,7 @@ class PythonExecutor:
                 return ExecutionResult(
                     success=False,
                     error=str(e),
+                    error_category="sandbox_error",
                     error_detail=error_detail,
                     stdout=stdout_capture.getvalue(),
                     duration_ms=int((time.monotonic() - start_time) * 1000),
@@ -1991,6 +1996,7 @@ class PythonExecutor:
                 return ExecutionResult(
                     success=False,
                     error=f"Code initialization timed out after {timeout} seconds",
+                    error_category="timeout_error",
                     error_detail=error_detail,
                     stdout=stdout_capture.getvalue(),
                     duration_ms=int(timeout * 1000),
@@ -2006,6 +2012,7 @@ class PythonExecutor:
                 return ExecutionResult(
                     success=False,
                     error="Code must define an async main() function",
+                    error_category="code_error",
                     error_detail=error_detail,
                     stdout=stdout_capture.getvalue(),
                     duration_ms=int((time.monotonic() - start_time) * 1000),
@@ -2021,6 +2028,7 @@ class PythonExecutor:
                 return ExecutionResult(
                     success=False,
                     error="main() must be an async function (use 'async def main(...)')",
+                    error_category="code_error",
                     error_detail=error_detail,
                     stdout=stdout_capture.getvalue(),
                     duration_ms=int((time.monotonic() - start_time) * 1000),
@@ -2041,6 +2049,7 @@ class PythonExecutor:
                 return ExecutionResult(
                     success=False,
                     error=f"Execution timed out after {timeout} seconds",
+                    error_category="timeout_error",
                     error_detail=error_detail,
                     stdout=stdout_capture.getvalue(),
                     duration_ms=int(timeout * 1000),
@@ -2094,6 +2103,7 @@ class PythonExecutor:
             return ExecutionResult(
                 success=False,
                 error=f"Syntax error at line {e.lineno}: {e.msg}",
+                error_category="code_error",
                 error_detail=error_detail,
                 stdout=stdout_capture.getvalue(),
                 duration_ms=int((time.monotonic() - start_time) * 1000),
@@ -2107,6 +2117,7 @@ class PythonExecutor:
             return ExecutionResult(
                 success=False,
                 error=str(e),
+                error_category="code_error",
                 error_detail=error_detail,
                 stdout=stdout_capture.getvalue(),
                 duration_ms=int((time.monotonic() - start_time) * 1000),
@@ -2127,6 +2138,7 @@ class PythonExecutor:
             return ExecutionResult(
                 success=False,
                 error=f"{type(e).__name__}: {e}",
+                error_category="code_error",
                 error_detail=error_detail,
                 stdout=stdout_capture.getvalue(),
                 duration_ms=int((time.monotonic() - start_time) * 1000),

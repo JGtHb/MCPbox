@@ -158,6 +158,7 @@ class ToolCallResponse(BaseModel):
     success: bool
     result: Optional[Any] = None
     error: Optional[str] = None
+    error_category: Optional[str] = None
     error_detail: Optional[ErrorDetailResponse] = None
     status_code: Optional[int] = None
     stdout: Optional[str] = None
@@ -414,6 +415,7 @@ async def call_tool(request: Request, tool_name: str, body: ToolCallRequest):
         success=result.get("success", False),
         result=result.get("result"),
         error=result.get("error"),
+        error_category=result.get("error_category"),
         error_detail=error_detail,
         status_code=result.get("status_code"),
         stdout=result.get("stdout"),
@@ -730,6 +732,7 @@ class ExecuteCodeResponse(BaseModel):
     success: bool
     result: Optional[Any] = None
     error: Optional[str] = None
+    error_category: Optional[str] = None
     stdout: Optional[str] = None
 
 
@@ -762,6 +765,7 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
         return ExecuteCodeResponse(
             success=False,
             error="Code too long (max 50,000 characters)",
+            error_category="validation_error",
         )
 
     # SECURITY: Validate code safety before execution
@@ -771,6 +775,7 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
         return ExecuteCodeResponse(
             success=False,
             error=f"Code safety validation failed: {error_msg}",
+            error_category="validation_error",
         )
 
     # Validate timeout bounds (1 second to 5 minutes max)
@@ -871,6 +876,7 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
             return ExecuteCodeResponse(
                 success=False,
                 error=f"Execution timed out after {timeout_seconds} seconds",
+                error_category="timeout_error",
                 stdout=stdout_capture.getvalue()[:10000],
             )
         except SSRFError as e:
@@ -880,6 +886,7 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
             return ExecuteCodeResponse(
                 success=False,
                 error=f"Network access blocked: {e}",
+                error_category="network_error",
                 stdout=stdout_capture.getvalue()[:10000],
             )
         except (
@@ -900,16 +907,30 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
             return ExecuteCodeResponse(
                 success=False,
                 error=f"Execution error: {type(e).__name__}: {str(e)}",
+                error_category="code_error",
                 stdout=stdout_capture.getvalue()[:10000],
             )
         except Exception as e:
             # Unknown/unexpected exceptions may contain sensitive internal details
             # (e.g., database connection strings, file paths, infrastructure info).
-            # Return a generic error message and log the real error server-side.
-            logger.error(f"Unexpected execution error: {type(e).__name__}: {e}")
+            # Return error *type* to help distinguish failure modes (OOM, thread
+            # exhaustion, etc.) but not the full message which may leak internals.
+            error_type = type(e).__name__
+            logger.error(f"Unexpected execution error: {error_type}: {e}")
+
+            # Provide a category hint for resource-related failures
+            error_category = "sandbox_error"
+            if isinstance(e, MemoryError) or (
+                isinstance(e, OSError) and getattr(e, "errno", None) == 12
+            ):
+                error_category = "resource_exhaustion"
+            elif isinstance(e, RuntimeError) and "can't start new thread" in str(e):
+                error_category = "resource_exhaustion"
+
             return ExecuteCodeResponse(
                 success=False,
-                error="An internal error occurred during code execution",
+                error=f"An internal error occurred during code execution ({error_type})",
+                error_category=error_category,
                 stdout=stdout_capture.getvalue()[:10000],
             )
 
