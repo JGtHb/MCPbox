@@ -14,6 +14,7 @@ Two operating modes:
 """
 
 import asyncio
+import io
 import ipaddress
 import logging
 import os
@@ -26,9 +27,11 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# Maximum response body size (configurable, default 50MB).
+# Maximum response body size (configurable, default 10MB).
 # Prevents tools from consuming all process memory on huge API responses.
-MAX_RESPONSE_SIZE = int(os.environ.get("SANDBOX_MAX_RESPONSE_SIZE", 50 * 1024 * 1024))
+# The sandbox container has a 256MB memory limit; 10MB keeps peak usage safe
+# even with concurrent requests (each response needs ~1x memory via BytesIO).
+MAX_RESPONSE_SIZE = int(os.environ.get("SANDBOX_MAX_RESPONSE_SIZE", 10 * 1024 * 1024))
 
 # Auto-detect proxy mode from environment.
 # When set, the sandbox routes all traffic through squid; IP pinning is
@@ -707,8 +710,10 @@ class SSRFProtectedAsyncHttpClient:
                 except (ValueError, TypeError):
                     pass  # Malformed Content-Length, fall through to streaming check
 
-            # Read body in chunks with size enforcement
-            chunks = []
+            # Read body in chunks with size enforcement.
+            # Uses BytesIO instead of chunks-list + join to avoid 2x peak memory
+            # (the join would allocate a second copy of the full response).
+            buffer = io.BytesIO()
             total = 0
             async for chunk in response.aiter_bytes(chunk_size=65536):
                 total += len(chunk)
@@ -719,10 +724,10 @@ class SSRFProtectedAsyncHttpClient:
                         f"Read {total:,} bytes before aborting. "
                         f"Consider using pagination or filtering."
                     )
-                chunks.append(chunk)
+                buffer.write(chunk)
 
             # Set response content so .text, .json(), .content work normally
-            response._content = b"".join(chunks)
+            response._content = buffer.getvalue()
         except ResponseTooLargeError:
             raise
         finally:
