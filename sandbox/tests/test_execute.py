@@ -599,7 +599,7 @@ class TestErrorSanitization:
         assert "ZeroDivisionError" in data["error"]
 
     def test_unexpected_exception_returns_generic_message(self, client):
-        """Test that unexpected exceptions return a generic error message."""
+        """Test that unexpected exceptions returns error type but not sensitive details."""
         response = client.post(
             "/execute",
             json={
@@ -611,9 +611,11 @@ class TestErrorSanitization:
         data = response.json()
         assert data["success"] is False
         assert "internal error" in data["error"].lower()
-        # Must NOT leak the connection string
+        # Error type IS included (helps distinguish failure modes)
+        assert "RuntimeError" in data["error"]
+        # Must NOT leak the sensitive error message content
         assert "postgres://" not in data["error"]
-        assert "RuntimeError" not in data["error"]
+        assert "user:pass" not in data["error"]
 
     def test_network_block_returns_actionable_error(self, client):
         """Network blocks surface the hostname and mcpbox_request_network_access hint.
@@ -1087,8 +1089,7 @@ class TestErrorCategory:
                         "description": "Raises ValueError",
                         "parameters": {},
                         "python_code": (
-                            "async def main():\n"
-                            "    raise ValueError('bad input')\n"
+                            "async def main():\n    raise ValueError('bad input')\n"
                         ),
                     }
                 ],

@@ -20,6 +20,64 @@ from app.core.retry import (
 
 logger = logging.getLogger(__name__)
 
+
+def _classify_sandbox_error(exc: Exception) -> tuple[str, str]:
+    """Classify a sandbox communication exception into a category and message.
+
+    Returns (error_category, human_readable_message) so callers can populate
+    both the ``error`` and ``error_category`` fields in their response dicts.
+
+    The httpx timeout/network exceptions frequently have empty ``str()``
+    representations, which leads to unhelpful ``"Sandbox communication error: "``
+    messages.  This helper always produces a non-empty description.
+    """
+
+    if isinstance(exc, httpx.TimeoutException):
+        # ReadTimeout, WriteTimeout, ConnectTimeout, PoolTimeout
+        kind = type(exc).__name__
+        return (
+            "timeout",
+            f"Sandbox communication timed out ({kind}). "
+            "The sandbox may be overloaded or unresponsive.",
+        )
+
+    if isinstance(exc, httpx.ConnectError):
+        detail = str(exc) or "connection refused or unreachable"
+        return (
+            "connection_error",
+            f"Could not connect to sandbox: {detail}",
+        )
+
+    if isinstance(exc, httpx.NetworkError):
+        detail = str(exc) or "network-level failure"
+        return (
+            "network_error",
+            f"Sandbox network error: {detail}",
+        )
+
+    if isinstance(exc, OSError):
+        detail = str(exc) or repr(exc)
+        if getattr(exc, "errno", None) == 12:
+            return (
+                "resource_exhaustion",
+                f"Sandbox ran out of memory: {detail}",
+            )
+        return ("os_error", f"Sandbox OS error: {detail}")
+
+    if isinstance(exc, RuntimeError):
+        msg = str(exc)
+        if "can't start new thread" in msg:
+            return (
+                "resource_exhaustion",
+                "Sandbox cannot start new threads — resource limits exceeded.",
+            )
+        return ("runtime_error", f"Sandbox runtime error: {msg or repr(exc)}")
+
+    # Fallback — always include the exception type so the message is never empty
+    detail = str(exc) or repr(exc)
+    return ("sandbox_error", f"Sandbox communication error ({type(exc).__name__}): {detail}")
+
+
 # Retry configuration for sandbox communication
 SANDBOX_RETRY_CONFIG = RetryConfig(
     max_retries=3,
@@ -475,13 +533,22 @@ class SandboxClient:
                 },
             }
         except Exception as e:
-            logger.exception(f"Error with MCP request: {e}")
+            category, message = _classify_sandbox_error(e)
+            circuit_state = self._circuit_breaker.get_state()
+            logger.exception(
+                f"Error with MCP request ({category}): {e!r} "
+                f"[circuit: {circuit_state['state']}, failures: {circuit_state['failure_count']}]"
+            )
             return {
                 "jsonrpc": "2.0",
                 "id": request.get("id"),
                 "error": {
                     "code": -32603,
-                    "message": f"Sandbox communication error: {e}",
+                    "message": message,
+                    "data": {
+                        "error_category": category,
+                        "circuit_breaker": circuit_state["state"],
+                    },
                 },
             }
 
@@ -565,11 +632,17 @@ class SandboxClient:
                 "error_category": "sandbox_error",
             }
         except Exception as e:
-            logger.exception(f"Error executing code: {e}")
+            category, message = _classify_sandbox_error(e)
+            circuit_state = self._circuit_breaker.get_state()
+            logger.exception(
+                f"Error executing code ({category}): {e!r} "
+                f"[circuit: {circuit_state['state']}, failures: {circuit_state['failure_count']}]"
+            )
             return {
                 "success": False,
-                "error": f"Sandbox communication error: {e}",
-                "error_category": "sandbox_error",
+                "error": message,
+                "error_category": category,
+                "circuit_breaker": circuit_state["state"],
             }
 
     async def discover_external_tools(
