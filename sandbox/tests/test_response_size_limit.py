@@ -116,9 +116,9 @@ class TestResponseSizeLimit:
         await client.options("https://api.example.com/data")
 
     @pytest.mark.asyncio
-    async def test_default_limit_is_50mb(self):
-        """Default MAX_RESPONSE_SIZE is 50MB."""
-        assert MAX_RESPONSE_SIZE == 50 * 1024 * 1024
+    async def test_default_limit_is_10mb(self):
+        """Default MAX_RESPONSE_SIZE is 10MB."""
+        assert MAX_RESPONSE_SIZE == 10 * 1024 * 1024
 
     @pytest.mark.asyncio
     async def test_malformed_content_length_falls_through(self):
