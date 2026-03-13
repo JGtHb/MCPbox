@@ -130,6 +130,7 @@ async def install_package(
         "--only-binary",
         ":all:",
         "--quiet",
+        "--no-cache-dir",
         "--disable-pip-version-check",
         "--no-warn-script-location",
         package_spec,
