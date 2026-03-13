@@ -360,6 +360,7 @@ async def test_approve_module_request(
     pending_module_request: ModuleRequest,
     test_server: Server,
     db_session: AsyncSession,
+    mock_sandbox_client,
 ):
     """Test approving a module request."""
     response = await async_client.post(
@@ -377,6 +378,9 @@ async def test_approve_module_request(
     config_service = GlobalConfigService(db_session)
     allowed_modules = await config_service.get_allowed_modules()
     assert "pandas" in allowed_modules
+
+    # Verify package installation was triggered in sandbox
+    mock_sandbox_client.install_package.assert_called_once_with("pandas")
 
 
 @pytest.mark.asyncio
@@ -675,6 +679,7 @@ async def test_bulk_approve_module_requests(
     admin_headers: dict,
     multiple_pending_module_requests: list[ModuleRequest],
     db_session: AsyncSession,
+    mock_sandbox_client,
 ):
     """Test bulk approving multiple module requests."""
     request_ids = [str(r.id) for r in multiple_pending_module_requests]
@@ -692,6 +697,13 @@ async def test_bulk_approve_module_requests(
     allowed_modules = await config_service.get_allowed_modules()
     for req in multiple_pending_module_requests:
         assert req.module_name in allowed_modules
+
+    # Verify package installation was triggered for each approved module
+    assert mock_sandbox_client.install_package.call_count == 3
+    installed_modules = {
+        call.args[0] for call in mock_sandbox_client.install_package.call_args_list
+    }
+    assert installed_modules == {"numpy", "scipy", "matplotlib"}
 
 
 @pytest.mark.asyncio
@@ -2001,6 +2013,9 @@ async def test_approve_module_request_triggers_server_reregistration(
     assert response.status_code == 200
     assert response.json()["status"] == "approved"
 
+    # Verify the package was installed in the sandbox
+    mock_sandbox_client.install_package.assert_called_once_with("numpy")
+
     # Verify the server was re-registered with the sandbox
     mock_sandbox_client.register_server.assert_called_once()
 
@@ -2088,6 +2103,13 @@ async def test_bulk_approve_module_requests_triggers_server_reregistration(
     data = response.json()
     assert data["success"] is True
     assert data["processed_count"] == 3
+
+    # Packages should be installed for each approved module
+    assert mock_sandbox_client.install_package.call_count == 3
+    installed_modules = {
+        call.args[0] for call in mock_sandbox_client.install_package.call_args_list
+    }
+    assert installed_modules == {"pandas", "matplotlib", "seaborn"}
 
     # Server should be re-registered (at least once, deduplicated per server)
     assert mock_sandbox_client.register_server.call_count >= 1
