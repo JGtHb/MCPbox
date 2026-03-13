@@ -19,7 +19,7 @@ async def test_create_server(async_client: AsyncClient, admin_headers):
     data = response.json()
     assert data["name"] == "Test Server"
     assert data["description"] == "A test server for testing"
-    assert data["status"] == "imported"
+    assert data["status"] == "running"
     assert "id" in data
 
 
