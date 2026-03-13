@@ -14,8 +14,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from proxy import (
     ACLReader,
+    INFRASTRUCTURE_HOSTS,
     handle_client,
     is_always_blocked,
+    is_infrastructure_host,
     is_lan_hostname,
     is_private,
     validate_connection,
@@ -141,6 +143,24 @@ class TestACLReader:
         assert reader.is_approved("10.0.0.1") is True
         assert reader.is_approved("") is False
 
+    def test_has_entries_with_hosts(self, tmp_path):
+        acl_file = tmp_path / "approved-private.txt"
+        acl_file.write_text("api.example.com\n")
+
+        reader = ACLReader(acl_file, ttl=0)
+        assert reader.has_entries() is True
+
+    def test_has_entries_empty(self, tmp_path):
+        acl_file = tmp_path / "approved-private.txt"
+        acl_file.write_text("")
+
+        reader = ACLReader(acl_file, ttl=0)
+        assert reader.has_entries() is False
+
+    def test_has_entries_missing_file(self, tmp_path):
+        reader = ACLReader(tmp_path / "nonexistent.txt", ttl=0)
+        assert reader.has_entries() is False
+
     def test_ttl_caching(self, tmp_path):
         acl_file = tmp_path / "approved-private.txt"
         acl_file.write_text("192.168.1.1\n")
@@ -154,17 +174,80 @@ class TestACLReader:
         assert reader.is_approved("10.0.0.1") is False
 
 
+# --- Infrastructure host tests ---
+
+
+class TestInfrastructureHosts:
+    """Test infrastructure host detection."""
+
+    @pytest.mark.parametrize(
+        "hostname",
+        ["pypi.org", "files.pythonhosted.org", "api.osv.dev", "api.deps.dev"],
+    )
+    def test_infrastructure_hosts_detected(self, hostname):
+        assert is_infrastructure_host(hostname) is True
+
+    @pytest.mark.parametrize(
+        "hostname",
+        ["PyPI.org", "FILES.PYTHONHOSTED.ORG", "Api.Osv.Dev"],
+    )
+    def test_infrastructure_hosts_case_insensitive(self, hostname):
+        assert is_infrastructure_host(hostname) is True
+
+    @pytest.mark.parametrize(
+        "hostname",
+        ["example.com", "evil-pypi.org", "pypi.org.evil.com", "api.github.com"],
+    )
+    def test_non_infrastructure_hosts(self, hostname):
+        assert is_infrastructure_host(hostname) is False
+
+
 # --- Connection validation tests ---
 
 
 class TestValidateConnection:
     """Test the validate_connection function."""
 
-    def test_public_ip_allowed(self):
-        result = validate_connection(
-            "example.com", ipaddress.ip_address("93.184.216.34")
-        )
-        assert result is None
+    def test_public_ip_allowed_when_acl_empty(self):
+        """Public IPs allowed when no servers registered (ACL empty)."""
+        with patch("proxy.acl_reader") as mock_reader:
+            mock_reader.has_entries.return_value = False
+            result = validate_connection(
+                "example.com", ipaddress.ip_address("93.184.216.34")
+            )
+            assert result is None
+
+    def test_public_ip_blocked_when_acl_has_entries_and_not_approved(self):
+        """Public IPs blocked when ACL has entries and host not approved."""
+        with patch("proxy.acl_reader") as mock_reader:
+            mock_reader.has_entries.return_value = True
+            mock_reader.is_approved.return_value = False
+            result = validate_connection(
+                "evil.example.com", ipaddress.ip_address("93.184.216.34")
+            )
+            assert result is not None
+            assert "not in the approved" in result
+
+    def test_public_ip_allowed_when_acl_has_entries_and_approved(self):
+        """Public IPs allowed when host is in the ACL."""
+        with patch("proxy.acl_reader") as mock_reader:
+            mock_reader.has_entries.return_value = True
+            mock_reader.is_approved.side_effect = lambda h: h == "api.example.com"
+            result = validate_connection(
+                "api.example.com", ipaddress.ip_address("93.184.216.34")
+            )
+            assert result is None
+
+    def test_infrastructure_host_always_allowed(self):
+        """Infrastructure hosts bypass domain whitelisting even with non-empty ACL."""
+        with patch("proxy.acl_reader") as mock_reader:
+            mock_reader.has_entries.return_value = True
+            mock_reader.is_approved.return_value = False
+            for host in INFRASTRUCTURE_HOSTS:
+                result = validate_connection(
+                    host, ipaddress.ip_address("93.184.216.34")
+                )
+                assert result is None, f"{host} should be allowed as infrastructure"
 
     def test_loopback_always_blocked(self):
         result = validate_connection("localhost", ipaddress.ip_address("127.0.0.1"))
@@ -206,6 +289,22 @@ class TestValidateConnection:
             )
             assert result is not None
             assert "private IP" in result
+
+    def test_loopback_blocked_even_if_infrastructure_host(self):
+        """Always-blocked IPs take priority over infrastructure host list."""
+        result = validate_connection("pypi.org", ipaddress.ip_address("127.0.0.1"))
+        assert result is not None
+        assert "always-blocked" in result
+
+    def test_public_ip_approved_by_ip_string(self):
+        """Public IP approved by its string representation in ACL."""
+        with patch("proxy.acl_reader") as mock_reader:
+            mock_reader.has_entries.return_value = True
+            mock_reader.is_approved.side_effect = lambda h: h == "93.184.216.34"
+            result = validate_connection(
+                "unknown.host", ipaddress.ip_address("93.184.216.34")
+            )
+            assert result is None
 
 
 # --- SOCKS5 protocol tests ---
