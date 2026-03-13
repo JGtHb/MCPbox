@@ -132,6 +132,7 @@ async def take_module_request_action(
     db: AsyncSession = Depends(get_db),
     service: ApprovalService = Depends(get_approval_service),
     admin_identity: str = Depends(get_admin_identity),
+    sandbox_client: SandboxClient = Depends(get_sandbox_client),
 ) -> ModuleRequestResponse:
     """Approve or reject a module whitelist request.
 
@@ -149,6 +150,7 @@ async def take_module_request_action(
             )
 
             # Re-register server so the updated module list takes effect immediately
+            # (package installation already handled by approval service)
             if request.server_id:
                 await reregister_server(request.server_id, db)
 
@@ -254,6 +256,7 @@ async def bulk_module_request_action(
     db: AsyncSession = Depends(get_db),
     service: ApprovalService = Depends(get_approval_service),
     admin_identity: str = Depends(get_admin_identity),
+    sandbox_client: SandboxClient = Depends(get_sandbox_client),
 ) -> BulkActionResponse:
     """Approve or reject multiple module requests at once.
 
