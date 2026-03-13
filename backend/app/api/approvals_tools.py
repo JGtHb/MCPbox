@@ -147,11 +147,6 @@ async def take_tool_action(
                 "server_refreshed": refreshed,
             }
         else:
-            if not action.reason:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="A reason is required when rejecting",
-                )
             tool = await service.reject_tool(
                 tool_id=tool_id,
                 rejected_by=admin_identity,
@@ -258,11 +253,6 @@ async def bulk_tool_action(
 
         fire_and_forget_notify()
     else:
-        if not action.reason:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="A reason is required when rejecting",
-            )
         result = await service.bulk_reject_tools(
             tool_ids=action.tool_ids,
             rejected_by=admin_identity,

@@ -57,8 +57,8 @@ export function NetworkRequestsQueue() {
   }
 
   const handleReject = async () => {
-    if (selectedRequest && rejectReason.trim()) {
-      await networkAction.mutateAsync({ requestId: selectedRequest.id, action: 'reject', reason: rejectReason })
+    if (selectedRequest) {
+      await networkAction.mutateAsync({ requestId: selectedRequest.id, action: 'reject', reason: rejectReason.trim() || undefined })
       selectedIds.delete(selectedRequest.id)
       setSelectedIds(new Set(selectedIds))
       setShowRejectModal(false)
@@ -74,8 +74,8 @@ export function NetworkRequestsQueue() {
   }
 
   const handleBulkReject = async () => {
-    if (selectedIds.size === 0 || !bulkRejectReason.trim()) return
-    await bulkAction.mutateAsync({ requestIds: Array.from(selectedIds), action: 'reject', reason: bulkRejectReason })
+    if (selectedIds.size === 0) return
+    await bulkAction.mutateAsync({ requestIds: Array.from(selectedIds), action: 'reject', reason: bulkRejectReason.trim() || undefined })
     setSelectedIds(new Set())
     setShowBulkRejectModal(false)
     setBulkRejectReason('')
@@ -160,13 +160,22 @@ export function NetworkRequestsQueue() {
               Revoke
             </button>
           ) : (
-            <button
-              onClick={() => setDeleteTarget(req)}
-              disabled={deleteAction.isPending}
-              className="px-2.5 py-1 text-xs font-medium text-love bg-surface border border-love/20 rounded-lg hover:bg-love/10 transition-colors focus:outline-none focus:ring-2 focus:ring-love disabled:opacity-50"
-            >
-              Delete
-            </button>
+            <>
+              <button
+                onClick={() => handleApprove(req.id)}
+                disabled={networkAction.isPending}
+                className="rounded-lg bg-foam px-3 py-1.5 text-sm font-medium text-base hover:bg-foam/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-foam"
+              >
+                Approve
+              </button>
+              <button
+                onClick={() => setDeleteTarget(req)}
+                disabled={deleteAction.isPending}
+                className="px-2.5 py-1 text-xs font-medium text-love bg-surface border border-love/20 rounded-lg hover:bg-love/10 transition-colors focus:outline-none focus:ring-2 focus:ring-love disabled:opacity-50"
+              >
+                Delete
+              </button>
+            </>
           )}
         </div>
       </div>

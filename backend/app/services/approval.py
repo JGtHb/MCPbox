@@ -262,14 +262,14 @@ class ApprovalService:
         self,
         tool_id: UUID,
         rejected_by: str,
-        reason: str,
+        reason: str | None = None,
     ) -> Tool:
         """Reject a tool's publish request.
 
         Args:
             tool_id: ID of the tool to reject
             rejected_by: Email of the admin rejecting
-            reason: Reason for rejection (required)
+            reason: Optional reason for rejection
 
         Returns:
             Updated tool
@@ -535,7 +535,7 @@ class ApprovalService:
             Updated module request
 
         Raises:
-            ValueError: If request not found or not pending
+            ValueError: If request not found or not in pending/rejected status
         """
         stmt = (
             select(ModuleRequest)
@@ -551,13 +551,16 @@ class ApprovalService:
         if not request:
             raise ValueError(f"Module request {request_id} not found")
 
-        if request.status != "pending":
-            raise ValueError(f"Request must be in 'pending' status. Current: {request.status}")
+        if request.status not in ("pending", "rejected"):
+            raise ValueError(
+                f"Request must be in 'pending' or 'rejected' status. Current: {request.status}"
+            )
 
         # Update request status
         request.status = "approved"
         request.reviewed_at = datetime.now(UTC)
         request.reviewed_by = approved_by
+        request.rejection_reason = None
 
         # Sync allowed modules from approved records (single source of truth)
         await sync_allowed_modules(self.db)
@@ -600,14 +603,14 @@ class ApprovalService:
         self,
         request_id: UUID,
         rejected_by: str,
-        reason: str,
+        reason: str | None = None,
     ) -> ModuleRequest:
         """Reject a module whitelist request.
 
         Args:
             request_id: ID of the request to reject
             rejected_by: Email of the admin rejecting
-            reason: Reason for rejection
+            reason: Optional reason for rejection
 
         Returns:
             Updated module request
@@ -908,13 +911,16 @@ class ApprovalService:
         if not request:
             raise ValueError(f"Network access request {request_id} not found")
 
-        if request.status != "pending":
-            raise ValueError(f"Request must be in 'pending' status. Current: {request.status}")
+        if request.status not in ("pending", "rejected"):
+            raise ValueError(
+                f"Request must be in 'pending' or 'rejected' status. Current: {request.status}"
+            )
 
         # Update request status
         request.status = "approved"
         request.reviewed_at = datetime.now(UTC)
         request.reviewed_by = approved_by
+        request.rejection_reason = None
 
         # Sync allowed hosts from approved records (single source of truth)
         server = request.tool.server if request.tool else request.server
@@ -934,14 +940,14 @@ class ApprovalService:
         self,
         request_id: UUID,
         rejected_by: str,
-        reason: str,
+        reason: str | None = None,
     ) -> NetworkAccessRequest:
         """Reject a network access request.
 
         Args:
             request_id: ID of the request to reject
             rejected_by: Email of the admin rejecting
-            reason: Reason for rejection
+            reason: Optional reason for rejection
 
         Returns:
             Updated network access request
@@ -1548,14 +1554,14 @@ class ApprovalService:
         self,
         tool_ids: list[UUID],
         rejected_by: str,
-        reason: str,
+        reason: str | None = None,
     ) -> dict:
         """Reject multiple tools at once.
 
         Args:
             tool_ids: List of tool IDs to reject
             rejected_by: Email of the admin rejecting
-            reason: Reason for rejection
+            reason: Optional reason for rejection
 
         Returns:
             Dict with processed_count and failed list
@@ -1610,14 +1616,14 @@ class ApprovalService:
         self,
         request_ids: list[UUID],
         rejected_by: str,
-        reason: str,
+        reason: str | None = None,
     ) -> dict:
         """Reject multiple module requests at once.
 
         Args:
             request_ids: List of request IDs to reject
             rejected_by: Email of the admin rejecting
-            reason: Reason for rejection
+            reason: Optional reason for rejection
 
         Returns:
             Dict with processed_count and failed list
@@ -1672,14 +1678,14 @@ class ApprovalService:
         self,
         request_ids: list[UUID],
         rejected_by: str,
-        reason: str,
+        reason: str | None = None,
     ) -> dict:
         """Reject multiple network access requests at once.
 
         Args:
             request_ids: List of request IDs to reject
             rejected_by: Email of the admin rejecting
-            reason: Reason for rejection
+            reason: Optional reason for rejection
 
         Returns:
             Dict with processed_count and failed list
