@@ -1043,9 +1043,6 @@ class MCPManagementService:
         if not server:
             return {"error": f"Server {server_id} not found"}
 
-        if server.status == "running":
-            return {"error": "Server is already running"}
-
         # Get tools for this server and filter to approved + enabled
         tools, _total = await self._tool_service.list_by_server(server_id)
         tool_defs = self._build_tool_definitions(tools)

@@ -27,7 +27,7 @@ class TestServerServiceCreate:
 
         assert server.name == "test_server"
         assert server.description == "A test MCP server"
-        assert server.status == "imported"
+        assert server.status == "running"
         assert server.id is not None
 
     async def test_create_server_minimal(self, db_session):

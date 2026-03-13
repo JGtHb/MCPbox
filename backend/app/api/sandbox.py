@@ -66,12 +66,6 @@ async def start_server(
     server = await server_service.get(server_id)
     server = require_found(server, "Server", server_id)
 
-    if server.status == "running":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Server is already running",
-        )
-
     # Get tools for this server
     tools, _total = await tool_service.list_by_server(server_id)
     if not tools:
