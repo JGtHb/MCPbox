@@ -46,8 +46,8 @@ export function ToolsQueue() {
   }
 
   const handleReject = async () => {
-    if (selectedTool && rejectReason.trim()) {
-      await toolAction.mutateAsync({ toolId: selectedTool.id, action: 'reject', reason: rejectReason })
+    if (selectedTool) {
+      await toolAction.mutateAsync({ toolId: selectedTool.id, action: 'reject', reason: rejectReason.trim() || undefined })
       selectedIds.delete(selectedTool.id)
       setSelectedIds(new Set(selectedIds))
       setShowRejectModal(false)
@@ -77,8 +77,8 @@ export function ToolsQueue() {
   }
 
   const handleBulkReject = async () => {
-    if (selectedIds.size === 0 || !bulkRejectReason.trim()) return
-    await bulkAction.mutateAsync({ toolIds: Array.from(selectedIds), action: 'reject', reason: bulkRejectReason })
+    if (selectedIds.size === 0) return
+    await bulkAction.mutateAsync({ toolIds: Array.from(selectedIds), action: 'reject', reason: bulkRejectReason.trim() || undefined })
     setSelectedIds(new Set())
     setShowBulkRejectModal(false)
     setBulkRejectReason('')

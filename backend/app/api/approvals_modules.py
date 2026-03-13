@@ -155,11 +155,6 @@ async def take_module_request_action(
             resp: ModuleRequestResponse = ModuleRequestResponse.model_validate(request)
             return resp
         else:
-            if not action.reason:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="A reason is required when rejecting",
-                )
             request = await service.reject_module_request(
                 request_id=request_id,
                 rejected_by=admin_identity,
@@ -283,11 +278,6 @@ async def bulk_module_request_action(
                     if await reregister_server(sid, db):
                         refreshed_servers.add(str(sid))
     else:
-        if not action.reason:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="A reason is required when rejecting",
-            )
         result = await service.bulk_reject_module_requests(
             request_ids=action.request_ids,
             rejected_by=admin_identity,
