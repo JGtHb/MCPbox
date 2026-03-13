@@ -181,10 +181,11 @@ services:
       - SANDBOX_PACKAGES_DIR=/app/site-packages
       # SECURITY: All outbound traffic forced through SOCKS5 proxy.
       # Sandbox has no direct internet access (not on mcpbox-sandbox-external).
-      - HTTPS_PROXY=socks5://socks-proxy:1080
-      - HTTP_PROXY=socks5://socks-proxy:1080
+      # socks5h:// = proxy-side DNS resolution (sandbox has no external DNS).
+      - HTTPS_PROXY=socks5h://socks-proxy:1080
+      - HTTP_PROXY=socks5h://socks-proxy:1080
       # SOCKS_PROXY used by SafeSocket for raw TCP routing
-      - SOCKS_PROXY=socks5://socks-proxy:1080
+      - SOCKS_PROXY=socks5h://socks-proxy:1080
       # Exclude internal service communication from proxy
       - NO_PROXY=backend,localhost,127.0.0.1
     cap_drop:
