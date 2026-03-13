@@ -25,7 +25,13 @@ from app.executor import (
     create_safe_builtins,
     validate_code_safety,
 )
-from app.registry import ensure_private_hosts_in_proxy_acl, tool_registry
+from app.registry import (
+    EXECUTION_QUEUE_TIMEOUT,
+    MAX_CONCURRENT_EXECUTIONS,
+    _get_execution_semaphore,
+    ensure_private_hosts_in_proxy_acl,
+    tool_registry,
+)
 from app.ssrf import SSRFError
 from app.ssrf import SSRFProtectedAsyncHttpClient
 
@@ -835,6 +841,21 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
     # the SSRF client allows the request but the proxy blocks the connection.
     ensure_private_hosts_in_proxy_acl(body.allowed_hosts)
 
+    # Acquire concurrency semaphore (same one used by tool_registry.execute_tool)
+    # to prevent concurrent executions from exhausting sandbox memory.
+    sem = _get_execution_semaphore()
+    try:
+        await asyncio.wait_for(sem.acquire(), timeout=EXECUTION_QUEUE_TIMEOUT)
+    except asyncio.TimeoutError:
+        return ExecuteCodeResponse(
+            success=False,
+            error=(
+                f"Sandbox busy: {MAX_CONCURRENT_EXECUTIONS} tools are already running. "
+                f"Timed out after {EXECUTION_QUEUE_TIMEOUT}s waiting for a slot."
+            ),
+            error_category="sandbox_error",
+        )
+
     # Phase 1: exec() the code to define functions (synchronous, just defines main())
     # Phase 2: If async main() is defined, create http client on THIS loop and await it
     # This mirrors PythonExecutor.execute() which does exec() then await main_func()
@@ -959,6 +980,8 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
         # Clean up HTTP client
         if _http_client is not None:
             await _http_client.aclose()
+        # Release concurrency semaphore
+        sem.release()
 
 
 # Note: Health check is defined in main.py at /health (without auth requirement)

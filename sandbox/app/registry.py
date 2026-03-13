@@ -1,5 +1,6 @@
 """Tool Registry - manages tool definitions and execution."""
 
+import asyncio
 import ipaddress
 import logging
 import os
@@ -12,6 +13,35 @@ import httpx
 from app.executor import python_executor
 
 logger = logging.getLogger(__name__)
+
+# Maximum concurrent tool executions.  Prevents memory exhaustion when
+# multiple heavy tools (e.g. fetching 20+ RSS feeds) run simultaneously
+# inside the memory-constrained sandbox container.
+MAX_CONCURRENT_EXECUTIONS = int(
+    os.environ.get("SANDBOX_MAX_CONCURRENT_EXECUTIONS", "3")
+)
+
+# How long a request will wait for a semaphore slot before giving up.
+EXECUTION_QUEUE_TIMEOUT = float(
+    os.environ.get("SANDBOX_EXECUTION_QUEUE_TIMEOUT", "120")
+)
+
+# Module-level semaphore — created lazily on first use so that it binds
+# to the running event loop (avoids "attached to a different loop" errors).
+_execution_semaphore: asyncio.Semaphore | None = None
+
+
+def _get_execution_semaphore() -> asyncio.Semaphore:
+    """Return the module-level execution semaphore, creating it on first call."""
+    global _execution_semaphore
+    if _execution_semaphore is None:
+        _execution_semaphore = asyncio.Semaphore(MAX_CONCURRENT_EXECUTIONS)
+        logger.info(
+            f"Execution semaphore initialized: max_concurrent={MAX_CONCURRENT_EXECUTIONS}, "
+            f"queue_timeout={EXECUTION_QUEUE_TIMEOUT}s"
+        )
+    return _execution_semaphore
+
 
 # Path where approved private hosts are written for the SOCKS5 proxy ACL.
 # Must match the shared volume mount in docker-compose.yml.
@@ -389,6 +419,8 @@ class ToolRegistry:
         """Execute a tool with the given arguments.
 
         Routes to Python execution or MCP passthrough based on tool_type.
+        Concurrent Python executions are limited by a semaphore to prevent
+        memory exhaustion in the sandbox container.
         """
         tool = self.get_tool(full_name)
         if not tool:
@@ -399,8 +431,31 @@ class ToolRegistry:
 
         if tool.is_passthrough:
             return await self._execute_passthrough_tool(tool, arguments)
-        else:
+
+        # Acquire the concurrency semaphore for Python tool execution.
+        # Passthrough tools proxy to external servers and don't consume
+        # sandbox memory, so they skip the semaphore.
+        sem = _get_execution_semaphore()
+        try:
+            await asyncio.wait_for(sem.acquire(), timeout=EXECUTION_QUEUE_TIMEOUT)
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"Execution queue timeout for {full_name} after "
+                f"{EXECUTION_QUEUE_TIMEOUT}s (max_concurrent={MAX_CONCURRENT_EXECUTIONS})"
+            )
+            return {
+                "success": False,
+                "error": (
+                    f"Sandbox busy: {MAX_CONCURRENT_EXECUTIONS} tools are already running. "
+                    f"Timed out after {EXECUTION_QUEUE_TIMEOUT}s waiting for a slot."
+                ),
+                "error_category": "sandbox_error",
+            }
+
+        try:
             return await self._execute_python_tool(tool, arguments, debug_mode)
+        finally:
+            sem.release()
 
     async def _execute_python_tool(
         self,

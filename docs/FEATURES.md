@@ -39,10 +39,10 @@ Features are sorted by status, with broken/partial items at the top for visibili
 
 ### Sandboxed Code Execution
 - **Status**: Complete
-- **Description**: All tool code executes in a hardened shared sandbox. Restricted builtins (no `eval`, `exec`, `open`, `type`, `getattr`), dunder attribute blocking via regex, import whitelisting, resource limits (256MB memory, 60s CPU, 256 FDs), SSRF prevention with IP pinning.
-- **Owner modules**: `sandbox/app/executor.py`, `sandbox/app/ssrf.py`, `sandbox/app/routes.py`
+- **Description**: All tool code executes in a hardened shared sandbox. Restricted builtins (no `eval`, `exec`, `open`, `type`, `getattr`), dunder attribute blocking via regex, import whitelisting, resource limits (256MB memory, 60s CPU, 256 FDs), SSRF prevention with IP pinning. Concurrent execution limited by semaphore (default: 3) to prevent memory exhaustion from parallel tool runs.
+- **Owner modules**: `sandbox/app/executor.py`, `sandbox/app/ssrf.py`, `sandbox/app/routes.py`, `sandbox/app/registry.py`
 - **Dependencies**: None (standalone execution environment)
-- **Test coverage**: `sandbox/tests/test_code_safety.py` (40+ tests), `sandbox/tests/test_sandbox_escape.py` (30+ tests), `sandbox/tests/test_security_hardening.py` (30+ tests), `sandbox/tests/test_safety_clients.py` (25+ tests) — excellent coverage
+- **Test coverage**: `sandbox/tests/test_code_safety.py` (40+ tests), `sandbox/tests/test_sandbox_escape.py` (30+ tests), `sandbox/tests/test_security_hardening.py` (30+ tests), `sandbox/tests/test_safety_clients.py` (25+ tests), `sandbox/tests/test_concurrency_limit.py` (8 tests) — excellent coverage
 - **Security notes**: See [SECURITY.md](SECURITY.md#2-sandbox-isolation) for sandbox isolation details, [SECURITY.md](SECURITY.md#1-code-validation) for code validation and forbidden patterns
 
 ### Server Management

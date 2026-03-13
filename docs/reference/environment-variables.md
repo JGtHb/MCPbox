@@ -40,6 +40,8 @@ Each secret must be a unique value. MCPBox checks on startup that secrets are di
 |----------|---------|-------------|
 | `SANDBOX_MAX_RESULT_SIZE` | `1048576` (1 MB) | Maximum size in bytes for tool return values. Results exceeding this are truncated with a notice. |
 | `SANDBOX_MAX_RESPONSE_SIZE` | `10485760` (10 MB) | Maximum HTTP response body size in bytes. Responses exceeding this limit are aborted with a `ResponseTooLargeError`. Prevents memory exhaustion from large API responses in the 256MB sandbox container. |
+| `SANDBOX_MAX_CONCURRENT_EXECUTIONS` | `3` | Maximum number of Python tool executions that can run simultaneously. Additional requests queue and wait for a slot. Prevents memory exhaustion when multiple heavy tools run concurrently in the memory-constrained sandbox container. MCP passthrough tools are not counted. |
+| `SANDBOX_EXECUTION_QUEUE_TIMEOUT` | `120` (seconds) | How long a queued execution waits for a concurrency slot before returning a "sandbox busy" error. |
 
 ## HTTP Client
 
