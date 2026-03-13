@@ -120,7 +120,7 @@ MCP_MANAGEMENT_TOOLS = [
     },
     {
         "name": "mcpbox_create_tool",
-        "description": "Create a new MCP tool in a server. Tools are created in 'draft' status and must be submitted for admin approval using mcpbox_request_publish before they become available. Write Python code with an async main() function. Note: after approval, MCP clients do not automatically refresh their tool list — the user must restart or refresh their client to see new tools.",
+        "description": "Create a new MCP tool in a server. Tools are created in 'draft' status and must be submitted for admin approval using mcpbox_request_publish before they become available. Note: after approval, MCP clients do not automatically refresh their tool list — the user must restart or refresh their client to see new tools.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -138,7 +138,7 @@ MCP_MANAGEMENT_TOOLS = [
                 },
                 "python_code": {
                     "type": "string",
-                    "description": "Python code with async def main() function. Use 'http' client for requests.",
+                    "description": "Python code with an async def main() function. Parameters of main() become the tool's input schema — e.g. async def main(city: str, units: str = \"metric\") exposes 'city' (required) and 'units' (optional). The sandbox injects these globals — do NOT add them as parameters: 'http' (async HTTP client for requests), 'secrets' (read-only dict of server secrets, e.g. secrets[\"API_KEY\"]), 'json', 'datetime'. Use type hints (str, int, float, bool, list, dict) for proper schema generation.",
                 },
             },
             "required": ["server_id", "name", "python_code"],
@@ -164,7 +164,7 @@ MCP_MANAGEMENT_TOOLS = [
                 },
                 "python_code": {
                     "type": "string",
-                    "description": "New Python code (optional)",
+                    "description": "New Python code (optional). Same conventions as mcpbox_create_tool: async def main() with typed parameters for the schema; use injected globals (http, secrets, json, datetime) — not function parameters.",
                 },
                 "enabled": {
                     "type": "boolean",
@@ -236,7 +236,7 @@ MCP_MANAGEMENT_TOOLS = [
     },
     {
         "name": "mcpbox_validate_code",
-        "description": "Validate Python code syntax and check for required async main() function.",
+        "description": "Validate Python code syntax and check for required async main() function. Note: main() parameters become the tool's MCP input schema. Globals (http, secrets, json, datetime) are injected by the sandbox — do not add them as parameters.",
         "inputSchema": {
             "type": "object",
             "properties": {
