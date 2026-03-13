@@ -2629,6 +2629,70 @@ async def test_duplicate_network_request_same_host_different_server(
 
 
 @pytest.mark.asyncio
+async def test_duplicate_network_request_same_server_different_tool(
+    db_session: AsyncSession,
+    pending_network_request: NetworkAccessRequest,
+    test_server: Server,
+):
+    """Second tool on the same server requesting the same host is deduplicated."""
+    from app.services.approval import ApprovalService
+
+    # Create a second tool on the same server
+    second_tool = Tool(
+        server_id=test_server.id,
+        name="second_tool",
+        description="Another tool on same server",
+        python_code='async def main() -> str:\n    return "test"',
+        input_schema={"type": "object", "properties": {}},
+        approval_status="draft",
+    )
+    db_session.add(second_tool)
+    await db_session.flush()
+
+    service = ApprovalService(db_session)
+    # pending_network_request is for api.example.com:443 on test_server
+    with pytest.raises(ValueError, match="already exists for this server"):
+        await service.create_network_access_request(
+            tool_id=second_tool.id,
+            host="api.example.com",
+            port=443,
+            justification="I also need this API",
+        )
+
+
+@pytest.mark.asyncio
+async def test_duplicate_network_request_same_server_different_port_allowed(
+    db_session: AsyncSession,
+    pending_network_request: NetworkAccessRequest,
+    test_server: Server,
+):
+    """Same host but different port on the same server is allowed."""
+    from app.services.approval import ApprovalService
+
+    second_tool = Tool(
+        server_id=test_server.id,
+        name="second_tool",
+        description="Another tool on same server",
+        python_code='async def main() -> str:\n    return "test"',
+        input_schema={"type": "object", "properties": {}},
+        approval_status="draft",
+    )
+    db_session.add(second_tool)
+    await db_session.flush()
+
+    service = ApprovalService(db_session)
+    # pending_network_request is for api.example.com:443 — request port 8080
+    request = await service.create_network_access_request(
+        tool_id=second_tool.id,
+        host="api.example.com",
+        port=8080,
+        justification="Need a different port",
+    )
+    assert request.status == "pending"
+    assert request.port == 8080
+
+
+@pytest.mark.asyncio
 async def test_duplicate_module_request_already_approved(
     db_session: AsyncSession,
     approved_module_request: ModuleRequest,

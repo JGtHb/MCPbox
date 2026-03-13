@@ -1276,3 +1276,234 @@ class TestExternalMCPSourceTools:
         source = sources_result["sources"][0]
         assert source["tool_count"] == 2  # 2 discovered
         assert source["status"] == "active"
+
+
+@pytest.mark.asyncio
+class TestRequestNetworkAccessMultiTool:
+    """Test mcpbox_request_network_access with single and multiple tool_ids."""
+
+    async def _create_server_and_tools(self, db_session, num_tools=3):
+        """Helper: create a server with N tools, return (server_id, tool_ids, tool_names)."""
+        from app.models.server import Server
+        from app.models.tool import Tool
+
+        server = Server(name="net_test_server", description="For network tests", status="imported")
+        db_session.add(server)
+        await db_session.flush()
+
+        tool_ids = []
+        tool_names = []
+        for i in range(num_tools):
+            tool = Tool(
+                server_id=server.id,
+                name=f"net_tool_{i}",
+                description=f"Tool {i}",
+                python_code='async def main() -> str:\n    return "test"',
+                input_schema={"type": "object", "properties": {}},
+                approval_status="draft",
+            )
+            db_session.add(tool)
+            await db_session.flush()
+            tool_ids.append(str(tool.id))
+            tool_names.append(tool.name)
+
+        return str(server.id), tool_ids, tool_names
+
+    async def test_single_tool_id_backwards_compat(self, db_session):
+        """Single tool_id still works as before."""
+        _, tool_ids, _ = await self._create_server_and_tools(db_session, 1)
+        service = MCPManagementService(db_session)
+
+        result = await service.execute_tool(
+            "mcpbox_request_network_access",
+            {
+                "tool_id": tool_ids[0],
+                "host": "api.example.com",
+                "justification": "Need API access",
+            },
+        )
+        assert result["success"] is True
+        assert result["status"] == "pending"
+        assert result["host"] == "api.example.com"
+        assert result["tools"] == ["net_tool_0"]
+
+    async def test_multiple_tool_ids(self, db_session):
+        """Multiple tool_ids creates a single server-level request."""
+        _, tool_ids, tool_names = await self._create_server_and_tools(db_session, 3)
+        service = MCPManagementService(db_session)
+
+        result = await service.execute_tool(
+            "mcpbox_request_network_access",
+            {
+                "tool_ids": tool_ids,
+                "host": "portainer.example.com",
+                "justification": "Manage containers",
+            },
+        )
+        assert result["success"] is True
+        assert result["status"] == "pending"
+        assert result["tools"] == tool_names
+        assert "portainer.example.com" in result["message"]
+
+    async def test_multiple_tool_ids_justification_includes_names(self, db_session):
+        """Multi-tool request prepends tool names to justification for admin visibility."""
+        from sqlalchemy import select
+
+        from app.models.network_access_request import NetworkAccessRequest
+
+        _, tool_ids, _ = await self._create_server_and_tools(db_session, 2)
+        service = MCPManagementService(db_session)
+
+        result = await service.execute_tool(
+            "mcpbox_request_network_access",
+            {
+                "tool_ids": tool_ids,
+                "host": "api.test.com",
+                "justification": "Need this API",
+            },
+        )
+        assert result["success"] is True
+
+        # Check the stored justification includes tool names
+        req = await db_session.execute(
+            select(NetworkAccessRequest).where(NetworkAccessRequest.id == result["request_id"])
+        )
+        stored = req.scalar_one()
+        assert "net_tool_0" in stored.justification
+        assert "net_tool_1" in stored.justification
+        assert "Need this API" in stored.justification
+        # Multi-tool request sets tool_id=NULL, server_id set
+        assert stored.tool_id is None
+        assert stored.server_id is not None
+
+    async def test_both_tool_id_and_tool_ids_merged(self, db_session):
+        """Providing both tool_id and tool_ids merges them."""
+        _, tool_ids, tool_names = await self._create_server_and_tools(db_session, 3)
+        service = MCPManagementService(db_session)
+
+        result = await service.execute_tool(
+            "mcpbox_request_network_access",
+            {
+                "tool_id": tool_ids[0],
+                "tool_ids": [tool_ids[1], tool_ids[2]],
+                "host": "merged.example.com",
+                "justification": "All tools need it",
+            },
+        )
+        assert result["success"] is True
+        # All 3 tools should be in the list (tool_ids first, then tool_id appended, deduped)
+        assert len(result["tools"]) == 3
+
+    async def test_tool_ids_deduplication(self, db_session):
+        """Duplicate tool_ids are deduplicated."""
+        _, tool_ids, _ = await self._create_server_and_tools(db_session, 1)
+        service = MCPManagementService(db_session)
+
+        result = await service.execute_tool(
+            "mcpbox_request_network_access",
+            {
+                "tool_ids": [tool_ids[0], tool_ids[0], tool_ids[0]],
+                "host": "dedup.example.com",
+                "justification": "Test dedup",
+            },
+        )
+        # Single tool after dedup → single-tool path
+        assert result["success"] is True
+        assert result["tools"] == ["net_tool_0"]
+
+    async def test_tool_ids_different_servers_rejected(self, db_session):
+        """Tools from different servers are rejected."""
+        from app.models.server import Server
+        from app.models.tool import Tool
+
+        # Create two servers with one tool each
+        server1 = Server(name="server_a", description="A", status="imported")
+        server2 = Server(name="server_b", description="B", status="imported")
+        db_session.add_all([server1, server2])
+        await db_session.flush()
+
+        tool1 = Tool(
+            server_id=server1.id,
+            name="tool_on_a",
+            description="On server A",
+            python_code='async def main() -> str:\n    return "a"',
+            input_schema={"type": "object", "properties": {}},
+            approval_status="draft",
+        )
+        tool2 = Tool(
+            server_id=server2.id,
+            name="tool_on_b",
+            description="On server B",
+            python_code='async def main() -> str:\n    return "b"',
+            input_schema={"type": "object", "properties": {}},
+            approval_status="draft",
+        )
+        db_session.add_all([tool1, tool2])
+        await db_session.flush()
+
+        service = MCPManagementService(db_session)
+        result = await service.execute_tool(
+            "mcpbox_request_network_access",
+            {
+                "tool_ids": [str(tool1.id), str(tool2.id)],
+                "host": "cross-server.example.com",
+                "justification": "Won't work",
+            },
+        )
+        assert "error" in result
+        assert "same server" in result["error"]
+
+    async def test_neither_tool_id_nor_tool_ids(self, db_session):
+        """Omitting both tool_id and tool_ids returns an error."""
+        service = MCPManagementService(db_session)
+        result = await service.execute_tool(
+            "mcpbox_request_network_access",
+            {
+                "host": "orphan.example.com",
+                "justification": "No tools specified",
+            },
+        )
+        assert "error" in result
+        assert "tool_id" in result["error"] or "tool_ids" in result["error"]
+
+    async def test_empty_tool_ids_array(self, db_session):
+        """Empty tool_ids array returns an error."""
+        service = MCPManagementService(db_session)
+        result = await service.execute_tool(
+            "mcpbox_request_network_access",
+            {
+                "tool_ids": [],
+                "host": "empty.example.com",
+                "justification": "Empty list",
+            },
+        )
+        assert "error" in result
+        assert "non-empty" in result["error"]
+
+    async def test_invalid_uuid_in_tool_ids(self, db_session):
+        """Invalid UUID in tool_ids returns an error."""
+        service = MCPManagementService(db_session)
+        result = await service.execute_tool(
+            "mcpbox_request_network_access",
+            {
+                "tool_ids": ["not-a-uuid"],
+                "host": "invalid.example.com",
+                "justification": "Bad UUID",
+            },
+        )
+        assert "error" in result
+        assert "valid UUID" in result["error"]
+
+    async def test_nonexistent_tool_in_tool_ids(self, db_session):
+        """Nonexistent tool UUID returns an error."""
+        service = MCPManagementService(db_session)
+        result = await service.execute_tool(
+            "mcpbox_request_network_access",
+            {
+                "tool_ids": [str(uuid4())],
+                "host": "ghost.example.com",
+                "justification": "Tool doesn't exist",
+            },
+        )
+        assert "error" in result
+        assert "not found" in result["error"]
