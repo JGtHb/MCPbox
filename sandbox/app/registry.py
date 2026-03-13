@@ -1,6 +1,7 @@
 """Tool Registry - manages tool definitions and execution."""
 
 import asyncio
+import gc
 import ipaddress
 import logging
 import os
@@ -456,6 +457,12 @@ class ToolRegistry:
             return await self._execute_python_tool(tool, arguments, debug_mode)
         finally:
             sem.release()
+            # Reclaim memory after every execution.  Heavy tools can
+            # leave large httpx response bodies, decompressed data, and
+            # socket buffers that won't be freed until the next GC cycle.
+            # In a 256 MB container this matters — without it a timed-out
+            # tool can leave the sandbox OOM for the next request.
+            gc.collect()
 
     async def _execute_python_tool(
         self,

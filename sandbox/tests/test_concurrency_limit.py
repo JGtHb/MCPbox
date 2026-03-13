@@ -1,7 +1,9 @@
-"""Tests for sandbox concurrency limiting.
+"""Tests for sandbox concurrency limiting and memory cleanup.
 
 The sandbox limits concurrent tool executions via an asyncio.Semaphore
 to prevent memory exhaustion when multiple heavy tools run simultaneously.
+After every execution (success, error, or timeout) gc.collect() is called
+to reclaim memory left by cancelled coroutines and closed HTTP clients.
 """
 
 import asyncio
@@ -13,7 +15,6 @@ from app.registry import (
     EXECUTION_QUEUE_TIMEOUT,
     MAX_CONCURRENT_EXECUTIONS,
     ToolRegistry,
-    _get_execution_semaphore,
 )
 
 
@@ -87,9 +88,7 @@ class TestConcurrencySemaphore:
             idx = len(execution_order)
             execution_order.append(f"start-{idx}")
             active_count[0] += 1
-            concurrency_high_water[0] = max(
-                concurrency_high_water[0], active_count[0]
-            )
+            concurrency_high_water[0] = max(concurrency_high_water[0], active_count[0])
             await asyncio.sleep(0.1)
             active_count[0] -= 1
             execution_order.append(f"end-{idx}")
@@ -299,3 +298,83 @@ class TestConcurrencySemaphore:
             assert "not found" in result["error"]
         finally:
             reg_module._execution_semaphore = old_sem
+
+
+class TestMemoryCleanup:
+    """Verify gc.collect() is called after tool execution to reclaim memory."""
+
+    def _make_registry(self):
+        """Create a registry with a simple tool registered."""
+        registry = ToolRegistry()
+        registry.register_server(
+            server_id="s1",
+            server_name="test",
+            tools=[
+                {
+                    "name": "tool",
+                    "description": "test",
+                    "parameters": {"type": "object", "properties": {}},
+                    "python_code": "async def main(): return 'ok'",
+                }
+            ],
+        )
+        return registry
+
+    @pytest.mark.asyncio
+    async def test_gc_collect_after_successful_execution(self):
+        """gc.collect() runs after a successful tool execution."""
+
+        async def mock_execute(self, tool, arguments, debug_mode=False):
+            return {"success": True, "result": "done"}
+
+        registry = self._make_registry()
+
+        with (
+            patch.object(ToolRegistry, "_execute_python_tool", mock_execute),
+            patch("app.registry.gc.collect") as mock_gc,
+        ):
+            result = await registry.execute_tool("test__tool", {})
+
+        assert result["success"]
+        mock_gc.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_gc_collect_after_failed_execution(self):
+        """gc.collect() runs even when tool execution raises."""
+
+        async def exploding_execute(self, tool, arguments, debug_mode=False):
+            raise RuntimeError("boom")
+
+        registry = self._make_registry()
+
+        with (
+            patch.object(ToolRegistry, "_execute_python_tool", exploding_execute),
+            patch("app.registry.gc.collect") as mock_gc,
+        ):
+            with pytest.raises(RuntimeError, match="boom"):
+                await registry.execute_tool("test__tool", {})
+
+        mock_gc.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_gc_collect_after_executor_timeout(self):
+        """gc.collect() runs in the executor after asyncio.TimeoutError."""
+        from app.executor import python_executor
+
+        # asyncio must be in allowed_modules for the tool code to import it
+        allowed = {"asyncio"}
+
+        with patch("app.executor.gc.collect") as mock_gc:
+            result = await python_executor.execute(
+                python_code=(
+                    "import asyncio\nasync def main():\n    await asyncio.sleep(10)\n"
+                ),
+                arguments={},
+                http_client=None,
+                timeout=0.05,
+                allowed_modules=allowed,
+            )
+
+        assert not result.success
+        assert "timed out" in result.error
+        mock_gc.assert_called_once()

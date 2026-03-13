@@ -2042,6 +2042,13 @@ class PythonExecutor:
                     timeout=timeout,
                 )
             except asyncio.TimeoutError:
+                # Force garbage collection after timeout.  The cancelled
+                # coroutine may leave httpx connections, TLS buffers, and
+                # decompressed response bodies in memory.  Without an
+                # explicit gc.collect() the sandbox can OOM on the very
+                # next request.
+                gc.collect()
+
                 error_detail = ErrorDetail(
                     message=f"Execution timed out after {timeout} seconds",
                     error_type="TimeoutError",
