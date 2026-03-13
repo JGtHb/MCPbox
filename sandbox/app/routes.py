@@ -1162,7 +1162,11 @@ async def get_pypi_info_endpoint(body: PyPIInfoRequest):
     and project health from deps.dev. Stdlib modules skip safety checks.
     """
     from app.stdlib_detector import is_stdlib_module
-    from app.pypi_client import fetch_module_info, package_info_to_dict
+    from app.pypi_client import (
+        fetch_module_info,
+        get_package_name_for_module,
+        package_info_to_dict,
+    )
 
     is_stdlib = is_stdlib_module(body.module_name)
 
@@ -1175,7 +1179,20 @@ async def get_pypi_info_endpoint(body: PyPIInfoRequest):
         )
 
     try:
-        package_name, info = await fetch_module_info(body.module_name)
+        from app.pypi_client import PyPILookupError
+
+        try:
+            package_name, info = await fetch_module_info(body.module_name)
+        except PyPILookupError as e:
+            # Network/server error — distinct from "package doesn't exist"
+            package_name = await get_package_name_for_module(body.module_name)
+            return PyPIInfoResponse(
+                module_name=body.module_name,
+                package_name=package_name,
+                is_stdlib=False,
+                pypi_info=None,
+                error=f"PyPI lookup failed for '{package_name}': {e}",
+            )
 
         if info is None:
             return PyPIInfoResponse(
