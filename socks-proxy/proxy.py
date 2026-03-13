@@ -3,14 +3,18 @@
 All sandbox outbound traffic (HTTP via httpx+socksio, raw TCP via SafeSocket)
 is forced through this proxy via Docker network isolation.
 
-Policy:
-  - Public IPs: allowed (any host, any port)
-  - Private IPs (RFC 1918): blocked unless admin-approved via ACL file
+Policy (defense-in-depth — mirrors app-layer SSRF checks):
   - Always-blocked IPs: loopback, link-local, metadata — never allowed
+  - Private IPs (RFC 1918): blocked unless admin-approved via ACL file
+  - Public IPs (domain whitelisting):
+      * Infrastructure hosts (pypi.org, etc.): always allowed
+      * When ACL has entries: only approved hosts allowed (defense-in-depth)
+      * When ACL is empty: all public traffic allowed (no servers registered)
   - DNS resolved proxy-side to prevent DNS rebinding attacks
 
 ACL file: /shared/proxy-acl/approved-private.txt
   Written by sandbox registry, one hostname/IP per line, case-insensitive.
+  Contains the union of all registered servers' allowed_hosts.
 
 IP validation ranges mirror sandbox/app/ssrf.py — keep in sync.
 
@@ -69,6 +73,18 @@ PRIVATE_NETWORKS = [
 # Common LAN hostname suffixes (matches sandbox/app/registry.py filtering logic)
 LAN_SUFFIXES = (".local", ".lan", ".home", ".internal")
 
+# Infrastructure hosts the sandbox always needs (package install, security checks).
+# These bypass domain whitelisting so the sandbox can function even when
+# servers have restricted allowed_hosts lists.
+INFRASTRUCTURE_HOSTS = frozenset(
+    {
+        "pypi.org",  # Package metadata (pypi_client.py)
+        "files.pythonhosted.org",  # pip downloads packages from here
+        "api.osv.dev",  # Vulnerability checking (osv_client.py)
+        "api.deps.dev",  # Dependency health / OpenSSF Scorecard (deps_client.py)
+    }
+)
+
 # SOCKS5 constants
 SOCKS_VERSION = 0x05
 AUTH_NONE = 0x00
@@ -118,7 +134,10 @@ def is_lan_hostname(hostname: str) -> bool:
 
 
 class ACLReader:
-    """Reads approved private hosts from the shared ACL file with TTL caching."""
+    """Reads approved hosts from the shared ACL file with TTL caching.
+
+    Used for both private-IP gating and public-IP domain whitelisting.
+    """
 
     def __init__(self, path: Path, ttl: float = 5.0):
         self._path = path
@@ -126,12 +145,20 @@ class ACLReader:
         self._cache: set[str] = set()
         self._last_read: float = 0.0
 
-    def is_approved(self, hostname: str) -> bool:
-        """Check if hostname/IP is in the approved private hosts list."""
+    def _ensure_fresh(self) -> None:
         now = time.monotonic()
         if now - self._last_read > self._ttl:
             self._refresh()
+
+    def is_approved(self, hostname: str) -> bool:
+        """Check if hostname/IP is in the approved hosts list."""
+        self._ensure_fresh()
         return hostname.lower() in self._cache
+
+    def has_entries(self) -> bool:
+        """Check if the ACL has any entries (i.e. servers are registered)."""
+        self._ensure_fresh()
+        return bool(self._cache)
 
     def _refresh(self) -> None:
         """Re-read the ACL file."""
@@ -153,6 +180,11 @@ acl_reader = ACLReader(ACL_FILE, ACL_CACHE_TTL)
 # --- Connection validation ---
 
 
+def is_infrastructure_host(hostname: str) -> bool:
+    """Check if hostname is a sandbox infrastructure host (always allowed)."""
+    return hostname.lower() in INFRASTRUCTURE_HOSTS
+
+
 def validate_connection(
     hostname: str,
     resolved_ip: ipaddress.IPv4Address | ipaddress.IPv6Address,
@@ -160,6 +192,12 @@ def validate_connection(
     """Validate whether a connection should be allowed.
 
     Returns None if allowed, or an error message string if blocked.
+
+    Defense-in-depth layers:
+      1. Always-blocked IPs (loopback, link-local, metadata) — never allowed
+      2. Private IPs — require ACL approval
+      3. Public IPs — infrastructure hosts always allowed; other hosts
+         require ACL approval when servers are registered (ACL non-empty)
 
     Args:
         hostname: Original hostname from the SOCKS5 request (for ACL lookup).
@@ -179,7 +217,23 @@ def validate_connection(
             f"is not in the approved hosts list"
         )
 
-    # Public IPs are always allowed
+    # Public IPs: domain whitelisting (defense-in-depth)
+    # Infrastructure hosts are always allowed (sandbox internals need them)
+    if is_infrastructure_host(hostname):
+        return None
+
+    # When ACL has entries (servers registered), enforce domain whitelisting.
+    # The ACL contains the union of all servers' allowed_hosts — this is a
+    # coarse filter. The app-layer SSRF check enforces per-server restrictions.
+    if acl_reader.has_entries():
+        if acl_reader.is_approved(hostname) or acl_reader.is_approved(str(resolved_ip)):
+            return None
+        return (
+            f"blocked: '{hostname}' ({resolved_ip}) is not in the approved "
+            f"hosts list or infrastructure hosts"
+        )
+
+    # ACL empty (no servers registered) — allow all public traffic
     return None
 
 
