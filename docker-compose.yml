@@ -23,8 +23,8 @@ services:
   # ============================================================
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: frontend/Dockerfile
     ports:
       - "127.0.0.1:${MCPBOX_FRONTEND_PORT:-3000}:3000"
     environment:
@@ -231,8 +231,8 @@ services:
   # ============================================================
   socks-proxy:
     build:
-      context: ./socks-proxy
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: socks-proxy/Dockerfile
     cap_drop:
       - ALL
     security_opt:
@@ -312,8 +312,8 @@ services:
   # ============================================================
   cloudflared:
     build:
-      context: ./cloudflared
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: cloudflared/Dockerfile
     environment:
       - BACKEND_URL=http://backend:8000
       # Dedicated key for cloudflared (falls back to SANDBOX_API_KEY if not set)
