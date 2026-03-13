@@ -3,7 +3,7 @@ FROM python:3.11-slim
 # Non-root user ('proxy' already exists in python:3.11-slim)
 RUN useradd -m -u 1000 -s /bin/sh socksproxy
 
-COPY proxy.py /app/proxy.py
+COPY socks-proxy/proxy.py /app/proxy.py
 
 USER socksproxy
 WORKDIR /app
