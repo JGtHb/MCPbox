@@ -104,8 +104,8 @@ curl -X POST http://localhost:8000/health/circuits/reset \
 # If sandbox is OOM-killed, check resource limits
 docker compose logs sandbox | grep -i "killed\|oom"
 
-# Increase memory limit if needed (in docker compose.yml)
-# sandbox service: mem_limit: 2g (default: 1g)
+# Increase memory limit if needed (in docker-compose.yml deploy.resources.limits)
+# sandbox service default is 512M — increase to 1G for heavy package installs
 ```
 
 ---
