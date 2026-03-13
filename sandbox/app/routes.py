@@ -2,6 +2,7 @@
 
 import asyncio
 import datetime as datetime_module
+import gc
 import json as json_module
 import logging
 import os
@@ -982,6 +983,8 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
             await _http_client.aclose()
         # Release concurrency semaphore
         sem.release()
+        # Reclaim memory left by cancelled/completed executions
+        gc.collect()
 
 
 # Note: Health check is defined in main.py at /health (without auth requirement)
