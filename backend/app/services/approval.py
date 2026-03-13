@@ -800,6 +800,38 @@ class ApprovalService:
                 "No new request needed — the tool can use it immediately."
             )
 
+        # Check if any tool on this server already has a pending request for this host+port.
+        # Network access is per-server, so one pending request covers all tools.
+        pending_port_clause = (
+            NetworkAccessRequest.port == port
+            if port is not None
+            else NetworkAccessRequest.port.is_(None)
+        )
+        pending_server_stmt = (
+            select(NetworkAccessRequest)
+            .outerjoin(Tool, NetworkAccessRequest.tool_id == Tool.id)
+            .where(
+                NetworkAccessRequest.status == "pending",
+                NetworkAccessRequest.host == host_lower,
+                pending_port_clause,
+                or_(
+                    NetworkAccessRequest.server_id == server_id,
+                    Tool.server_id == server_id,
+                ),
+            )
+            .options(selectinload(NetworkAccessRequest.tool))
+            .limit(1)
+        )
+        pending_result = await self.db.execute(pending_server_stmt)
+        existing_pending = pending_result.scalar_one_or_none()
+        if existing_pending:
+            source = f"tool '{existing_pending.tool.name}'" if existing_pending.tool else "an admin"
+            raise ValueError(
+                f"A pending request for host '{host_lower}{port_str}' already exists for this server "
+                f"(requested by {source}). Network access is per-server, so once approved "
+                "it will apply to all tools on this server."
+            )
+
         # Check if this exact tool already has a non-pending request for this host+port
         # (rejected requests that the LLM is re-requesting)
         if tool_id:

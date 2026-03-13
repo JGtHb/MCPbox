@@ -300,13 +300,18 @@ MCP_MANAGEMENT_TOOLS = [
     },
     {
         "name": "mcpbox_request_network_access",
-        "description": "Request network access to an external host for your tool. Admin must approve before the tool can access the specified host.",
+        "description": "Request network access to an external host for your tool. Admin must approve before the tool can access the specified host. Network access is granted per-server — pass multiple tool IDs via tool_ids to submit a single request covering all tools that need the same host.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "tool_id": {
                     "type": "string",
-                    "description": "UUID of the tool that needs network access",
+                    "description": "UUID of a single tool that needs network access. Use tool_ids instead when multiple tools need the same host.",
+                },
+                "tool_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "UUIDs of multiple tools that need network access to this host. All tools must be on the same server. Preferred over tool_id when multiple tools need access.",
                 },
                 "host": {
                     "type": "string",
@@ -321,7 +326,7 @@ MCP_MANAGEMENT_TOOLS = [
                     "description": "Explanation of why your tool needs to access this host",
                 },
             },
-            "required": ["tool_id", "host", "justification"],
+            "required": ["host", "justification"],
         },
     },
     {
@@ -1409,11 +1414,39 @@ class MCPManagementService:
             return {"error": "Failed to create module request due to an internal error"}
 
     async def _request_network_access(self, args: dict) -> dict:
-        """Request network access to a host."""
+        """Request network access to a host for one or more tools."""
+        from sqlalchemy import select
+
+        from app.models.tool import Tool
+        from app.services.approval import ApprovalService
+
+        # --- Normalize tool_id / tool_ids into a list of UUIDs ---
+        raw_id = args.get("tool_id")
+        raw_ids = args.get("tool_ids")
+
+        if not raw_id and not raw_ids:
+            return {"error": "Either tool_id or tool_ids is required"}
+
+        id_strings: list[str] = []
+        if raw_ids:
+            if not isinstance(raw_ids, list) or len(raw_ids) == 0:
+                return {"error": "tool_ids must be a non-empty array of UUID strings"}
+            id_strings.extend(raw_ids)
+        if raw_id:
+            id_strings.append(raw_id)
+
+        # Deduplicate while preserving order
+        seen: set[str] = set()
+        unique_ids: list[str] = []
+        for s in id_strings:
+            if s not in seen:
+                seen.add(s)
+                unique_ids.append(s)
+
         try:
-            tool_id = UUID(args["tool_id"])
-        except (ValueError, KeyError):
-            return {"error": "Invalid tool_id"}
+            tool_uuids = [UUID(s) for s in unique_ids]
+        except ValueError:
+            return {"error": "One or more tool IDs are not valid UUIDs"}
 
         host = args.get("host")
         port = args.get("port")
@@ -1424,27 +1457,56 @@ class MCPManagementService:
         if not justification:
             return {"error": "justification is required"}
 
-        from app.services.approval import ApprovalService
+        # --- Look up all tools and validate they're on the same server ---
+        result = await self.db.execute(select(Tool).where(Tool.id.in_(tool_uuids)))
+        tools = {t.id: t for t in result.scalars().all()}
 
+        missing = [str(uid) for uid in tool_uuids if uid not in tools]
+        if missing:
+            return {"error": f"Tool(s) not found: {', '.join(missing)}"}
+
+        server_ids = {t.server_id for t in tools.values()}
+        if len(server_ids) > 1:
+            return {
+                "error": "All tools must be on the same server. "
+                "Network access is granted per-server."
+            }
+
+        server_id = server_ids.pop()
+        tool_names = [tools[uid].name for uid in tool_uuids]
+
+        # --- Create the request ---
         approval_service = ApprovalService(self.db)
+        is_multi = len(tool_uuids) > 1
+
+        # For multi-tool requests, prepend tool names to the justification
+        # so the admin can see which tools need this access.
+        final_justification = justification
+        if is_multi:
+            names_str = ", ".join(tool_names)
+            final_justification = f"Tools: {names_str}. {justification}"
 
         try:
             request = await approval_service.create_network_access_request(
-                tool_id=tool_id,
+                tool_id=tool_uuids[0] if not is_multi else None,
                 host=host,
                 port=port,
-                justification=justification,
-                requested_by=None,  # Will be set from JWT in gateway if available
+                justification=final_justification,
+                requested_by=None,
+                server_id=server_id if is_multi else None,
             )
             port_str = f":{port}" if port else ""
+            tools_str = ", ".join(tool_names)
             return {
                 "success": True,
                 "request_id": str(request.id),
                 "host": request.host,
                 "port": request.port,
                 "status": request.status,
-                "message": f"Request to access '{host}{port_str}' has been submitted. "
-                "An admin will review and approve or reject it.",
+                "tools": tool_names,
+                "message": f"Request to access '{host}{port_str}' has been submitted "
+                f"for {tools_str}. An admin will review and approve or reject it. "
+                "Once approved, all tools on this server can access the host.",
             }
         except ValueError as e:
             return {"error": str(e)}
