@@ -79,7 +79,12 @@ MCPbox uses a **hybrid architecture** - local-first with optional remote access 
 |  |   +------------+     +--------------------------+                   |  |
 |  |   | PostgreSQL |     |     Shared Sandbox       |                   |  |
 |  |   |   :5432    |     |        :8001             |                   |  |
-|  |   +------------+     +--------------------------+                   |  |
+|  |   +------------+     +--------+-----------------+                   |  |
+|  |                               | all outbound                       |  |
+|  |                     +---------+----------+                          |  |
+|  |                     |  SOCKS5 Proxy      |----> Internet / LAN     |  |
+|  |                     |  :1080 (egress)    |                          |  |
+|  |                     +--------------------+                          |  |
 |  |                                                                      |  |
 |  +----------------------------------------------------------------------+  |
 |                                                                            |
@@ -171,7 +176,7 @@ Tool code runs in a shared sandbox container with application-level protections:
 - Blocked: `os`, `subprocess`, `sys`, `importlib`, `ctypes`, etc.
 
 **Resource Limits:**
-- 256MB memory limit
+- 256MB per-execution memory limit (RLIMIT_AS), 512MB container limit
 - 60-second CPU timeout
 - 256 file descriptor limit
 - 1MB output cap
