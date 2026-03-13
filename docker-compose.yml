@@ -332,6 +332,7 @@ services:
         condition: service_healthy
     networks:
       - mcpbox-internal
+      - mcpbox-tunnel    # Outbound internet access for Cloudflare tunnel
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:2000/ready"]
       interval: 30s
@@ -354,7 +355,7 @@ services:
 networks:
   mcpbox-internal:
     driver: bridge
-    internal: false
+    internal: true  # SECURITY: No outbound internet for frontend/backend/mcp-gateway
 
   mcpbox-sandbox:
     driver: bridge
@@ -367,6 +368,10 @@ networks:
   mcpbox-sandbox-external:
     driver: bridge
     internal: false  # SOCKS5 proxy outbound only (sandbox is NOT on this network)
+
+  mcpbox-tunnel:
+    driver: bridge
+    internal: false  # Cloudflared outbound to Cloudflare (only cloudflared is on this network)
 
   mcpbox-db:
     driver: bridge

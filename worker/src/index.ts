@@ -101,6 +101,13 @@ export interface AdminConfig {
 let adminConfigCache: AdminConfig | null = null;
 const ADMIN_CONFIG_TTL_MS = 60_000;
 
+// Global rate limit for client registration (across all IPs)
+const GLOBAL_REGISTER_LIMIT_PER_HOUR = 100;
+const GLOBAL_REGISTER_KEY = 'ratelimit:register:global';
+
+// TTL for auto-registered client entries (30 days)
+const AUTO_REGISTERED_CLIENT_TTL_SECONDS = 30 * 24 * 3600;
+
 /** Reset admin config cache (for testing only). */
 export function resetAdminConfigCache(): void {
   adminConfigCache = null;
@@ -176,6 +183,7 @@ function getCorsHeaders(corsOrigin: string): Record<string, string> {
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': CORS_HEADERS_LIST,
     'Access-Control-Expose-Headers': 'Mcp-Session-Id',
+    'Vary': 'Origin',
   };
 }
 
@@ -190,14 +198,40 @@ async function isRedirectUriAllowed(redirectUri: string, env: Env): Promise<bool
     return true;
   }
 
-  // Check admin-configured redirect URI prefixes
+  // Check admin-configured redirect URIs using origin matching.
+  // SECURITY: We compare origins (scheme + host + port) rather than using
+  // prefix matching, which would allow https://app.example.com.evil.com
+  // to match an admin-configured https://app.example.com.
   const adminConfig = await getAdminConfig(env);
-  for (const prefix of adminConfig.redirectUris) {
-    if (redirectUri.startsWith(prefix)) {
-      return true;
+  try {
+    const redirectOrigin = new URL(redirectUri).origin;
+    for (const allowed of adminConfig.redirectUris) {
+      try {
+        if (redirectOrigin === new URL(allowed).origin) {
+          return true;
+        }
+      } catch {
+        // Skip malformed admin-configured URIs
+      }
     }
+  } catch {
+    // Malformed redirect URI — reject
+    return false;
   }
 
+  return false;
+}
+
+/**
+ * Check and increment the global registration rate limit.
+ * Returns true if the limit is exceeded (caller should reject the request).
+ */
+async function isGlobalRegisterLimitExceeded(kv: KVNamespace): Promise<boolean> {
+  const currentCount = parseInt(await kv.get(GLOBAL_REGISTER_KEY) || '0', 10);
+  if (currentCount >= GLOBAL_REGISTER_LIMIT_PER_HOUR) {
+    return true;
+  }
+  await kv.put(GLOBAL_REGISTER_KEY, String(currentCount + 1), { expirationTtl: 3600 });
   return false;
 }
 
@@ -429,12 +463,19 @@ export default {
           }
           const existing = await env.OAUTH_KV.get(`client:${tokenClientId}`);
           if (!existing) {
-            // Rate limit auto-registration at /token (same limit as /register)
+            // Rate limit auto-registration at /token (per-IP + global)
             const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
             const rateLimitKey = `ratelimit:register:${clientIp}`;
             const currentCount = parseInt(await env.OAUTH_KV.get(rateLimitKey) || '0', 10);
             if (currentCount >= 10) {
               console.warn(`SECURITY: Rate-limited /token auto-registration from ${clientIp}`);
+              return new Response(JSON.stringify({ error: 'too_many_requests' }), {
+                status: 429,
+                headers: { 'Content-Type': 'application/json', 'Retry-After': '3600', ...corsHeaders },
+              });
+            }
+            if (await isGlobalRegisterLimitExceeded(env.OAUTH_KV)) {
+              console.warn(`SECURITY: Global registration rate limit exceeded at /token auto-registration`);
               return new Response(JSON.stringify({ error: 'too_many_requests' }), {
                 status: 429,
                 headers: { 'Content-Type': 'application/json', 'Retry-After': '3600', ...corsHeaders },
@@ -448,7 +489,10 @@ export default {
               tokenEndpointAuthMethod: 'none',
               registrationDate: Math.floor(Date.now() / 1000),
             };
-            await env.OAUTH_KV.put(`client:${tokenClientId}`, JSON.stringify(clientData));
+            // SECURITY: Auto-registered clients get a TTL to prevent unbounded KV growth
+            await env.OAUTH_KV.put(`client:${tokenClientId}`, JSON.stringify(clientData), {
+              expirationTtl: AUTO_REGISTERED_CLIENT_TTL_SECONDS,
+            });
             // Share the rate limit counter with /register (same key prefix)
             await env.OAUTH_KV.put(rateLimitKey, String(currentCount + 1), { expirationTtl: 3600 });
             console.warn(`SECURITY: Auto-registered unknown client at /token: ${tokenClientId}`);
@@ -466,12 +510,19 @@ export default {
     // Validate and rate-limit /register requests
     // =================================================================
     if (url.pathname === '/register' && request.method === 'POST') {
-      // Rate limit: max 10 registrations per IP per hour
+      // Rate limit: max 10 registrations per IP per hour + global limit
       const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
       const rateLimitKey = `ratelimit:register:${clientIp}`;
       const currentCount = parseInt(await env.OAUTH_KV.get(rateLimitKey) || '0', 10);
       if (currentCount >= 10) {
         console.warn(`SECURITY: Rate-limited /register from ${clientIp} (${currentCount} attempts)`);
+        return new Response(JSON.stringify({ error: 'too_many_requests' }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '3600', ...corsHeaders },
+        });
+      }
+      if (await isGlobalRegisterLimitExceeded(env.OAUTH_KV)) {
+        console.warn('SECURITY: Global registration rate limit exceeded at /register');
         return new Response(JSON.stringify({ error: 'too_many_requests' }), {
           status: 429,
           headers: { 'Content-Type': 'application/json', 'Retry-After': '3600', ...corsHeaders },
