@@ -6,7 +6,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.safe_socket import SafeSocket, _is_always_blocked_ip, create_safe_socket_module
+from app.safe_socket import (
+    SafeSocket,
+    _SafeSocketModule,
+    _is_always_blocked_ip,
+    create_safe_socket_module,
+)
 
 
 # --- _is_always_blocked_ip tests ---
@@ -222,6 +227,53 @@ class TestSafeSocket:
             sock.connect(("MYHOST.LOCAL", 80))
         sock.close()
 
+    def test_host_port_format_allowed(self):
+        """allowed_hosts entries with host:port format are matched."""
+        sock = SafeSocket(
+            _allowed_hosts={"192.168.1.2:1883"},
+            _proxy_addr=("nonexistent-proxy", 1080),
+        )
+        # host:port matches — passes allowed_hosts, fails at proxy connect
+        with pytest.raises(OSError):
+            sock.connect(("192.168.1.2", 1883))
+        sock.close()
+
+    def test_host_port_wrong_port_rejected(self):
+        """host:port entry doesn't match a different port."""
+        sock = SafeSocket(
+            _allowed_hosts={"192.168.1.2:1883"},
+            _proxy_addr=("proxy", 1080),
+        )
+        with pytest.raises(ConnectionError, match="not approved"):
+            sock.connect(("192.168.1.2", 8080))
+        sock.close()
+
+    def test_host_only_allows_any_port(self):
+        """Host-only entry (no port) allows any port."""
+        sock = SafeSocket(
+            _allowed_hosts={"192.168.1.2"},
+            _proxy_addr=("nonexistent-proxy", 1080),
+        )
+        # Should pass allowed_hosts for any port
+        with pytest.raises(OSError):
+            sock.connect(("192.168.1.2", 1883))
+        sock.close()
+
+    def test_safe_readonly_attrs(self):
+        """Safe read-only attributes (family, type, proto) are accessible."""
+        sock = SafeSocket(_proxy_addr=("proxy", 1080))
+        assert sock.family == real_socket.AF_INET
+        assert sock.type == real_socket.SOCK_STREAM
+        assert sock.proto == 0
+        sock.close()
+
+    def test_unsafe_attrs_still_blocked(self):
+        """Attributes not in the safe list are still blocked."""
+        sock = SafeSocket(_proxy_addr=("proxy", 1080))
+        with pytest.raises(AttributeError, match="not allowed"):
+            _ = sock.some_random_attr
+        sock.close()
+
 
 # --- create_safe_socket_module tests ---
 
@@ -293,3 +345,33 @@ class TestCreateSafeSocketModule:
         with pytest.raises(ConnectionError, match="SOCKS5 proxy not configured"):
             sock.connect(("example.com", 80))
         sock.close()
+
+    def test_is_safe_socket_module_instance(self):
+        """create_safe_socket_module returns a _SafeSocketModule."""
+        mod = create_safe_socket_module()
+        assert isinstance(mod, _SafeSocketModule)
+
+    def test_getattr_fallback_for_constants(self):
+        """Constants not explicitly set are accessible via __getattr__."""
+        mod = create_safe_socket_module()
+        # SOCK_RAW is a valid socket constant but not in the explicit list
+        if hasattr(real_socket, "SOCK_RAW"):
+            assert mod.SOCK_RAW == real_socket.SOCK_RAW
+
+    def test_getattr_blocks_functions(self):
+        """Dangerous functions are not accessible."""
+        mod = create_safe_socket_module()
+        with pytest.raises(AttributeError, match="not available"):
+            _ = mod.fromfd
+
+    def test_getattr_blocks_private_attrs(self):
+        """Private attributes are blocked."""
+        mod = create_safe_socket_module()
+        with pytest.raises(AttributeError, match="not available"):
+            _ = mod._realmodule
+
+    def test_getattr_nonexistent(self):
+        """Non-existent attributes raise AttributeError."""
+        mod = create_safe_socket_module()
+        with pytest.raises(AttributeError):
+            _ = mod.totally_fake_attribute

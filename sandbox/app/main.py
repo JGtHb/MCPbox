@@ -117,12 +117,62 @@ def _check_proxy_acl_volume():
         )
 
 
+def _patch_sys_modules_socket():
+    """Replace ``sys.modules['socket']`` with SafeSocket for third-party libs.
+
+    Third-party libraries imported during tool execution (e.g., paho-mqtt)
+    do ``import socket`` via the real Python import system, which checks
+    ``sys.modules``.  Without this patch they get the real socket module,
+    whose connections fail because the sandbox container has no direct
+    network access — all traffic must go through the SOCKS5 proxy.
+
+    By replacing ``sys.modules['socket']`` *after* all framework imports
+    are done (uvicorn, FastAPI, httpx already hold references to the real
+    module), only newly imported libraries pick up the SafeSocket wrapper.
+    This wrapper routes all TCP through the SOCKS5 proxy sidecar.
+
+    The SafeSocket installed here uses ``allowed_hosts=None`` (no
+    Python-level host restriction).  The SOCKS5 proxy ACL file is the
+    authoritative enforcement layer.  Tool code's *direct* ``import socket``
+    still goes through ``safe_import``, which creates a per-execution
+    SafeSocket with proper ``allowed_hosts``.
+    """
+    import sys
+
+    from app.executor import _parse_socks_proxy_env
+    from app.safe_socket import create_safe_socket_module
+
+    proxy_addr = _parse_socks_proxy_env()
+    if proxy_addr is None:
+        logger.warning(
+            "SOCKS_PROXY not configured — third-party library TCP connections "
+            "will fail in the sandbox.  Set SOCKS_PROXY=socks5://socks-proxy:1080"
+        )
+        return
+
+    safe_mod = create_safe_socket_module(
+        allowed_hosts=None,  # Proxy ACL is authoritative
+        socks_proxy_addr=proxy_addr,
+    )
+    sys.modules["socket"] = safe_mod
+    logger.info(
+        "Patched sys.modules['socket'] with SafeSocket → SOCKS5 proxy at %s:%d",
+        proxy_addr[0],
+        proxy_addr[1],
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     logger.info("Sandbox service starting up")
     _check_security_configuration()
     _check_proxy_acl_volume()
+
+    # Patch sys.modules['socket'] so third-party libraries (e.g., paho-mqtt)
+    # loaded during tool execution use SafeSocket → SOCKS5 proxy routing.
+    # Must happen after all framework imports but before any tool execution.
+    _patch_sys_modules_socket()
 
     # Start background task to sync packages with backend
     # This runs asynchronously so the service can start accepting requests immediately
