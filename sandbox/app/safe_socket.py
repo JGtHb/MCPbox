@@ -18,7 +18,6 @@ IP validation ranges mirror socks-proxy/proxy.py — keep in sync.
 import ipaddress
 import socket as _real_socket
 import struct
-from types import SimpleNamespace
 from typing import Any
 
 # --- IP validation (mirrors socks-proxy/proxy.py and sandbox/app/ssrf.py) ---
@@ -69,7 +68,26 @@ class SafeSocket:
     SSRFProtectedAsyncHttpClient and TimeoutProtectedRegex patterns).
     """
 
-    __slots__ = ("__real_socket", "__allowed_hosts", "__proxy_addr", "__connected")
+    __slots__ = (
+        "__real_socket",
+        "__allowed_hosts",
+        "__proxy_addr",
+        "__connected",
+        "__family",
+        "__type",
+        "__proto",
+    )
+
+    # Read-only attributes that third-party libraries commonly access
+    # (e.g., paho-mqtt checks sock.family, sock.type). These are safe to
+    # expose — they reveal socket metadata, not the underlying real socket.
+    _SAFE_READONLY_ATTRS = frozenset(
+        {
+            "family",
+            "type",
+            "proto",
+        }
+    )
 
     def __init__(
         self,
@@ -91,8 +109,15 @@ class SafeSocket:
         object.__setattr__(self, "_SafeSocket__allowed_hosts", _allowed_hosts)
         object.__setattr__(self, "_SafeSocket__proxy_addr", _proxy_addr)
         object.__setattr__(self, "_SafeSocket__connected", False)
+        object.__setattr__(self, "_SafeSocket__family", family)
+        object.__setattr__(self, "_SafeSocket__type", type)
+        object.__setattr__(self, "_SafeSocket__proto", proto)
 
     def __getattr__(self, name: str) -> Any:
+        # Allow read access to safe metadata attributes that third-party
+        # libraries need (e.g., paho-mqtt checks sock.family, sock.type).
+        if name in SafeSocket._SAFE_READONLY_ATTRS:
+            return getattr(self.__real_socket, name)
         raise AttributeError(
             f"Access to '{name}' is not allowed on socket objects. "
             f"Use connect(), send(), recv(), close(), etc."
@@ -118,10 +143,16 @@ class SafeSocket:
         host, port = address
 
         # 1. Check allowed_hosts (per-server network policy)
+        # Check both "host:port" and "host" entries, consistent with SSRF client.
         if self.__allowed_hosts is not None:
-            if host.lower() not in self.__allowed_hosts:
+            host_lower = host.lower()
+            host_port = f"{host_lower}:{port}"
+            if (
+                host_port not in self.__allowed_hosts
+                and host_lower not in self.__allowed_hosts
+            ):
                 raise ConnectionError(
-                    f"Network access to '{host}' is not approved for this server. "
+                    f"Network access to '{host_port}' is not approved for this server. "
                     f"Use mcpbox_request_network_access to request access."
                 )
 
@@ -276,7 +307,7 @@ class SafeSocket:
 def create_safe_socket_module(
     allowed_hosts: set[str] | None = None,
     socks_proxy_addr: tuple[str, int] | None = None,
-) -> SimpleNamespace:
+) -> "_SafeSocketModule":
     """Create a module-like object that replaces the ``socket`` module.
 
     Tool code that does ``import socket`` gets this instead.  ``socket.socket()``
@@ -341,35 +372,94 @@ def create_safe_socket_module(
         h = host if host is not None else "0.0.0.0"
         return [(_real_socket.AF_INET, _real_socket.SOCK_STREAM, 0, "", (h, p))]
 
-    # Build the module-like namespace
-    mod = SimpleNamespace(
-        # Constructor
-        socket=safe_socket_constructor,
-        # High-level helpers
-        create_connection=safe_create_connection,
-        getaddrinfo=safe_getaddrinfo,
-        # Constants
-        AF_INET=_real_socket.AF_INET,
-        AF_INET6=_real_socket.AF_INET6,
-        SOCK_STREAM=_real_socket.SOCK_STREAM,
-        SOCK_DGRAM=_real_socket.SOCK_DGRAM,
-        IPPROTO_TCP=_real_socket.IPPROTO_TCP,
-        IPPROTO_UDP=_real_socket.IPPROTO_UDP,
-        SOL_SOCKET=_real_socket.SOL_SOCKET,
-        SO_REUSEADDR=_real_socket.SO_REUSEADDR,
-        SO_KEEPALIVE=_real_socket.SO_KEEPALIVE,
-        SHUT_RD=_real_socket.SHUT_RD,
-        SHUT_WR=_real_socket.SHUT_WR,
-        SHUT_RDWR=_real_socket.SHUT_RDWR,
-        TCP_NODELAY=_real_socket.TCP_NODELAY,
-        IPPROTO_IP=getattr(_real_socket, "IPPROTO_IP", 0),
-        # Exceptions
-        error=_real_socket.error,
-        timeout=_real_socket.timeout,
-        herror=_real_socket.herror,
-        gaierror=_real_socket.gaierror,
-        # Module name (some libraries check this)
-        __name__="socket",
+    # Build a module-like object with __getattr__ fallback for socket
+    # constants.  Third-party libraries (paho-mqtt, etc.) access many
+    # constants beyond the explicitly listed ones.  Integer/string constants
+    # and exception classes are safe; functions and socket class are not.
+    mod = _SafeSocketModule(
+        safe_socket_constructor,
+        safe_create_connection,
+        safe_getaddrinfo,
     )
 
     return mod
+
+
+class _SafeSocketModule:
+    """Module-like object that replaces ``socket`` for sandboxed code.
+
+    Explicitly exposes safe constructors and helpers.  Falls back to the
+    real socket module for integer/string constants and exception classes
+    that third-party libraries need, while blocking access to dangerous
+    functions (``socket.socket``, ``socket.fromfd``, etc.).
+    """
+
+    __name__ = "socket"
+
+    # Functions on the real socket module that must NOT be exposed.
+    _BLOCKED_ATTRS = frozenset(
+        {
+            "fromfd",
+            "socketpair",
+            "dup",
+            "if_nameindex",
+            "if_nametoindex",
+            "if_indextoname",
+            "sethostname",
+            "setdefaulttimeout",
+            "getdefaulttimeout",
+            "close",  # os-level fd close
+        }
+    )
+
+    def __init__(
+        self,
+        socket_constructor,
+        create_connection_fn,
+        getaddrinfo_fn,
+    ):
+        self.socket = socket_constructor
+        self.create_connection = create_connection_fn
+        self.getaddrinfo = getaddrinfo_fn
+        # Eagerly set the most commonly used constants so simple attribute
+        # lookups don't need __getattr__ at all.
+        self.AF_INET = _real_socket.AF_INET
+        self.AF_INET6 = _real_socket.AF_INET6
+        self.SOCK_STREAM = _real_socket.SOCK_STREAM
+        self.SOCK_DGRAM = _real_socket.SOCK_DGRAM
+        self.IPPROTO_TCP = _real_socket.IPPROTO_TCP
+        self.IPPROTO_UDP = _real_socket.IPPROTO_UDP
+        self.SOL_SOCKET = _real_socket.SOL_SOCKET
+        self.SO_REUSEADDR = _real_socket.SO_REUSEADDR
+        self.SO_KEEPALIVE = _real_socket.SO_KEEPALIVE
+        self.SHUT_RD = _real_socket.SHUT_RD
+        self.SHUT_WR = _real_socket.SHUT_WR
+        self.SHUT_RDWR = _real_socket.SHUT_RDWR
+        self.TCP_NODELAY = _real_socket.TCP_NODELAY
+        self.IPPROTO_IP = getattr(_real_socket, "IPPROTO_IP", 0)
+        # Exceptions
+        self.error = _real_socket.error
+        self.timeout = _real_socket.timeout
+        self.herror = _real_socket.herror
+        self.gaierror = _real_socket.gaierror
+
+    def __getattr__(self, name: str) -> Any:
+        """Fallback for socket constants not explicitly set.
+
+        Allows integer/string constants and exception classes from the real
+        socket module.  Blocks functions and the raw socket class.
+        """
+        if name.startswith("_") or name in self._BLOCKED_ATTRS:
+            raise AttributeError(f"socket.{name} is not available in the sandbox")
+
+        val = getattr(_real_socket, name, None)
+        if val is None:
+            raise AttributeError(f"module 'socket' has no attribute '{name}'")
+
+        # Allow constants (int, str, bytes) and exception classes only.
+        if isinstance(val, (int, str, bytes)):
+            return val
+        if isinstance(val, type) and issubclass(val, Exception):
+            return val
+
+        raise AttributeError(f"socket.{name} is not available in the sandbox")
