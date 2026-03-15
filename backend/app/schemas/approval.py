@@ -183,8 +183,15 @@ class ModuleRequestAction(BaseModel):
     reason: str | None = Field(
         None,
         max_length=2000,
-        description="Optional reason (used for rejection)",
+        description="Required for rejection, optional otherwise",
     )
+
+    @model_validator(mode="after")
+    def require_reason_for_reject(self) -> "ModuleRequestAction":
+        """Rejection must include a reason for audit trail."""
+        if self.action == "reject" and not self.reason:
+            raise ValueError("A reason is required when rejecting")
+        return self
 
 
 # ============================================================================
@@ -275,8 +282,15 @@ class NetworkAccessRequestAction(BaseModel):
     reason: str | None = Field(
         None,
         max_length=2000,
-        description="Optional reason (used for rejection)",
+        description="Required for rejection, optional otherwise",
     )
+
+    @model_validator(mode="after")
+    def require_reason_for_reject(self) -> "NetworkAccessRequestAction":
+        """Rejection must include a reason for audit trail."""
+        if self.action == "reject" and not self.reason:
+            raise ValueError("A reason is required when rejecting")
+        return self
 
 
 # ============================================================================
@@ -292,8 +306,15 @@ class BulkToolAction(BaseModel):
     reason: str | None = Field(
         None,
         max_length=2000,
-        description="Optional reason (used for rejection)",
+        description="Required for rejection, optional otherwise",
     )
+
+    @model_validator(mode="after")
+    def require_reason_for_reject(self) -> "BulkToolAction":
+        """Rejection must include a reason for audit trail."""
+        if self.action == "reject" and not self.reason:
+            raise ValueError("A reason is required when rejecting")
+        return self
 
 
 class BulkModuleRequestAction(BaseModel):
@@ -304,8 +325,15 @@ class BulkModuleRequestAction(BaseModel):
     reason: str | None = Field(
         None,
         max_length=2000,
-        description="Optional reason (used for rejection)",
+        description="Required for rejection, optional otherwise",
     )
+
+    @model_validator(mode="after")
+    def require_reason_for_reject(self) -> "BulkModuleRequestAction":
+        """Rejection must include a reason for audit trail."""
+        if self.action == "reject" and not self.reason:
+            raise ValueError("A reason is required when rejecting")
+        return self
 
 
 class BulkNetworkRequestAction(BaseModel):
@@ -316,8 +344,15 @@ class BulkNetworkRequestAction(BaseModel):
     reason: str | None = Field(
         None,
         max_length=2000,
-        description="Optional reason (used for rejection)",
+        description="Required for rejection, optional otherwise",
     )
+
+    @model_validator(mode="after")
+    def require_reason_for_reject(self) -> "BulkNetworkRequestAction":
+        """Rejection must include a reason for audit trail."""
+        if self.action == "reject" and not self.reason:
+            raise ValueError("A reason is required when rejecting")
+        return self
 
 
 class BulkActionFailure(BaseModel):

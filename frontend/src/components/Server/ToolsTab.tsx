@@ -164,13 +164,13 @@ export function ToolsTab({ serverId }: ToolsTabProps) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50" role="dialog" aria-modal="true" onClick={() => { setRejectTarget(null); setRejectReason('') }}>
           <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl mx-4" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-medium text-on-base">Reject: {rejectTarget.name}</h3>
-            <p className="mt-1 text-sm text-subtle">Provide a reason for the rejection (optional).</p>
+            <p className="mt-1 text-sm text-subtle">Provide a reason for the rejection.</p>
             <textarea
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
               className="mt-4 w-full rounded-lg border border-hl-med p-2 text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
               rows={4}
-              placeholder="Reason (optional)..."
+              placeholder="Reason for rejection..."
             />
             <div className="mt-4 flex justify-end gap-2">
               <button
@@ -185,7 +185,7 @@ export function ToolsTab({ serverId }: ToolsTabProps) {
                   setRejectTarget(null)
                   setRejectReason('')
                 }}
-                disabled={toolActionForReject.isPending}
+                disabled={toolActionForReject.isPending || !rejectReason.trim()}
                 className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
               >
                 Reject
