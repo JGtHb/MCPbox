@@ -5,7 +5,6 @@ errors, stdout, duration, and success status for each tool call.
 """
 
 import logging
-import math
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID
@@ -347,4 +346,4 @@ class ExecutionLogService:
 
 def _paginate(total: int, page: int, page_size: int) -> int:
     """Calculate total pages."""
-    return max(1, math.ceil(total / page_size))
+    return (total + page_size - 1) // page_size if total > 0 else 0

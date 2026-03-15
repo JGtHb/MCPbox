@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # ============================================================================
 # Tool Approval Schemas
@@ -27,8 +27,15 @@ class ToolApprovalAction(BaseModel):
     reason: str | None = Field(
         None,
         max_length=2000,
-        description="Optional reason (used for rejection)",
+        description="Required for rejection, optional otherwise",
     )
+
+    @model_validator(mode="after")
+    def require_reason_for_reject(self) -> "ToolApprovalAction":
+        """Rejection must include a reason for audit trail."""
+        if self.action == "reject" and not self.reason:
+            raise ValueError("A reason is required when rejecting a tool")
+        return self
 
 
 class ToolApprovalQueueItem(BaseModel):
