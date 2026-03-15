@@ -221,3 +221,29 @@ class TestSafeImportWrapping:
         imported_json = safe_import("json")
         result = imported_json.dumps({"test": True})
         assert result == '{"test": true}'
+
+    def test_decimal_setcontext_blocked(self):
+        """decimal.setcontext is blocked because it mutates thread-wide state.
+
+        Users should use decimal.localcontext (context manager) instead,
+        which scopes changes and is safe for concurrent execution.
+        """
+        from app.executor import create_safe_builtins
+
+        builtins = create_safe_builtins()
+        safe_import = builtins["__import__"]
+
+        imported_decimal = safe_import("decimal")
+        with pytest.raises(AttributeError, match="not in sandbox"):
+            _ = imported_decimal.setcontext
+
+    def test_decimal_localcontext_allowed(self):
+        """decimal.localcontext is the safe scoped alternative to setcontext."""
+        from app.executor import create_safe_builtins
+
+        builtins = create_safe_builtins()
+        safe_import = builtins["__import__"]
+
+        imported_decimal = safe_import("decimal")
+        # localcontext should be accessible
+        assert callable(imported_decimal.localcontext)

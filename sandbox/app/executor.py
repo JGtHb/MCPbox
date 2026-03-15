@@ -423,7 +423,6 @@ _MODULE_SAFE_ATTRS: dict[str, set[str]] = {
     "decimal": {
         "Decimal",
         "getcontext",
-        "setcontext",
         "localcontext",
         "BasicContext",
         "ExtendedContext",
