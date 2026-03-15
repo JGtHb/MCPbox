@@ -335,7 +335,7 @@ async def update_tool(
             await reregister_server(tool.server_id, db)
             fire_and_forget_notify()
         except Exception:
-            pass  # Don't fail the update if notification fails
+            logger.warning("Failed to reregister server after tool update", exc_info=True)
 
     return _to_response(tool)
 
@@ -367,7 +367,7 @@ async def delete_tool(
         await reregister_server(server_id, db)
         fire_and_forget_notify()
     except Exception:
-        pass  # Don't block delete if notification fails
+        logger.warning("Failed to reregister server after tool delete", exc_info=True)
 
     return None
 
