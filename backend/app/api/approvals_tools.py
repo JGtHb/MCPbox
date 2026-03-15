@@ -178,10 +178,10 @@ async def revoke_tool_approval(
     service: ApprovalService = Depends(get_approval_service),
     admin_identity: str = Depends(get_admin_identity),
 ) -> dict[str, Any]:
-    """Revoke an approved tool back to pending_review status.
+    """Revoke an approved tool.
 
     The tool is immediately removed from the running server registration
-    and placed back into the approval queue for re-review.
+    and set to rejected status. It can then be re-approved or deleted.
     Admin identity is extracted from verified JWT token.
     """
     try:
@@ -211,6 +211,40 @@ async def revoke_tool_approval(
             detail = error_msg
         else:
             detail = "Invalid tool revocation request"
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail,
+        ) from e
+
+
+@router.delete("/tools/{tool_id}")
+async def delete_tool(
+    tool_id: UUID,
+    service: ApprovalService = Depends(get_approval_service),
+    admin_identity: str = Depends(get_admin_identity),
+) -> dict[str, Any]:
+    """Permanently delete a draft or rejected tool.
+
+    Cascades to tool versions, execution logs, and associated requests.
+    Approved tools must be revoked first.
+    Admin identity is extracted from verified JWT token.
+    """
+    try:
+        result = await service.delete_tool(
+            tool_id=tool_id,
+            deleted_by=admin_identity,
+        )
+        return {
+            "success": True,
+            "message": f"Tool '{result['name']}' has been deleted",
+            **result,
+        }
+    except ValueError as e:
+        error_msg = str(e)
+        if "not found" in error_msg.lower() or "status" in error_msg.lower():
+            detail = error_msg
+        else:
+            detail = "Invalid tool deletion request"
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=detail,

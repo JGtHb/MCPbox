@@ -223,14 +223,6 @@ function ToolRow({ tool, serverId, isExpanded, onToggle, onToggleEnabled, onRena
     queryClient.invalidateQueries({ queryKey: toolKeys.list(serverId) })
   }, [queryClient, serverId])
 
-  const handleSubmitForReview = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    toolAction.mutate(
-      { toolId: tool.id, action: 'submit_for_review' },
-      { onSuccess: invalidateToolsList }
-    )
-  }
-
   const handleApprove = (e: React.MouseEvent) => {
     e.stopPropagation()
     toolAction.mutate(
@@ -290,21 +282,23 @@ function ToolRow({ tool, serverId, isExpanded, onToggle, onToggleEnabled, onRena
             {isDraftOrRejected && (
               <>
                 <button
-                  onClick={handleSubmitForReview}
-                  disabled={toolAction.isPending}
-                  className="px-2.5 py-1 text-xs font-medium text-iris bg-surface border border-iris/20 rounded-lg hover:bg-iris/10 transition-colors focus:outline-none focus:ring-2 focus:ring-iris disabled:opacity-50"
-                  title="Submit for review"
-                >
-                  Submit
-                </button>
-                <button
                   onClick={handleApprove}
                   disabled={toolAction.isPending}
                   className="px-2.5 py-1 text-xs font-medium text-foam bg-surface border border-foam/20 rounded-lg hover:bg-foam/10 transition-colors focus:outline-none focus:ring-2 focus:ring-foam disabled:opacity-50"
-                  title="Approve directly"
+                  title="Approve tool"
                 >
                   Approve
                 </button>
+                {tool.approval_status === 'draft' && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onReject() }}
+                    disabled={toolAction.isPending}
+                    className="px-2.5 py-1 text-xs font-medium text-gold bg-surface border border-gold/20 rounded-lg hover:bg-gold/10 transition-colors focus:outline-none focus:ring-2 focus:ring-gold disabled:opacity-50"
+                    title="Reject tool"
+                  >
+                    Reject
+                  </button>
+                )}
               </>
             )}
             {isPending && (
