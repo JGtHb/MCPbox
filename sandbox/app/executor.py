@@ -1314,37 +1314,37 @@ class TimeoutProtectedRegex:
 
     @property
     def VERBOSE(self):
-        return self._regex.VERBOSE
+        return self.__wrapped_regex.VERBOSE
 
     @property
     def X(self):
-        return self._regex.X
+        return self.__wrapped_regex.X
 
     @property
     def ASCII(self):
-        return self._regex.ASCII
+        return self.__wrapped_regex.ASCII
 
     @property
     def A(self):
-        return self._regex.A
+        return self.__wrapped_regex.A
 
     @property
     def UNICODE(self):
-        return self._regex.UNICODE
+        return self.__wrapped_regex.UNICODE
 
     @property
     def U(self):
-        return self._regex.U
+        return self.__wrapped_regex.U
 
     # Allow access to error class
     @property
     def error(self):
-        return self._regex.error
+        return self.__wrapped_regex.error
 
     # Allow access to TimeoutError for users who want to catch it
     @property
     def TimeoutError(self):
-        return self._regex.TimeoutError
+        return self.__wrapped_regex.TimeoutError
 
 
 class ErrorDetail:
