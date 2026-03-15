@@ -1128,6 +1128,12 @@ def _ast_validate(code: str, source_name: str) -> tuple[bool, str | None]:
         "__del__",
         "__reduce__",
         "__reduce_ex__",
+        "__getstate__",
+        "__setstate__",
+        "__subclasshook__",
+        "__getattribute__",
+        "__setattr__",
+        "__delattr__",
     }
 
     # Forbidden function calls
