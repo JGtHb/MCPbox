@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 # ============================================================================
 # Tool Approval Schemas
@@ -27,15 +27,8 @@ class ToolApprovalAction(BaseModel):
     reason: str | None = Field(
         None,
         max_length=2000,
-        description="Required for rejection, optional otherwise",
+        description="Optional reason (used for rejection)",
     )
-
-    @model_validator(mode="after")
-    def require_reason_for_reject(self) -> "ToolApprovalAction":
-        """Rejection must include a reason for audit trail."""
-        if self.action == "reject" and not self.reason:
-            raise ValueError("A reason is required when rejecting a tool")
-        return self
 
 
 class ToolApprovalQueueItem(BaseModel):
@@ -183,15 +176,8 @@ class ModuleRequestAction(BaseModel):
     reason: str | None = Field(
         None,
         max_length=2000,
-        description="Required for rejection, optional otherwise",
+        description="Optional reason (used for rejection)",
     )
-
-    @model_validator(mode="after")
-    def require_reason_for_reject(self) -> "ModuleRequestAction":
-        """Rejection must include a reason for audit trail."""
-        if self.action == "reject" and not self.reason:
-            raise ValueError("A reason is required when rejecting")
-        return self
 
 
 # ============================================================================
@@ -282,15 +268,8 @@ class NetworkAccessRequestAction(BaseModel):
     reason: str | None = Field(
         None,
         max_length=2000,
-        description="Required for rejection, optional otherwise",
+        description="Optional reason (used for rejection)",
     )
-
-    @model_validator(mode="after")
-    def require_reason_for_reject(self) -> "NetworkAccessRequestAction":
-        """Rejection must include a reason for audit trail."""
-        if self.action == "reject" and not self.reason:
-            raise ValueError("A reason is required when rejecting")
-        return self
 
 
 # ============================================================================
@@ -306,15 +285,8 @@ class BulkToolAction(BaseModel):
     reason: str | None = Field(
         None,
         max_length=2000,
-        description="Required for rejection, optional otherwise",
+        description="Optional reason (used for rejection)",
     )
-
-    @model_validator(mode="after")
-    def require_reason_for_reject(self) -> "BulkToolAction":
-        """Rejection must include a reason for audit trail."""
-        if self.action == "reject" and not self.reason:
-            raise ValueError("A reason is required when rejecting")
-        return self
 
 
 class BulkModuleRequestAction(BaseModel):
@@ -325,15 +297,8 @@ class BulkModuleRequestAction(BaseModel):
     reason: str | None = Field(
         None,
         max_length=2000,
-        description="Required for rejection, optional otherwise",
+        description="Optional reason (used for rejection)",
     )
-
-    @model_validator(mode="after")
-    def require_reason_for_reject(self) -> "BulkModuleRequestAction":
-        """Rejection must include a reason for audit trail."""
-        if self.action == "reject" and not self.reason:
-            raise ValueError("A reason is required when rejecting")
-        return self
 
 
 class BulkNetworkRequestAction(BaseModel):
@@ -344,15 +309,8 @@ class BulkNetworkRequestAction(BaseModel):
     reason: str | None = Field(
         None,
         max_length=2000,
-        description="Required for rejection, optional otherwise",
+        description="Optional reason (used for rejection)",
     )
-
-    @model_validator(mode="after")
-    def require_reason_for_reject(self) -> "BulkNetworkRequestAction":
-        """Rejection must include a reason for audit trail."""
-        if self.action == "reject" and not self.reason:
-            raise ValueError("A reason is required when rejecting")
-        return self
 
 
 class BulkActionFailure(BaseModel):

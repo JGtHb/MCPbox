@@ -262,13 +262,20 @@ async def test_reject_tool_without_reason(
     pending_tool: Tool,
     db_session: AsyncSession,
 ):
-    """Test that rejecting without reason fails validation."""
+    """Test that rejecting without reason succeeds (reason is optional)."""
     response = await async_client.post(
         f"/api/approvals/tools/{pending_tool.id}/action",
         json={"action": "reject"},
         headers=admin_headers,
     )
-    assert response.status_code == 422
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["status"] == "rejected"
+
+    await db_session.refresh(pending_tool)
+    assert pending_tool.approval_status == "rejected"
+    assert pending_tool.rejection_reason is None
 
 
 @pytest.mark.asyncio
@@ -410,13 +417,16 @@ async def test_reject_module_request_without_reason(
     pending_module_request: ModuleRequest,
     db_session: AsyncSession,
 ):
-    """Test that rejecting module request without reason fails validation."""
+    """Test that rejecting module request without reason succeeds."""
     response = await async_client.post(
         f"/api/approvals/modules/{pending_module_request.id}/action",
         json={"action": "reject"},
         headers=admin_headers,
     )
-    assert response.status_code == 422
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "rejected"
+    assert data["rejection_reason"] is None
 
 
 # =============================================================================
@@ -499,13 +509,16 @@ async def test_reject_network_request_without_reason(
     pending_network_request: NetworkAccessRequest,
     db_session: AsyncSession,
 ):
-    """Test that rejecting network request without reason fails validation."""
+    """Test that rejecting network request without reason succeeds."""
     response = await async_client.post(
         f"/api/approvals/network/{pending_network_request.id}/action",
         json={"action": "reject"},
         headers=admin_headers,
     )
-    assert response.status_code == 422
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "rejected"
+    assert data["rejection_reason"] is None
 
 
 # =============================================================================
@@ -642,14 +655,22 @@ async def test_bulk_reject_tools_without_reason(
     multiple_pending_tools: list[Tool],
     db_session: AsyncSession,
 ):
-    """Test that bulk rejection without reason fails validation."""
+    """Test that bulk rejection without reason succeeds."""
     tool_ids = [str(t.id) for t in multiple_pending_tools]
     response = await async_client.post(
         "/api/approvals/tools/bulk-action",
         json={"tool_ids": tool_ids, "action": "reject"},
         headers=admin_headers,
     )
-    assert response.status_code == 422
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["processed_count"] == 3
+
+    for tool in multiple_pending_tools:
+        await db_session.refresh(tool)
+        assert tool.approval_status == "rejected"
+        assert tool.rejection_reason is None
 
 
 @pytest.mark.asyncio
@@ -735,14 +756,17 @@ async def test_bulk_reject_module_requests_without_reason(
     admin_headers: dict,
     multiple_pending_module_requests: list[ModuleRequest],
 ):
-    """Test that bulk module rejection without reason fails validation."""
+    """Test that bulk module rejection without reason succeeds."""
     request_ids = [str(r.id) for r in multiple_pending_module_requests]
     response = await async_client.post(
         "/api/approvals/modules/bulk-action",
         json={"request_ids": request_ids, "action": "reject"},
         headers=admin_headers,
     )
-    assert response.status_code == 422
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["processed_count"] == 3
 
 
 @pytest.mark.asyncio
@@ -800,14 +824,17 @@ async def test_bulk_reject_network_requests_without_reason(
     admin_headers: dict,
     multiple_pending_network_requests: list[NetworkAccessRequest],
 ):
-    """Test that bulk network rejection without reason fails validation."""
+    """Test that bulk network rejection without reason succeeds."""
     request_ids = [str(r.id) for r in multiple_pending_network_requests]
     response = await async_client.post(
         "/api/approvals/network/bulk-action",
         json={"request_ids": request_ids, "action": "reject"},
         headers=admin_headers,
     )
-    assert response.status_code == 422
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["processed_count"] == 3
 
 
 # =============================================================================

@@ -298,13 +298,13 @@ export function ModuleRequestsQueue() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50" role="dialog" aria-modal="true">
           <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl">
             <h3 className="text-lg font-medium text-on-base">Reject: {selectedRequest.module_name}</h3>
-            <p className="mt-1 text-sm text-subtle">Provide a reason for the rejection.</p>
+            <p className="mt-1 text-sm text-subtle">Optionally provide a reason for the rejection.</p>
             <textarea
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
               className="mt-4 w-full rounded-lg border border-hl-med p-2 text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
               rows={4}
-              placeholder="Reason for rejection..."
+              placeholder="Reason (optional)..."
             />
             <div className="mt-4 flex justify-end gap-2">
               <button
@@ -315,7 +315,7 @@ export function ModuleRequestsQueue() {
               </button>
               <button
                 onClick={handleReject}
-                disabled={moduleAction.isPending || !rejectReason.trim()}
+                disabled={moduleAction.isPending}
                 className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
               >
                 Reject
@@ -330,13 +330,13 @@ export function ModuleRequestsQueue() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50" role="dialog" aria-modal="true">
           <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl">
             <h3 className="text-lg font-medium text-on-base">Reject {selectedIds.size} Module Requests</h3>
-            <p className="mt-1 text-sm text-subtle">Provide a reason that will be applied to all selected requests.</p>
+            <p className="mt-1 text-sm text-subtle">Optionally provide a reason that will be applied to all selected requests.</p>
             <textarea
               value={bulkRejectReason}
               onChange={(e) => setBulkRejectReason(e.target.value)}
               className="mt-4 w-full rounded-lg border border-hl-med p-2 text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
               rows={4}
-              placeholder="Reason for rejection..."
+              placeholder="Reason (optional)..."
             />
             <div className="mt-4 flex justify-end gap-2">
               <button
@@ -347,7 +347,7 @@ export function ModuleRequestsQueue() {
               </button>
               <button
                 onClick={handleBulkReject}
-                disabled={bulkAction.isPending || !bulkRejectReason.trim()}
+                disabled={bulkAction.isPending}
                 className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
               >
                 Reject All
