@@ -140,10 +140,11 @@ async def revoke_network_access_request(
     service: ApprovalService = Depends(get_approval_service),
     admin_identity: str = Depends(get_admin_identity),
 ) -> NetworkAccessRequestResponse:
-    """Revoke an approved network access request back to pending status.
+    """Revoke an approved network access request.
 
     The host is removed from the server's allowed hosts list and the server
     is re-registered with the sandbox so the change takes effect immediately.
+    The request is set to rejected status and can be re-approved or deleted.
     Admin identity is extracted from verified JWT token.
     """
     try:

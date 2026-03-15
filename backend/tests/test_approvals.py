@@ -1075,17 +1075,17 @@ async def test_revoke_module_request(
     approved_module_request: ModuleRequest,
     db_session: AsyncSession,
 ):
-    """Test revoking an approved module request back to pending."""
+    """Test revoking an approved module request sets it to rejected."""
     response = await async_client.post(
         f"/api/approvals/modules/{approved_module_request.id}/revoke",
         headers=admin_headers,
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "pending"
+    assert data["status"] == "rejected"
 
     await db_session.refresh(approved_module_request)
-    assert approved_module_request.status == "pending"
+    assert approved_module_request.status == "rejected"
 
 
 @pytest.mark.asyncio
@@ -1109,17 +1109,17 @@ async def test_revoke_network_request(
     approved_network_request: NetworkAccessRequest,
     db_session: AsyncSession,
 ):
-    """Test revoking an approved network access request back to pending."""
+    """Test revoking an approved network access request sets it to rejected."""
     response = await async_client.post(
         f"/api/approvals/network/{approved_network_request.id}/revoke",
         headers=admin_headers,
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "pending"
+    assert data["status"] == "rejected"
 
     await db_session.refresh(approved_network_request)
-    assert approved_network_request.status == "pending"
+    assert approved_network_request.status == "rejected"
 
 
 @pytest.mark.asyncio

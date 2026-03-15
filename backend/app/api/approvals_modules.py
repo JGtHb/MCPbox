@@ -192,10 +192,11 @@ async def revoke_module_request(
     service: ApprovalService = Depends(get_approval_service),
     admin_identity: str = Depends(get_admin_identity),
 ) -> ModuleRequestResponse:
-    """Revoke an approved module whitelist request back to pending status.
+    """Revoke an approved module whitelist request.
 
     The module is removed from the global allowed modules list and the server
     is re-registered with the sandbox so the change takes effect immediately.
+    The request is set to rejected status and can be re-approved or deleted.
     Admin identity is extracted from verified JWT token.
     """
     try:
