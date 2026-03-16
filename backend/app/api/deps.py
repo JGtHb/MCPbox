@@ -78,7 +78,7 @@ def get_cloudflare_service(db: AsyncSession = Depends(get_db)) -> CloudflareServ
 
 def calc_pages(total: int, page_size: int) -> int:
     """Calculate total page count for pagination."""
-    return (total + page_size - 1) // page_size if total > 0 else 0
+    return (total + page_size - 1) // page_size if total > 0 else 1
 
 
 _T = TypeVar("_T")

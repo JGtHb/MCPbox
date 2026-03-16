@@ -1424,7 +1424,7 @@ class MCPManagementService:
         raw_id = args.get("tool_id")
         raw_ids = args.get("tool_ids")
 
-        if not raw_id and not raw_ids:
+        if raw_id is None and raw_ids is None:
             return {"error": "Either tool_id or tool_ids is required"}
 
         id_strings: list[str] = []

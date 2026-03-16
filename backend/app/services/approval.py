@@ -1315,7 +1315,7 @@ class ApprovalService:
         request_id: UUID,
         revoked_by: str,
     ) -> ModuleRequest:
-        """Revoke an approved module request to rejected status.
+        """Revoke an approved module request back to pending status.
 
         The allowed modules cache is resynced from remaining approved records.
         The request can then be re-approved or deleted.
@@ -1350,7 +1350,7 @@ class ApprovalService:
                 f"Current status: {request.status}"
             )
 
-        request.status = "rejected"
+        request.status = "pending"
         request.reviewed_at = None
         request.reviewed_by = None
         request.rejection_reason = None
@@ -1369,7 +1369,7 @@ class ApprovalService:
         request_id: UUID,
         revoked_by: str,
     ) -> NetworkAccessRequest:
-        """Revoke an approved network access request to rejected status.
+        """Revoke an approved network access request back to pending status.
 
         The allowed hosts cache is resynced from remaining approved records.
         The request can then be re-approved or deleted.
@@ -1404,7 +1404,7 @@ class ApprovalService:
                 f"Current status: {request.status}"
             )
 
-        request.status = "rejected"
+        request.status = "pending"
         request.reviewed_at = None
         request.reviewed_by = None
         request.rejection_reason = None
