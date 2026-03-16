@@ -167,6 +167,31 @@ class TestDunderAttributeBlocking:
         assert data["success"] is False
         assert "Security violation" in data["error"]
 
+    @pytest.mark.parametrize(
+        "dunder",
+        [
+            "__getstate__",
+            "__setstate__",
+            "__subclasshook__",
+            "__getattribute__",
+            "__setattr__",
+            "__delattr__",
+        ],
+    )
+    def test_new_dunder_attrs_blocked(self, client, dunder):
+        """Additional dangerous dunder attributes are blocked by AST validation."""
+        response = client.post(
+            "/execute",
+            json={
+                "code": f"class Foo: pass\nresult = Foo.{dunder}",
+                "arguments": {},
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False, f"{dunder} should be blocked"
+        assert "Security violation" in data["error"]
+
 
 class TestEscapeViaBuiltins:
     """Test that dangerous builtins are removed."""
@@ -376,6 +401,40 @@ class TestImportRestrictions:
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is False
+
+    @pytest.mark.parametrize(
+        "module",
+        [
+            "pickle",
+            "shelve",
+            "marshal",
+            "ctypes",
+            "mmap",
+            "inspect",
+            "gc",
+            "threading",
+            "multiprocessing",
+            "signal",
+            "socket",
+            "shutil",
+            "tempfile",
+            "code",
+            "codeop",
+            "compileall",
+        ],
+    )
+    def test_dangerous_module_blocked(self, client, module):
+        """Dangerous modules that could escape sandbox are blocked."""
+        response = client.post(
+            "/execute",
+            json={
+                "code": f"import {module}\nresult = str(type({module}))",
+                "arguments": {},
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False, f"{module} should be blocked but was allowed"
 
     def test_allowed_module_json_works(self, client):
         """json module (whitelisted) can be imported."""

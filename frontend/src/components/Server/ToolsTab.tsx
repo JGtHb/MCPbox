@@ -34,7 +34,7 @@ interface ToolsTabProps {
 }
 
 export function ToolsTab({ serverId }: ToolsTabProps) {
-  const { data: tools, isLoading } = useTools(serverId)
+  const { data: tools, isLoading, isError, error, refetch } = useTools(serverId)
   const updateEnabled = useUpdateToolEnabled()
   const deleteTool = useDeleteTool()
   const [expandedToolId, setExpandedToolId] = useState<string | null>(null)
@@ -52,6 +52,20 @@ export function ToolsTab({ serverId }: ToolsTabProps) {
           <div className="h-10 bg-hl-med rounded" />
           <div className="h-10 bg-hl-med rounded" />
         </div>
+      </div>
+    )
+  }
+
+  if (isError) {
+    return (
+      <div className="bg-surface rounded-lg shadow p-6 text-center">
+        <p className="text-love">{error instanceof Error ? error.message : 'Failed to load tools'}</p>
+        <button
+          onClick={() => refetch()}
+          className="mt-3 rounded-lg bg-iris px-3 py-1.5 text-sm font-medium text-on-iris hover:bg-iris/80 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
+        >
+          Retry
+        </button>
       </div>
     )
   }
@@ -223,14 +237,6 @@ function ToolRow({ tool, serverId, isExpanded, onToggle, onToggleEnabled, onRena
     queryClient.invalidateQueries({ queryKey: toolKeys.list(serverId) })
   }, [queryClient, serverId])
 
-  const handleSubmitForReview = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    toolAction.mutate(
-      { toolId: tool.id, action: 'submit_for_review' },
-      { onSuccess: invalidateToolsList }
-    )
-  }
-
   const handleApprove = (e: React.MouseEvent) => {
     e.stopPropagation()
     toolAction.mutate(
@@ -290,21 +296,23 @@ function ToolRow({ tool, serverId, isExpanded, onToggle, onToggleEnabled, onRena
             {isDraftOrRejected && (
               <>
                 <button
-                  onClick={handleSubmitForReview}
-                  disabled={toolAction.isPending}
-                  className="px-2.5 py-1 text-xs font-medium text-iris bg-surface border border-iris/20 rounded-lg hover:bg-iris/10 transition-colors focus:outline-none focus:ring-2 focus:ring-iris disabled:opacity-50"
-                  title="Submit for review"
-                >
-                  Submit
-                </button>
-                <button
                   onClick={handleApprove}
                   disabled={toolAction.isPending}
                   className="px-2.5 py-1 text-xs font-medium text-foam bg-surface border border-foam/20 rounded-lg hover:bg-foam/10 transition-colors focus:outline-none focus:ring-2 focus:ring-foam disabled:opacity-50"
-                  title="Approve directly"
+                  title="Approve tool"
                 >
                   Approve
                 </button>
+                {tool.approval_status === 'draft' && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onReject() }}
+                    disabled={toolAction.isPending}
+                    className="px-2.5 py-1 text-xs font-medium text-gold bg-surface border border-gold/20 rounded-lg hover:bg-gold/10 transition-colors focus:outline-none focus:ring-2 focus:ring-gold disabled:opacity-50"
+                    title="Reject tool"
+                  >
+                    Reject
+                  </button>
+                )}
               </>
             )}
             {isPending && (
@@ -592,15 +600,21 @@ function ToolCodeViewer({ code, defaultOpen = false }: ToolCodeViewerProps) {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch {
-      // Fallback for older browsers
-      const textarea = document.createElement('textarea')
-      textarea.value = code
-      document.body.appendChild(textarea)
-      textarea.select()
-      document.execCommand('copy')
-      document.body.removeChild(textarea)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      // Fallback for environments without Clipboard API
+      try {
+        const textarea = document.createElement('textarea')
+        textarea.value = code
+        textarea.style.position = 'fixed'
+        textarea.style.opacity = '0'
+        document.body.appendChild(textarea)
+        textarea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textarea)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      } catch {
+        // Both methods failed — silently ignore
+      }
     }
   }, [code])
 

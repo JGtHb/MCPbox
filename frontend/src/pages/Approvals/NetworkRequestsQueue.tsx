@@ -361,7 +361,7 @@ export function NetworkRequestsQueue() {
       <ConfirmModal
         isOpen={!!revokeTarget}
         title="Revoke Network Access"
-        message={`Revoke "${revokeTarget?.host ?? ''}${revokeTarget?.port ? `:${revokeTarget.port}` : ''}"? It will be removed from the server's allowlist and placed back in the pending review queue.`}
+        message={`Revoke "${revokeTarget?.host ?? ''}${revokeTarget?.port ? `:${revokeTarget.port}` : ''}"? It will be removed from the server's allowlist. You can re-approve or delete it later.`}
         confirmLabel="Revoke"
         destructive
         isLoading={revokeAction.isPending}

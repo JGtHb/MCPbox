@@ -132,7 +132,6 @@ async def take_module_request_action(
     db: AsyncSession = Depends(get_db),
     service: ApprovalService = Depends(get_approval_service),
     admin_identity: str = Depends(get_admin_identity),
-    sandbox_client: SandboxClient = Depends(get_sandbox_client),
 ) -> ModuleRequestResponse:
     """Approve or reject a module whitelist request.
 
@@ -148,15 +147,6 @@ async def take_module_request_action(
                 request_id=request_id,
                 approved_by=admin_identity,
             )
-
-            # Install the package in the sandbox so it's available for import
-            install_result = await sandbox_client.install_package(request.module_name)
-            if install_result.get("status") == "failed":
-                logger.warning(
-                    "Package installation failed for %s: %s",
-                    request.module_name,
-                    install_result.get("error_message"),
-                )
 
             # Re-register server so the updated module list takes effect immediately
             if request.server_id:
@@ -192,10 +182,11 @@ async def revoke_module_request(
     service: ApprovalService = Depends(get_approval_service),
     admin_identity: str = Depends(get_admin_identity),
 ) -> ModuleRequestResponse:
-    """Revoke an approved module whitelist request back to pending status.
+    """Revoke an approved module whitelist request.
 
     The module is removed from the global allowed modules list and the server
     is re-registered with the sandbox so the change takes effect immediately.
+    The request is set to rejected status and can be re-approved or deleted.
     Admin identity is extracted from verified JWT token.
     """
     try:
@@ -263,7 +254,6 @@ async def bulk_module_request_action(
     db: AsyncSession = Depends(get_db),
     service: ApprovalService = Depends(get_approval_service),
     admin_identity: str = Depends(get_admin_identity),
-    sandbox_client: SandboxClient = Depends(get_sandbox_client),
 ) -> BulkActionResponse:
     """Approve or reject multiple module requests at once.
 
@@ -278,33 +268,18 @@ async def bulk_module_request_action(
             approved_by=admin_identity,
         )
 
-        # Install packages and re-register affected servers
+        # Re-register affected servers (package installation already handled by service)
         refreshed_servers: set[str] = set()
         for req_id in action.request_ids:
             if not any(f["id"] == req_id for f in result["failed"]):
-                # Look up the module name and server_id for this request
                 stmt = select(
-                    ModuleRequestModel.module_name,
                     ModuleRequestModel.server_id,
                 ).where(ModuleRequestModel.id == req_id)
                 row = await db.execute(stmt)
-                module_row = row.one_or_none()
-                if module_row:
-                    module_name, sid = module_row
-
-                    # Install the package in the sandbox
-                    install_result = await sandbox_client.install_package(module_name)
-                    if install_result.get("status") == "failed":
-                        logger.warning(
-                            "Package installation failed for %s: %s",
-                            module_name,
-                            install_result.get("error_message"),
-                        )
-
-                    # Re-register affected server
-                    if sid and str(sid) not in refreshed_servers:
-                        if await reregister_server(sid, db):
-                            refreshed_servers.add(str(sid))
+                sid_row = row.scalar_one_or_none()
+                if sid_row and str(sid_row) not in refreshed_servers:
+                    if await reregister_server(sid_row, db):
+                        refreshed_servers.add(str(sid_row))
     else:
         result = await service.bulk_reject_module_requests(
             request_ids=action.request_ids,

@@ -90,7 +90,7 @@ All pinned Python packages (backend and sandbox) are at current versions with no
 - `fastapi==0.128.8` — ecosystem CVEs (fastapi-sso, fastapi-guard, fastapi-api-key) are in separate packages not used by MCPbox
 - `jinja2==3.1.6` — 4 CVEs in 2024-2025 (sandbox escapes, XSS, RCE), all fixed at exactly 3.1.6 including CVE-2025-27516 (CVSS 9.9 sandbox breakout via `|attr` filter)
 - `cryptography==46.0.5` — 3 CVEs in 2024 (OpenSSL issues), all fixed well before 46.0.5
-- `PyJWT==2.11.0` — CVE-2024-53861 (issuer validation, fixed 2.10.1); CVE-2025-45768 (weak encryption, DISPUTED by supplier — application-level key length responsibility)
+- `PyJWT==2.12.0` — CVE-2024-53861 (issuer validation, fixed 2.10.1); CVE-2025-45768 (weak encryption, DISPUTED by supplier); CVE-2026-32597 (fixed 2.12.0)
 - `sqlalchemy==2.0.46`, `httpx==0.28.1`, `pydantic==2.12.5`, `uvicorn==0.40.0` — no unpatched CVEs at pinned versions
 - `asyncpg==0.31.0`, `alembic==1.18.4`, `slowapi==0.1.9`, `regex==2026.1.15`, `argon2-cffi==25.1.0` — no known CVEs
 - Starlette (transitive via FastAPI) — CVE-2024-47874 (DoS, CVSS 8.7) fixed in 0.40.0; FastAPI 0.128.8 requires `>=0.40.0`

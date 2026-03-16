@@ -1038,7 +1038,7 @@ async def test_revoke_tool_approval(
     approved_tool: Tool,
     db_session: AsyncSession,
 ):
-    """Test revoking an approved tool back to pending_review."""
+    """Test revoking an approved tool sets it to rejected."""
     response = await async_client.post(
         f"/api/approvals/tools/{approved_tool.id}/revoke",
         headers=admin_headers,
@@ -1046,10 +1046,10 @@ async def test_revoke_tool_approval(
     assert response.status_code == 200
     data = response.json()
     assert data["success"] is True
-    assert data["status"] == "pending_review"
+    assert data["status"] == "rejected"
 
     await db_session.refresh(approved_tool)
-    assert approved_tool.approval_status == "pending_review"
+    assert approved_tool.approval_status == "rejected"
     assert approved_tool.approved_by is None
 
 
@@ -1075,17 +1075,17 @@ async def test_revoke_module_request(
     approved_module_request: ModuleRequest,
     db_session: AsyncSession,
 ):
-    """Test revoking an approved module request back to pending."""
+    """Test revoking an approved module request sets it to rejected."""
     response = await async_client.post(
         f"/api/approvals/modules/{approved_module_request.id}/revoke",
         headers=admin_headers,
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "pending"
+    assert data["status"] == "rejected"
 
     await db_session.refresh(approved_module_request)
-    assert approved_module_request.status == "pending"
+    assert approved_module_request.status == "rejected"
 
 
 @pytest.mark.asyncio
@@ -1109,17 +1109,17 @@ async def test_revoke_network_request(
     approved_network_request: NetworkAccessRequest,
     db_session: AsyncSession,
 ):
-    """Test revoking an approved network access request back to pending."""
+    """Test revoking an approved network access request sets it to rejected."""
     response = await async_client.post(
         f"/api/approvals/network/{approved_network_request.id}/revoke",
         headers=admin_headers,
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "pending"
+    assert data["status"] == "rejected"
 
     await db_session.refresh(approved_network_request)
-    assert approved_network_request.status == "pending"
+    assert approved_network_request.status == "rejected"
 
 
 @pytest.mark.asyncio
@@ -3370,3 +3370,113 @@ async def test_derive_import_names_helper():
     # Simple name — no derivation needed
     assert _derive_import_names("requests") == set()
     assert _derive_import_names("numpy") == set()
+
+
+# =============================================================================
+# Tool Deletion Tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_delete_rejected_tool(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    db_session: AsyncSession,
+    test_server: Server,
+):
+    """Admin can delete a rejected tool."""
+    tool = Tool(
+        server_id=test_server.id,
+        name="rejected_for_delete",
+        description="Will be deleted",
+        python_code='async def main() -> str:\n    return "test"',
+        input_schema={"type": "object", "properties": {}},
+        approval_status="rejected",
+    )
+    db_session.add(tool)
+    await db_session.flush()
+    await db_session.refresh(tool)
+    tool_id = tool.id
+
+    response = await async_client.delete(
+        f"/api/approvals/tools/{tool_id}",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["name"] == "rejected_for_delete"
+
+    # Verify deleted from DB
+    from sqlalchemy import select
+
+    result = await db_session.execute(select(Tool).where(Tool.id == tool_id))
+    assert result.scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_delete_draft_tool(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    draft_tool: Tool,
+    db_session: AsyncSession,
+):
+    """Admin can delete a draft tool."""
+    response = await async_client.delete(
+        f"/api/approvals/tools/{draft_tool.id}",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_delete_approved_tool_fails(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    approved_tool: Tool,
+):
+    """Cannot delete an approved tool (must revoke first)."""
+    response = await async_client.delete(
+        f"/api/approvals/tools/{approved_tool.id}",
+        headers=admin_headers,
+    )
+    assert response.status_code == 400
+    assert "draft or rejected" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_delete_pending_tool_fails(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    pending_tool: Tool,
+):
+    """Cannot delete a pending_review tool."""
+    response = await async_client.delete(
+        f"/api/approvals/tools/{pending_tool.id}",
+        headers=admin_headers,
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_reject_draft_tool(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    draft_tool: Tool,
+    db_session: AsyncSession,
+):
+    """Admin can reject a draft tool."""
+    response = await async_client.post(
+        f"/api/approvals/tools/{draft_tool.id}/action",
+        headers=admin_headers,
+        json={"action": "reject", "reason": "Not needed"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "rejected"
+
+    await db_session.refresh(draft_tool)
+    assert draft_tool.approval_status == "rejected"
+    assert draft_tool.rejection_reason == "Not needed"

@@ -361,7 +361,7 @@ export function ModuleRequestsQueue() {
       <ConfirmModal
         isOpen={!!revokeTarget}
         title="Revoke Module Approval"
-        message={`Revoke "${revokeTarget?.module_name ?? ''}"? It will be removed from the global module whitelist and placed back in the pending review queue.`}
+        message={`Revoke "${revokeTarget?.module_name ?? ''}"? It will be removed from the global module whitelist. You can re-approve or delete it later.`}
         confirmLabel="Revoke"
         destructive
         isLoading={revokeAction.isPending}

@@ -4,6 +4,7 @@ import {
   useToolAction,
   useBulkToolAction,
   useRevokeToolApproval,
+  useDeleteTool,
   ToolApprovalQueueItem,
 } from '../../api/approvals'
 import { ConfirmModal } from '../../components/ui'
@@ -16,10 +17,12 @@ export function ToolsQueue() {
   const toolAction = useToolAction()
   const bulkAction = useBulkToolAction()
   const revokeAction = useRevokeToolApproval()
+  const deleteAction = useDeleteTool()
   const [selectedTool, setSelectedTool] = useState<ToolApprovalQueueItem | null>(null)
   const [rejectReason, setRejectReason] = useState('')
   const [showRejectModal, setShowRejectModal] = useState(false)
   const [revokeTarget, setRevokeTarget] = useState<ToolApprovalQueueItem | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<ToolApprovalQueueItem | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [showBulkRejectModal, setShowBulkRejectModal] = useState(false)
   const [bulkRejectReason, setBulkRejectReason] = useState('')
@@ -34,10 +37,6 @@ export function ToolsQueue() {
   const draftOrRejectedItems = data?.items.filter(
     (t) => t.approval_status === 'draft' || t.approval_status === 'rejected'
   ) ?? []
-
-  const handleSubmitForReview = async (toolId: string) => {
-    await toolAction.mutateAsync({ toolId, action: 'submit_for_review' })
-  }
 
   const handleApprove = async (toolId: string) => {
     await toolAction.mutateAsync({ toolId, action: 'approve' })
@@ -171,12 +170,21 @@ export function ToolsQueue() {
               >
                 Approve
               </button>
+              {tool.approval_status === 'draft' && (
+                <button
+                  onClick={() => { setSelectedTool(tool); setShowRejectModal(true) }}
+                  disabled={toolAction.isPending}
+                  className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
+                >
+                  Reject
+                </button>
+              )}
               <button
-                onClick={() => handleSubmitForReview(tool.id)}
-                disabled={toolAction.isPending}
-                className="rounded-lg border border-iris/30 px-3 py-1.5 text-sm font-medium text-iris hover:bg-iris/10 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
+                onClick={() => setDeleteTarget(tool)}
+                disabled={deleteAction.isPending}
+                className="px-2.5 py-1 text-xs font-medium text-love bg-surface border border-love/20 rounded-lg hover:bg-love/10 transition-colors focus:outline-none focus:ring-2 focus:ring-love disabled:opacity-50"
               >
-                Submit for Review
+                Delete
               </button>
             </>
           ) : (
@@ -270,7 +278,7 @@ export function ToolsQueue() {
             <div className="mt-6">
               <div className="flex items-center gap-3 mb-3">
                 <h3 className="text-sm font-medium text-subtle uppercase tracking-wide">
-                  Needs Submission ({draftOrRejectedItems.length})
+                  Draft / Rejected ({draftOrRejectedItems.length})
                 </h3>
                 <div className="flex-1 h-px bg-hl-med" />
               </div>
@@ -372,12 +380,24 @@ export function ToolsQueue() {
       <ConfirmModal
         isOpen={!!revokeTarget}
         title="Revoke Tool Approval"
-        message={`Revoke "${revokeTarget?.name ?? ''}"? It will be removed from the active sandbox and placed back in the pending review queue.`}
+        message={`Revoke "${revokeTarget?.name ?? ''}"? It will be removed from the active sandbox. You can re-approve or delete it later.`}
         confirmLabel="Revoke"
         destructive
         isLoading={revokeAction.isPending}
         onConfirm={async () => { await revokeAction.mutateAsync(revokeTarget!.id); setRevokeTarget(null) }}
         onCancel={() => setRevokeTarget(null)}
+      />
+
+      {/* Delete Confirmation */}
+      <ConfirmModal
+        isOpen={!!deleteTarget}
+        title="Delete Tool"
+        message={`Permanently delete "${deleteTarget?.name ?? ''}"? This will also delete all versions, execution logs, and associated requests. This cannot be undone.`}
+        confirmLabel="Delete"
+        destructive
+        isLoading={deleteAction.isPending}
+        onConfirm={async () => { await deleteAction.mutateAsync(deleteTarget!.id); setDeleteTarget(null) }}
+        onCancel={() => setDeleteTarget(null)}
       />
     </div>
   )

@@ -57,7 +57,7 @@ function RevokeButton({
       <ConfirmModal
         isOpen={confirming}
         title="Revoke Approval"
-        message={`Are you sure you want to revoke "${label}"? It will be placed back in the pending review queue.`}
+        message={`Are you sure you want to revoke "${label}"? It will be removed from the active configuration.`}
         confirmLabel="Revoke"
         destructive
         isLoading={isLoading}

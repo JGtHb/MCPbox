@@ -284,9 +284,9 @@ class ApprovalService:
         if not tool:
             raise ValueError(f"Tool {tool_id} not found")
 
-        if tool.approval_status != "pending_review":
+        if tool.approval_status not in ("pending_review", "draft"):
             raise ValueError(
-                f"Tool must be in 'pending_review' status to reject. "
+                f"Tool must be in 'pending_review' or 'draft' status to reject. "
                 f"Current status: {tool.approval_status}"
             )
 
@@ -1272,10 +1272,10 @@ class ApprovalService:
         tool_id: UUID,
         revoked_by: str,
     ) -> Tool:
-        """Revoke an approved tool back to pending_review status.
+        """Revoke an approved tool back to rejected status.
 
-        The tool is removed from the live server registration and placed back
-        into the approval queue so it can be reviewed again.
+        The tool is removed from the live server registration. The admin
+        can later re-approve, or delete the tool entirely.
 
         Args:
             tool_id: ID of the tool to revoke
@@ -1300,7 +1300,7 @@ class ApprovalService:
                 f"Current status: {tool.approval_status}"
             )
 
-        tool.approval_status = "pending_review"
+        tool.approval_status = "rejected"
         tool.approved_at = None
         tool.approved_by = None
 
@@ -1318,6 +1318,7 @@ class ApprovalService:
         """Revoke an approved module request back to pending status.
 
         The allowed modules cache is resynced from remaining approved records.
+        The request can then be re-approved or deleted.
 
         Args:
             request_id: ID of the module request to revoke
@@ -1371,6 +1372,7 @@ class ApprovalService:
         """Revoke an approved network access request back to pending status.
 
         The allowed hosts cache is resynced from remaining approved records.
+        The request can then be re-approved or deleted.
 
         Args:
             request_id: ID of the network request to revoke
@@ -1515,6 +1517,49 @@ class ApprovalService:
             f"deleted by {deleted_by}"
         )
         return {"host": host, "port": str(port) if port else None, "status": request_status}
+
+    async def delete_tool(
+        self,
+        tool_id: UUID,
+        deleted_by: str,
+    ) -> dict[str, str]:
+        """Permanently delete a tool.
+
+        Only draft or rejected tools can be deleted. Approved tools must be
+        revoked first. Cascades to tool versions, execution logs, and any
+        associated module/network requests.
+
+        Args:
+            tool_id: ID of the tool to delete
+            deleted_by: Email of the admin deleting
+
+        Returns:
+            Dict with deleted tool details
+
+        Raises:
+            ValueError: If tool not found or currently approved/pending
+        """
+        stmt = select(Tool).where(Tool.id == tool_id)
+        result = await self.db.execute(stmt)
+        tool = result.scalar_one_or_none()
+
+        if not tool:
+            raise ValueError(f"Tool {tool_id} not found")
+
+        if tool.approval_status not in ("draft", "rejected"):
+            raise ValueError(
+                f"Only draft or rejected tools can be deleted. "
+                f"Current status: {tool.approval_status}"
+            )
+
+        tool_name = tool.name
+        tool_status = tool.approval_status
+
+        await self.db.delete(tool)
+        await self.db.commit()
+
+        logger.info(f"Tool {tool_id} ({tool_name}, was {tool_status}) deleted by {deleted_by}")
+        return {"name": tool_name, "status": tool_status}
 
     # =========================================================================
     # Bulk Actions
