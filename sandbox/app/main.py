@@ -20,6 +20,12 @@ from slowapi.util import get_remote_address
 from app.registry import tool_registry
 from app.routes import router
 from app.package_sync import startup_sync
+from app.socket_patch import patch_socket
+
+# Monkey-patch socket module so third-party libraries and stdlib (asyncio)
+# route TCP through the SOCKS5 proxy during tool execution.
+# Must happen after framework imports (FastAPI, uvicorn, httpx).
+patch_socket()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
