@@ -27,7 +27,7 @@ class ToolApprovalAction(BaseModel):
     reason: str | None = Field(
         None,
         max_length=2000,
-        description="Required for rejection, optional for approval/submit",
+        description="Optional reason (used for rejection)",
     )
 
 
@@ -176,7 +176,7 @@ class ModuleRequestAction(BaseModel):
     reason: str | None = Field(
         None,
         max_length=2000,
-        description="Required for rejection, optional for approval",
+        description="Optional reason (used for rejection)",
     )
 
 
@@ -268,7 +268,7 @@ class NetworkAccessRequestAction(BaseModel):
     reason: str | None = Field(
         None,
         max_length=2000,
-        description="Required for rejection, optional for approval",
+        description="Optional reason (used for rejection)",
     )
 
 
@@ -285,7 +285,7 @@ class BulkToolAction(BaseModel):
     reason: str | None = Field(
         None,
         max_length=2000,
-        description="Required for rejection, optional for approval",
+        description="Optional reason (used for rejection)",
     )
 
 
@@ -297,7 +297,7 @@ class BulkModuleRequestAction(BaseModel):
     reason: str | None = Field(
         None,
         max_length=2000,
-        description="Required for rejection, optional for approval",
+        description="Optional reason (used for rejection)",
     )
 
 
@@ -309,7 +309,7 @@ class BulkNetworkRequestAction(BaseModel):
     reason: str | None = Field(
         None,
         max_length=2000,
-        description="Required for rejection, optional for approval",
+        description="Optional reason (used for rejection)",
     )
 
 

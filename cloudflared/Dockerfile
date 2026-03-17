@@ -16,7 +16,7 @@ RUN ARCH="${TARGETARCH:-$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm6
     chmod +x /usr/local/bin/cloudflared && \
     cloudflared --version
 
-COPY entrypoint.sh /entrypoint.sh
+COPY cloudflared/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 RUN adduser -D -u 1000 cloudflared

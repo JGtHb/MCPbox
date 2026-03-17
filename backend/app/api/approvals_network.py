@@ -111,11 +111,6 @@ async def take_network_request_action(
             )
             return resp
         else:
-            if not action.reason:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="A reason is required when rejecting",
-                )
             request = await service.reject_network_access_request(
                 request_id=request_id,
                 rejected_by=admin_identity,
@@ -145,10 +140,11 @@ async def revoke_network_access_request(
     service: ApprovalService = Depends(get_approval_service),
     admin_identity: str = Depends(get_admin_identity),
 ) -> NetworkAccessRequestResponse:
-    """Revoke an approved network access request back to pending status.
+    """Revoke an approved network access request.
 
     The host is removed from the server's allowed hosts list and the server
     is re-registered with the sandbox so the change takes effect immediately.
+    The request is set to rejected status and can be re-approved or deleted.
     Admin identity is extracted from verified JWT token.
     """
     try:
@@ -244,11 +240,6 @@ async def bulk_network_request_action(
                     if await reregister_server(sid, db):
                         refreshed_servers.add(str(sid))
     else:
-        if not action.reason:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="A reason is required when rejecting",
-            )
         result = await service.bulk_reject_network_requests(
             request_ids=action.request_ids,
             rejected_by=admin_identity,

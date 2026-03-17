@@ -135,9 +135,9 @@ async def take_module_request_action(
 ) -> ModuleRequestResponse:
     """Approve or reject a module whitelist request.
 
-    Approval will add the module to the global allowed modules list and
-    re-register the server with the sandbox so the change takes effect
-    immediately without requiring a restart.
+    Approval will add the module to the global allowed modules list,
+    install the package in the sandbox, and re-register the server so
+    the change takes effect immediately without requiring a restart.
     Rejection reason is optional.
     Admin identity is extracted from verified JWT token.
     """
@@ -155,11 +155,6 @@ async def take_module_request_action(
             resp: ModuleRequestResponse = ModuleRequestResponse.model_validate(request)
             return resp
         else:
-            if not action.reason:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="A reason is required when rejecting",
-                )
             request = await service.reject_module_request(
                 request_id=request_id,
                 rejected_by=admin_identity,
@@ -187,10 +182,11 @@ async def revoke_module_request(
     service: ApprovalService = Depends(get_approval_service),
     admin_identity: str = Depends(get_admin_identity),
 ) -> ModuleRequestResponse:
-    """Revoke an approved module whitelist request back to pending status.
+    """Revoke an approved module whitelist request.
 
     The module is removed from the global allowed modules list and the server
     is re-registered with the sandbox so the change takes effect immediately.
+    The request is set to rejected status and can be re-approved or deleted.
     Admin identity is extracted from verified JWT token.
     """
     try:
@@ -261,9 +257,9 @@ async def bulk_module_request_action(
 ) -> BulkActionResponse:
     """Approve or reject multiple module requests at once.
 
-    Approval will add the modules to the global allowed modules list and
-    re-register affected servers with the sandbox so changes take effect
-    immediately.
+    Approval will add the modules to the global allowed modules list,
+    install the packages in the sandbox, and re-register affected servers
+    so changes take effect immediately.
     Admin identity is extracted from verified JWT token.
     """
     if action.action == "approve":
@@ -272,22 +268,19 @@ async def bulk_module_request_action(
             approved_by=admin_identity,
         )
 
-        # Re-register affected servers so the updated module list takes effect
+        # Re-register affected servers (package installation already handled by service)
         refreshed_servers: set[str] = set()
         for req_id in action.request_ids:
             if not any(f["id"] == req_id for f in result["failed"]):
-                stmt = select(ModuleRequestModel.server_id).where(ModuleRequestModel.id == req_id)
+                stmt = select(
+                    ModuleRequestModel.server_id,
+                ).where(ModuleRequestModel.id == req_id)
                 row = await db.execute(stmt)
-                sid = row.scalar_one_or_none()
-                if sid and str(sid) not in refreshed_servers:
-                    if await reregister_server(sid, db):
-                        refreshed_servers.add(str(sid))
+                sid_row = row.scalar_one_or_none()
+                if sid_row and str(sid_row) not in refreshed_servers:
+                    if await reregister_server(sid_row, db):
+                        refreshed_servers.add(str(sid_row))
     else:
-        if not action.reason:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="A reason is required when rejecting",
-            )
         result = await service.bulk_reject_module_requests(
             request_ids=action.request_ids,
             rejected_by=admin_identity,

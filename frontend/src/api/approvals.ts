@@ -236,13 +236,28 @@ export function useRevokeNetworkRequest() {
   })
 }
 
-// Deletion functions (hard delete for rejected/pending requests)
+// Deletion functions (hard delete for rejected/pending/draft requests)
+export async function deleteTool(toolId: string): Promise<void> {
+  await api.delete(`/api/approvals/tools/${toolId}`)
+}
+
 export async function deleteModuleRequest(requestId: string): Promise<void> {
   await api.delete(`/api/approvals/modules/${requestId}`)
 }
 
 export async function deleteNetworkRequest(requestId: string): Promise<void> {
   await api.delete(`/api/approvals/network/${requestId}`)
+}
+
+export function useDeleteTool() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (toolId: string) => deleteTool(toolId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['approvals'] })
+      queryClient.invalidateQueries({ queryKey: ['tools'] })
+    },
+  })
 }
 
 export function useDeleteModuleRequest() {

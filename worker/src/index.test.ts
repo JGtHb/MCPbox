@@ -560,9 +560,11 @@ describe('MCPbox Proxy Worker', () => {
 
       // Client should be auto-registered in KV
       expect(mockKv.put).toHaveBeenCalled();
-      const [kvKey, kvValue] = mockKv.put.mock.calls[0];
-      expect(kvKey).toBe('client:new-client');
-      const clientData = JSON.parse(kvValue);
+      const clientPutCall = mockKv.put.mock.calls.find(
+        (call: unknown[]) => (call[0] as string) === 'client:new-client'
+      );
+      expect(clientPutCall).toBeTruthy();
+      const clientData = JSON.parse(clientPutCall![1] as string);
       expect(clientData.clientId).toBe('new-client');
       expect(clientData.redirectUris).toEqual(['https://mcp.claude.ai/callback']);
       expect(clientData.grantTypes).toContain('authorization_code');
@@ -1391,7 +1393,7 @@ describe('MCPbox Proxy Worker', () => {
         .toBe('https://mcp.claude.ai');
     });
 
-    it('allows /register with admin-configured redirect URI prefix', async () => {
+    it('allows /register with admin-configured redirect URI (origin matching)', async () => {
       const kv = createAdminConfigKV(
         [],
         ['https://my-mcp-client.example.com/'],
@@ -1408,8 +1410,32 @@ describe('MCPbox Proxy Worker', () => {
 
       const response = await worker.fetch(request, env, ctx as any);
 
-      // Should NOT be 400 (invalid_redirect_uri) — the admin-configured prefix should match
+      // Should NOT be 400 (invalid_redirect_uri) — same origin should match
       expect(response.status).not.toBe(400);
+    });
+
+    it('SECURITY: rejects redirect URI that shares prefix but different origin', async () => {
+      // This is the key fix: https://app.example.com should NOT match
+      // https://app.example.com.evil.com (different origin, same prefix)
+      const kv = createAdminConfigKV(
+        [],
+        ['https://app.example.com/callback'],
+      );
+      const env = createBaseEnv({ OAUTH_KV: kv });
+      const request = new Request('https://example.com/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          redirect_uris: ['https://app.example.com.evil.com/steal-code'],
+        }),
+      });
+      const ctx = createExecutionContext();
+
+      const response = await worker.fetch(request, env, ctx as any);
+
+      expect(response.status).toBe(400);
+      const body = await response.json() as { error: string };
+      expect(body.error).toBe('invalid_redirect_uri');
     });
 
     it('rejects /register with URI not matching built-in or admin patterns', async () => {
@@ -1456,10 +1482,11 @@ describe('MCPbox Proxy Worker', () => {
 
       // Should NOT be 400 (invalid_redirect_uri)
       expect(response.status).not.toBe(400);
-      // KV should have been written to (auto-registration)
+      // KV should have been written to (auto-registration with TTL)
       expect(kv.put).toHaveBeenCalledWith(
         'client:new-custom-client',
         expect.any(String),
+        expect.objectContaining({ expirationTtl: expect.any(Number) }),
       );
     });
 
@@ -1505,6 +1532,119 @@ describe('MCPbox Proxy Worker', () => {
 
       // Built-in origins should still work
       expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://claude.ai');
+    });
+  });
+
+  // ===========================================================================
+  // 11. Security Hardening (2026-03 review)
+  // ===========================================================================
+
+  describe('Security Hardening (2026-03)', () => {
+    it('SECURITY: global registration rate limit blocks after 100 registrations', async () => {
+      const mockKv = createMockKV();
+      // Simulate global counter at the limit
+      mockKv.get.mockImplementation(async (key: string) => {
+        if (key === 'ratelimit:register:global') return '100';
+        return null;
+      });
+      const env = createBaseEnv({ OAUTH_KV: mockKv });
+      const request = new Request('https://example.com/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          redirect_uris: ['https://mcp.claude.ai/callback'],
+        }),
+      });
+      const ctx = createExecutionContext();
+
+      const response = await worker.fetch(request, env, ctx as any);
+
+      expect(response.status).toBe(429);
+      const body = await response.json() as { error: string };
+      expect(body.error).toBe('too_many_requests');
+    });
+
+    it('SECURITY: /token auto-registration also checks global rate limit', async () => {
+      const mockKv = createMockKV();
+      // Per-IP is fine (0 < 10), but global is at the limit
+      mockKv.get.mockImplementation(async (key: string) => {
+        if (key === 'ratelimit:register:global') return '100';
+        if (key.startsWith('ratelimit:register:')) return '0';
+        return null;
+      });
+      const env = createBaseEnv({ OAUTH_KV: mockKv });
+      const request = new Request('https://example.com/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'CF-Connecting-IP': '1.2.3.4',
+        },
+        body: new URLSearchParams({
+          client_id: 'new-client',
+          redirect_uri: 'https://mcp.claude.ai/callback',
+          grant_type: 'authorization_code',
+          code: 'test-code',
+        }).toString(),
+      });
+      const ctx = createExecutionContext();
+
+      const response = await worker.fetch(request, env, ctx as any);
+
+      expect(response.status).toBe(429);
+    });
+
+    it('auto-registered clients include TTL for KV garbage collection', async () => {
+      const mockKv = createMockKV();
+      const env = createBaseEnv({ OAUTH_KV: mockKv });
+      const request = new Request('https://example.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: 'ttl-test-client',
+          redirect_uri: 'https://mcp.claude.ai/callback',
+          grant_type: 'authorization_code',
+          code: 'test-code',
+        }).toString(),
+      });
+      const ctx = createExecutionContext();
+
+      await worker.fetch(request, env, ctx as any);
+
+      // Find the put call for the client (not rate limit counter)
+      const clientPutCall = mockKv.put.mock.calls.find(
+        (call: unknown[]) => (call[0] as string) === 'client:ttl-test-client'
+      );
+      expect(clientPutCall).toBeTruthy();
+      // Should have expirationTtl set (30 days = 2592000 seconds)
+      expect(clientPutCall![2]).toEqual(
+        expect.objectContaining({ expirationTtl: 30 * 24 * 3600 }),
+      );
+    });
+
+    it('CORS responses include Vary: Origin header', async () => {
+      const env = createBaseEnv();
+      const request = new Request('https://example.com/health', {
+        method: 'GET',
+        headers: { Origin: 'https://claude.ai' },
+      });
+      const ctx = createExecutionContext();
+
+      const response = await worker.fetch(request, env, ctx as any);
+
+      expect(response.headers.get('Vary')).toBe('Origin');
+    });
+
+    it('CORS preflight responses include Vary: Origin header', async () => {
+      const env = createBaseEnv();
+      const request = new Request('https://example.com/', {
+        method: 'OPTIONS',
+        headers: { Origin: 'https://mcp.claude.ai' },
+      });
+      const ctx = createExecutionContext();
+
+      const response = await worker.fetch(request, env, ctx as any);
+
+      expect(response.headers.get('Vary')).toBe('Origin');
     });
   });
 });

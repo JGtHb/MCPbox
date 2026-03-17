@@ -3,6 +3,7 @@
 Accessible without authentication (Option B architecture - admin panel is local-only).
 """
 
+import logging
 import time
 from typing import Any
 from uuid import UUID
@@ -35,6 +36,8 @@ from app.services.server import ServerService
 from app.services.server_secret import ServerSecretService
 from app.services.setting import SettingService
 from app.services.tool import ToolService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["tools"])
 
@@ -222,7 +225,7 @@ async def test_code(
         )
         await db.commit()
     except Exception:
-        pass  # Never fail the test run due to logging errors
+        logger.warning("Failed to log test execution for tool %s", tool.id, exc_info=True)
 
     return TestCodeResponse(
         success=result.get("success", False),
@@ -332,7 +335,7 @@ async def update_tool(
             await reregister_server(tool.server_id, db)
             fire_and_forget_notify()
         except Exception:
-            pass  # Don't fail the update if notification fails
+            logger.warning("Failed to reregister server after tool update", exc_info=True)
 
     return _to_response(tool)
 
@@ -364,7 +367,7 @@ async def delete_tool(
         await reregister_server(server_id, db)
         fire_and_forget_notify()
     except Exception:
-        pass  # Don't block delete if notification fails
+        logger.warning("Failed to reregister server after tool delete", exc_info=True)
 
     return None
 

@@ -9,7 +9,7 @@ MCPbox maintains **1,350+ test functions** across backend, sandbox, frontend, an
 | Backend | 46 | ~840 | 65-70% | B |
 | Sandbox | 15 | ~380 | 75-80% | A |
 | Frontend | 4 | ~50 | 15-20% | D |
-| Worker | 1 | ~72 | 85% | A |
+| Worker | 1 | ~78 | 85% | A |
 
 **Coverage minimum enforced**: Backend `fail_under = 60` in `pyproject.toml`. No minimum for other components.
 
@@ -58,10 +58,10 @@ MCPbox maintains **1,350+ test functions** across backend, sandbox, frontend, an
 
 | Module | Unit Tests | Integration Tests | E2E Tests | Estimated Coverage | Critical Gaps |
 |--------|-----------|-------------------|-----------|-------------------|---------------|
-| `executor.py` | 40+ safety, 30+ escape, 30+ hardening | 15+ execute | - | 80% | Concurrent execution untested |
+| `executor.py` | 40+ safety, 30+ escape, 30+ hardening | 15+ execute | - | 80% | - |
 | `ssrf.py` | 95+ tests (direct, proxy, admin-approved) | - | - | 95% | Integration: sandbox → socks-proxy → internet |
 | `safe_socket.py` | 20+ tests | - | - | 85% | SafeSocket, module interface, SOCKS5 handshake |
-| `registry.py` | 15+ tests | - | - | 75% | - |
+| `registry.py` | 15+ tests, 8 concurrency tests | - | - | 80% | - |
 | `mcp_client.py` | 20+ tests | - | - | 70% | SSRF validation gap untested |
 | `mcp_session_pool.py` | 15+ tests | - | - | 70% | - |
 | `package_installer.py` | 20+ tests | - | - | 75% | - |
@@ -90,7 +90,7 @@ MCPbox maintains **1,350+ test functions** across backend, sandbox, frontend, an
 
 | Module | Unit Tests | Integration Tests | E2E Tests | Estimated Coverage | Critical Gaps |
 |--------|-----------|-------------------|-----------|-------------------|---------------|
-| `index.ts` | 72 tests | - | - | 85% | - |
+| `index.ts` | 78 tests | - | - | 85% | - |
 | `access-handler.ts` | tested via index | - | - | 70% | Some OIDC edge cases |
 
 ---

@@ -31,6 +31,7 @@ MCPbox executes LLM-generated Python code in a sandboxed environment. Security i
   - Service token validation between Worker and Gateway
 - Admin JWT tokens with server-side blacklist for logout
 - Constant-time token comparison for service tokens
+- Service token and email policy caches use a 30-second TTL; after token rotation, the old token may be accepted for up to 30 seconds while the new token propagates
 
 ### 5. Encryption
 - Server secrets encrypted at rest with AES-256-GCM
@@ -39,15 +40,15 @@ MCPbox executes LLM-generated Python code in a sandboxed environment. Security i
 - All-zeros encryption key rejected at startup outside CI environments
 
 ### 6. Container & Network Architecture
-- Five isolated Docker networks segment traffic between services
+- Six isolated Docker networks segment traffic between services
 - Sandbox has no direct internet access — all outbound traffic (HTTP + raw TCP) is forced through a SOCKS5 proxy via Docker network isolation (`mcpbox-sandbox-proxy` is internal-only; sandbox is not on the external network)
-- SOCKS5 proxy resolves DNS proxy-side and blocks private/internal IPs (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 169.254.0.0/16, etc.) for both HTTP and raw TCP connections
+- SOCKS5 proxy resolves DNS proxy-side, blocks private/internal IPs (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 169.254.0.0/16, etc.), and enforces domain whitelisting for public destinations when servers are registered
 - **Admin-approved private access**: Tools can request access to LAN hosts (e.g., NAS, Home Assistant) via `mcpbox_request_network_access`. When the admin approves, the host is added to the server's `allowed_hosts`. The SSRF client (HTTP), SafeSocket (raw TCP), and SOCKS5 proxy then allow traffic to the approved host. The proxy reads approved private hosts from a shared Docker volume (`mcpbox-proxy-acl`) updated by the sandbox registry. Loopback, link-local, and metadata ranges are always rejected regardless of approval.
 - **Three-layer enforcement**: (1) Per-server domain enforcement at the application layer (SSRF client for HTTP, SafeSocket for direct `import socket` in tool code); (2) Global monkey-patch (`PatchedSocket` in `socket_patch.py`) catches third-party library and stdlib socket usage via `ContextVar`-guarded routing — ensures `asyncio.open_connection()` and libraries like paho-mqtt also route through SOCKS5 during tool execution; (3) the SOCKS5 proxy provides network-level isolation that survives Python sandbox escapes. ContextVar isolation ensures concurrent tool executions have independent `allowed_hosts` policies.
 - **Raw TCP support**: The `socket` module can be admin-approved per-server. When approved, `import socket` returns a `SafeSocket` wrapper that enforces `allowed_hosts` and routes all connections through the SOCKS5 proxy. Additionally, third-party libraries that internally import socket are covered by the `PatchedSocket` monkey-patch, which activates SOCKS5 routing only during tool execution (framework code like uvicorn is unaffected). DNS resolution happens proxy-side to prevent DNS rebinding attacks.
 - Sandbox has no direct database access
 - MCP Gateway runs as a separate process with its own middleware stack
-- Cloudflare Tunnel provides remote access without exposing ports
+- Cloudflare Tunnel provides remote access without exposing ports; `cloudflared` runs on a dedicated external network (`mcpbox-tunnel`) so that frontend, backend, and gateway containers have no outbound internet access
 - Dedicated `CLOUDFLARED_API_KEY` separates tunnel auth from sandbox auth
 - All containers run with `cap_drop: ALL` (zero Linux capabilities; postgres has minimal exceptions)
 - Read-only root filesystems on 5/6 containers (all except postgres)
@@ -89,7 +90,7 @@ All pinned Python packages (backend and sandbox) are at current versions with no
 - `fastapi==0.128.8` — ecosystem CVEs (fastapi-sso, fastapi-guard, fastapi-api-key) are in separate packages not used by MCPbox
 - `jinja2==3.1.6` — 4 CVEs in 2024-2025 (sandbox escapes, XSS, RCE), all fixed at exactly 3.1.6 including CVE-2025-27516 (CVSS 9.9 sandbox breakout via `|attr` filter)
 - `cryptography==46.0.5` — 3 CVEs in 2024 (OpenSSL issues), all fixed well before 46.0.5
-- `PyJWT==2.11.0` — CVE-2024-53861 (issuer validation, fixed 2.10.1); CVE-2025-45768 (weak encryption, DISPUTED by supplier — application-level key length responsibility)
+- `PyJWT==2.12.0` — CVE-2024-53861 (issuer validation, fixed 2.10.1); CVE-2025-45768 (weak encryption, DISPUTED by supplier); CVE-2026-32597 (fixed 2.12.0)
 - `sqlalchemy==2.0.46`, `httpx==0.28.1`, `pydantic==2.12.5`, `uvicorn==0.40.0` — no unpatched CVEs at pinned versions
 - `asyncpg==0.31.0`, `alembic==1.18.4`, `slowapi==0.1.9`, `regex==2026.1.15`, `argon2-cffi==25.1.0` — no known CVEs
 - Starlette (transitive via FastAPI) — CVE-2024-47874 (DoS, CVSS 8.7) fixed in 0.40.0; FastAPI 0.128.8 requires `>=0.40.0`

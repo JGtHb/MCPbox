@@ -256,19 +256,26 @@ async def test_reject_tool(
 
 
 @pytest.mark.asyncio
-async def test_reject_tool_requires_reason(
+async def test_reject_tool_without_reason(
     async_client: AsyncClient,
     admin_headers: dict,
     pending_tool: Tool,
+    db_session: AsyncSession,
 ):
-    """Test that rejecting without reason fails."""
+    """Test that rejecting without reason succeeds (reason is optional)."""
     response = await async_client.post(
         f"/api/approvals/tools/{pending_tool.id}/action",
         json={"action": "reject"},
         headers=admin_headers,
     )
-    assert response.status_code == 400
-    assert "reason" in response.json()["detail"].lower()
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["status"] == "rejected"
+
+    await db_session.refresh(pending_tool)
+    assert pending_tool.approval_status == "rejected"
+    assert pending_tool.rejection_reason is None
 
 
 @pytest.mark.asyncio
@@ -360,6 +367,7 @@ async def test_approve_module_request(
     pending_module_request: ModuleRequest,
     test_server: Server,
     db_session: AsyncSession,
+    mock_sandbox_client,
 ):
     """Test approving a module request."""
     response = await async_client.post(
@@ -377,6 +385,9 @@ async def test_approve_module_request(
     config_service = GlobalConfigService(db_session)
     allowed_modules = await config_service.get_allowed_modules()
     assert "pandas" in allowed_modules
+
+    # Verify package installation was triggered in sandbox
+    mock_sandbox_client.install_package.assert_called_once_with("pandas")
 
 
 @pytest.mark.asyncio
@@ -400,19 +411,22 @@ async def test_reject_module_request(
 
 
 @pytest.mark.asyncio
-async def test_reject_module_request_requires_reason(
+async def test_reject_module_request_without_reason(
     async_client: AsyncClient,
     admin_headers: dict,
     pending_module_request: ModuleRequest,
+    db_session: AsyncSession,
 ):
-    """Test that rejecting module request without reason fails."""
+    """Test that rejecting module request without reason succeeds."""
     response = await async_client.post(
         f"/api/approvals/modules/{pending_module_request.id}/action",
         json={"action": "reject"},
         headers=admin_headers,
     )
-    assert response.status_code == 400
-    assert "reason" in response.json()["detail"].lower()
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "rejected"
+    assert data["rejection_reason"] is None
 
 
 # =============================================================================
@@ -489,19 +503,22 @@ async def test_reject_network_request(
 
 
 @pytest.mark.asyncio
-async def test_reject_network_request_requires_reason(
+async def test_reject_network_request_without_reason(
     async_client: AsyncClient,
     admin_headers: dict,
     pending_network_request: NetworkAccessRequest,
+    db_session: AsyncSession,
 ):
-    """Test that rejecting network request without reason fails."""
+    """Test that rejecting network request without reason succeeds."""
     response = await async_client.post(
         f"/api/approvals/network/{pending_network_request.id}/action",
         json={"action": "reject"},
         headers=admin_headers,
     )
-    assert response.status_code == 400
-    assert "reason" in response.json()["detail"].lower()
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "rejected"
+    assert data["rejection_reason"] is None
 
 
 # =============================================================================
@@ -632,20 +649,28 @@ async def test_bulk_reject_tools(
 
 
 @pytest.mark.asyncio
-async def test_bulk_reject_tools_requires_reason(
+async def test_bulk_reject_tools_without_reason(
     async_client: AsyncClient,
     admin_headers: dict,
     multiple_pending_tools: list[Tool],
+    db_session: AsyncSession,
 ):
-    """Test that bulk rejection requires a reason."""
+    """Test that bulk rejection without reason succeeds."""
     tool_ids = [str(t.id) for t in multiple_pending_tools]
     response = await async_client.post(
         "/api/approvals/tools/bulk-action",
         json={"tool_ids": tool_ids, "action": "reject"},
         headers=admin_headers,
     )
-    assert response.status_code == 400
-    assert "reason" in response.json()["detail"].lower()
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["processed_count"] == 3
+
+    for tool in multiple_pending_tools:
+        await db_session.refresh(tool)
+        assert tool.approval_status == "rejected"
+        assert tool.rejection_reason is None
 
 
 @pytest.mark.asyncio
@@ -675,6 +700,7 @@ async def test_bulk_approve_module_requests(
     admin_headers: dict,
     multiple_pending_module_requests: list[ModuleRequest],
     db_session: AsyncSession,
+    mock_sandbox_client,
 ):
     """Test bulk approving multiple module requests."""
     request_ids = [str(r.id) for r in multiple_pending_module_requests]
@@ -692,6 +718,13 @@ async def test_bulk_approve_module_requests(
     allowed_modules = await config_service.get_allowed_modules()
     for req in multiple_pending_module_requests:
         assert req.module_name in allowed_modules
+
+    # Verify package installation was triggered for each approved module
+    assert mock_sandbox_client.install_package.call_count == 3
+    installed_modules = {
+        call.args[0] for call in mock_sandbox_client.install_package.call_args_list
+    }
+    assert installed_modules == {"numpy", "scipy", "matplotlib"}
 
 
 @pytest.mark.asyncio
@@ -718,20 +751,22 @@ async def test_bulk_reject_module_requests(
 
 
 @pytest.mark.asyncio
-async def test_bulk_reject_module_requests_requires_reason(
+async def test_bulk_reject_module_requests_without_reason(
     async_client: AsyncClient,
     admin_headers: dict,
     multiple_pending_module_requests: list[ModuleRequest],
 ):
-    """Test that bulk module rejection requires a reason."""
+    """Test that bulk module rejection without reason succeeds."""
     request_ids = [str(r.id) for r in multiple_pending_module_requests]
     response = await async_client.post(
         "/api/approvals/modules/bulk-action",
         json={"request_ids": request_ids, "action": "reject"},
         headers=admin_headers,
     )
-    assert response.status_code == 400
-    assert "reason" in response.json()["detail"].lower()
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["processed_count"] == 3
 
 
 @pytest.mark.asyncio
@@ -784,20 +819,22 @@ async def test_bulk_reject_network_requests(
 
 
 @pytest.mark.asyncio
-async def test_bulk_reject_network_requests_requires_reason(
+async def test_bulk_reject_network_requests_without_reason(
     async_client: AsyncClient,
     admin_headers: dict,
     multiple_pending_network_requests: list[NetworkAccessRequest],
 ):
-    """Test that bulk network rejection requires a reason."""
+    """Test that bulk network rejection without reason succeeds."""
     request_ids = [str(r.id) for r in multiple_pending_network_requests]
     response = await async_client.post(
         "/api/approvals/network/bulk-action",
         json={"request_ids": request_ids, "action": "reject"},
         headers=admin_headers,
     )
-    assert response.status_code == 400
-    assert "reason" in response.json()["detail"].lower()
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["processed_count"] == 3
 
 
 # =============================================================================
@@ -1001,7 +1038,7 @@ async def test_revoke_tool_approval(
     approved_tool: Tool,
     db_session: AsyncSession,
 ):
-    """Test revoking an approved tool back to pending_review."""
+    """Test revoking an approved tool sets it to rejected."""
     response = await async_client.post(
         f"/api/approvals/tools/{approved_tool.id}/revoke",
         headers=admin_headers,
@@ -1009,10 +1046,10 @@ async def test_revoke_tool_approval(
     assert response.status_code == 200
     data = response.json()
     assert data["success"] is True
-    assert data["status"] == "pending_review"
+    assert data["status"] == "rejected"
 
     await db_session.refresh(approved_tool)
-    assert approved_tool.approval_status == "pending_review"
+    assert approved_tool.approval_status == "rejected"
     assert approved_tool.approved_by is None
 
 
@@ -1038,17 +1075,17 @@ async def test_revoke_module_request(
     approved_module_request: ModuleRequest,
     db_session: AsyncSession,
 ):
-    """Test revoking an approved module request back to pending."""
+    """Test revoking an approved module request sets it to rejected."""
     response = await async_client.post(
         f"/api/approvals/modules/{approved_module_request.id}/revoke",
         headers=admin_headers,
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "pending"
+    assert data["status"] == "rejected"
 
     await db_session.refresh(approved_module_request)
-    assert approved_module_request.status == "pending"
+    assert approved_module_request.status == "rejected"
 
 
 @pytest.mark.asyncio
@@ -1072,17 +1109,17 @@ async def test_revoke_network_request(
     approved_network_request: NetworkAccessRequest,
     db_session: AsyncSession,
 ):
-    """Test revoking an approved network access request back to pending."""
+    """Test revoking an approved network access request sets it to rejected."""
     response = await async_client.post(
         f"/api/approvals/network/{approved_network_request.id}/revoke",
         headers=admin_headers,
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "pending"
+    assert data["status"] == "rejected"
 
     await db_session.refresh(approved_network_request)
-    assert approved_network_request.status == "pending"
+    assert approved_network_request.status == "rejected"
 
 
 @pytest.mark.asyncio
@@ -1531,6 +1568,52 @@ async def test_submit_rejected_tool_for_review(
 
     await db_session.refresh(rejected_tool)
     assert rejected_tool.approval_status == "pending_review"
+
+
+@pytest.mark.asyncio
+async def test_approve_rejected_module_request(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    rejected_module_request: ModuleRequest,
+    db_session: AsyncSession,
+):
+    """Test that admin can approve a previously rejected module request."""
+    response = await async_client.post(
+        f"/api/approvals/modules/{rejected_module_request.id}/action",
+        json={"action": "approve"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "approved"
+    assert data["rejection_reason"] is None
+
+    await db_session.refresh(rejected_module_request)
+    assert rejected_module_request.status == "approved"
+    assert rejected_module_request.rejection_reason is None
+
+
+@pytest.mark.asyncio
+async def test_approve_rejected_network_request(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    rejected_network_request: NetworkAccessRequest,
+    db_session: AsyncSession,
+):
+    """Test that admin can approve a previously rejected network request."""
+    response = await async_client.post(
+        f"/api/approvals/network/{rejected_network_request.id}/action",
+        json={"action": "approve"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "approved"
+    assert data["rejection_reason"] is None
+
+    await db_session.refresh(rejected_network_request)
+    assert rejected_network_request.status == "approved"
+    assert rejected_network_request.rejection_reason is None
 
 
 @pytest.mark.asyncio
@@ -2001,6 +2084,9 @@ async def test_approve_module_request_triggers_server_reregistration(
     assert response.status_code == 200
     assert response.json()["status"] == "approved"
 
+    # Verify the package was installed in the sandbox
+    mock_sandbox_client.install_package.assert_called_once_with("numpy")
+
     # Verify the server was re-registered with the sandbox
     mock_sandbox_client.register_server.assert_called_once()
 
@@ -2088,6 +2174,13 @@ async def test_bulk_approve_module_requests_triggers_server_reregistration(
     data = response.json()
     assert data["success"] is True
     assert data["processed_count"] == 3
+
+    # Packages should be installed for each approved module
+    assert mock_sandbox_client.install_package.call_count == 3
+    installed_modules = {
+        call.args[0] for call in mock_sandbox_client.install_package.call_args_list
+    }
+    assert installed_modules == {"pandas", "matplotlib", "seaborn"}
 
     # Server should be re-registered (at least once, deduplicated per server)
     assert mock_sandbox_client.register_server.call_count >= 1
@@ -2626,6 +2719,70 @@ async def test_duplicate_network_request_same_host_different_server(
     )
     assert request.status == "pending"
     assert request.host == "api.approved.com"
+
+
+@pytest.mark.asyncio
+async def test_duplicate_network_request_same_server_different_tool(
+    db_session: AsyncSession,
+    pending_network_request: NetworkAccessRequest,
+    test_server: Server,
+):
+    """Second tool on the same server requesting the same host is deduplicated."""
+    from app.services.approval import ApprovalService
+
+    # Create a second tool on the same server
+    second_tool = Tool(
+        server_id=test_server.id,
+        name="second_tool",
+        description="Another tool on same server",
+        python_code='async def main() -> str:\n    return "test"',
+        input_schema={"type": "object", "properties": {}},
+        approval_status="draft",
+    )
+    db_session.add(second_tool)
+    await db_session.flush()
+
+    service = ApprovalService(db_session)
+    # pending_network_request is for api.example.com:443 on test_server
+    with pytest.raises(ValueError, match="already exists for this server"):
+        await service.create_network_access_request(
+            tool_id=second_tool.id,
+            host="api.example.com",
+            port=443,
+            justification="I also need this API",
+        )
+
+
+@pytest.mark.asyncio
+async def test_duplicate_network_request_same_server_different_port_allowed(
+    db_session: AsyncSession,
+    pending_network_request: NetworkAccessRequest,
+    test_server: Server,
+):
+    """Same host but different port on the same server is allowed."""
+    from app.services.approval import ApprovalService
+
+    second_tool = Tool(
+        server_id=test_server.id,
+        name="second_tool",
+        description="Another tool on same server",
+        python_code='async def main() -> str:\n    return "test"',
+        input_schema={"type": "object", "properties": {}},
+        approval_status="draft",
+    )
+    db_session.add(second_tool)
+    await db_session.flush()
+
+    service = ApprovalService(db_session)
+    # pending_network_request is for api.example.com:443 — request port 8080
+    request = await service.create_network_access_request(
+        tool_id=second_tool.id,
+        host="api.example.com",
+        port=8080,
+        justification="Need a different port",
+    )
+    assert request.status == "pending"
+    assert request.port == 8080
 
 
 @pytest.mark.asyncio
@@ -3213,3 +3370,113 @@ async def test_derive_import_names_helper():
     # Simple name — no derivation needed
     assert _derive_import_names("requests") == set()
     assert _derive_import_names("numpy") == set()
+
+
+# =============================================================================
+# Tool Deletion Tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_delete_rejected_tool(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    db_session: AsyncSession,
+    test_server: Server,
+):
+    """Admin can delete a rejected tool."""
+    tool = Tool(
+        server_id=test_server.id,
+        name="rejected_for_delete",
+        description="Will be deleted",
+        python_code='async def main() -> str:\n    return "test"',
+        input_schema={"type": "object", "properties": {}},
+        approval_status="rejected",
+    )
+    db_session.add(tool)
+    await db_session.flush()
+    await db_session.refresh(tool)
+    tool_id = tool.id
+
+    response = await async_client.delete(
+        f"/api/approvals/tools/{tool_id}",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["name"] == "rejected_for_delete"
+
+    # Verify deleted from DB
+    from sqlalchemy import select
+
+    result = await db_session.execute(select(Tool).where(Tool.id == tool_id))
+    assert result.scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_delete_draft_tool(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    draft_tool: Tool,
+    db_session: AsyncSession,
+):
+    """Admin can delete a draft tool."""
+    response = await async_client.delete(
+        f"/api/approvals/tools/{draft_tool.id}",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_delete_approved_tool_fails(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    approved_tool: Tool,
+):
+    """Cannot delete an approved tool (must revoke first)."""
+    response = await async_client.delete(
+        f"/api/approvals/tools/{approved_tool.id}",
+        headers=admin_headers,
+    )
+    assert response.status_code == 400
+    assert "draft or rejected" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_delete_pending_tool_fails(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    pending_tool: Tool,
+):
+    """Cannot delete a pending_review tool."""
+    response = await async_client.delete(
+        f"/api/approvals/tools/{pending_tool.id}",
+        headers=admin_headers,
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_reject_draft_tool(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    draft_tool: Tool,
+    db_session: AsyncSession,
+):
+    """Admin can reject a draft tool."""
+    response = await async_client.post(
+        f"/api/approvals/tools/{draft_tool.id}/action",
+        headers=admin_headers,
+        json={"action": "reject", "reason": "Not needed"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "rejected"
+
+    await db_session.refresh(draft_tool)
+    assert draft_tool.approval_status == "rejected"
+    assert draft_tool.rejection_reason == "Not needed"

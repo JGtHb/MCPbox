@@ -34,12 +34,15 @@ interface ToolsTabProps {
 }
 
 export function ToolsTab({ serverId }: ToolsTabProps) {
-  const { data: tools, isLoading } = useTools(serverId)
+  const { data: tools, isLoading, isError, error, refetch } = useTools(serverId)
   const updateEnabled = useUpdateToolEnabled()
   const deleteTool = useDeleteTool()
   const [expandedToolId, setExpandedToolId] = useState<string | null>(null)
   const [renamingTool, setRenamingTool] = useState<ToolListItem | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ToolListItem | null>(null)
+  const [rejectTarget, setRejectTarget] = useState<ToolListItem | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
+  const toolActionForReject = useToolAction()
 
   if (isLoading) {
     return (
@@ -49,6 +52,20 @@ export function ToolsTab({ serverId }: ToolsTabProps) {
           <div className="h-10 bg-hl-med rounded" />
           <div className="h-10 bg-hl-med rounded" />
         </div>
+      </div>
+    )
+  }
+
+  if (isError) {
+    return (
+      <div className="bg-surface rounded-lg shadow p-6 text-center">
+        <p className="text-love">{error instanceof Error ? error.message : 'Failed to load tools'}</p>
+        <button
+          onClick={() => refetch()}
+          className="mt-3 rounded-lg bg-iris px-3 py-1.5 text-sm font-medium text-on-iris hover:bg-iris/80 transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
+        >
+          Retry
+        </button>
       </div>
     )
   }
@@ -101,6 +118,7 @@ export function ToolsTab({ serverId }: ToolsTabProps) {
             }
             onRename={() => setRenamingTool(tool)}
             onDelete={() => setDeleteTarget(tool)}
+            onReject={() => setRejectTarget(tool)}
             isUpdating={updateEnabled.isPending}
           />
         ))}
@@ -154,6 +172,42 @@ export function ToolsTab({ serverId }: ToolsTabProps) {
           </div>
         </div>
       )}
+
+      {/* Reject Tool Modal */}
+      {rejectTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50" role="dialog" aria-modal="true" onClick={() => { setRejectTarget(null); setRejectReason('') }}>
+          <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl mx-4" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-medium text-on-base">Reject: {rejectTarget.name}</h3>
+            <p className="mt-1 text-sm text-subtle">Provide a reason for the rejection (optional).</p>
+            <textarea
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              className="mt-4 w-full rounded-lg border border-hl-med p-2 text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
+              rows={4}
+              placeholder="Reason (optional)..."
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => { setRejectTarget(null); setRejectReason('') }}
+                className="rounded-lg border border-hl-med px-3 py-1.5 text-sm font-medium text-on-base hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  await toolActionForReject.mutateAsync({ toolId: rejectTarget.id, action: 'reject', reason: rejectReason.trim() || undefined })
+                  setRejectTarget(null)
+                  setRejectReason('')
+                }}
+                disabled={toolActionForReject.isPending}
+                className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
+              >
+                Reject
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -166,10 +220,11 @@ interface ToolRowProps {
   onToggleEnabled: (enabled: boolean) => void
   onRename: () => void
   onDelete: () => void
+  onReject: () => void
   isUpdating: boolean
 }
 
-function ToolRow({ tool, serverId, isExpanded, onToggle, onToggleEnabled, onRename, onDelete, isUpdating }: ToolRowProps) {
+function ToolRow({ tool, serverId, isExpanded, onToggle, onToggleEnabled, onRename, onDelete, onReject, isUpdating }: ToolRowProps) {
   const isApproved = tool.approval_status === 'approved'
   const isDraftOrRejected = tool.approval_status === 'draft' || tool.approval_status === 'rejected'
   const isPending = tool.approval_status === 'pending_review'
@@ -181,14 +236,6 @@ function ToolRow({ tool, serverId, isExpanded, onToggle, onToggleEnabled, onRena
   const invalidateToolsList = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: toolKeys.list(serverId) })
   }, [queryClient, serverId])
-
-  const handleSubmitForReview = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    toolAction.mutate(
-      { toolId: tool.id, action: 'submit_for_review' },
-      { onSuccess: invalidateToolsList }
-    )
-  }
 
   const handleApprove = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -249,32 +296,44 @@ function ToolRow({ tool, serverId, isExpanded, onToggle, onToggleEnabled, onRena
             {isDraftOrRejected && (
               <>
                 <button
-                  onClick={handleSubmitForReview}
+                  onClick={handleApprove}
                   disabled={toolAction.isPending}
-                  className="px-2.5 py-1 text-xs font-medium text-iris bg-surface border border-iris/20 rounded-lg hover:bg-iris/10 transition-colors focus:outline-none focus:ring-2 focus:ring-iris disabled:opacity-50"
-                  title="Submit for review"
+                  className="px-2.5 py-1 text-xs font-medium text-foam bg-surface border border-foam/20 rounded-lg hover:bg-foam/10 transition-colors focus:outline-none focus:ring-2 focus:ring-foam disabled:opacity-50"
+                  title="Approve tool"
                 >
-                  Submit
+                  Approve
                 </button>
+                {tool.approval_status === 'draft' && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onReject() }}
+                    disabled={toolAction.isPending}
+                    className="px-2.5 py-1 text-xs font-medium text-gold bg-surface border border-gold/20 rounded-lg hover:bg-gold/10 transition-colors focus:outline-none focus:ring-2 focus:ring-gold disabled:opacity-50"
+                    title="Reject tool"
+                  >
+                    Reject
+                  </button>
+                )}
+              </>
+            )}
+            {isPending && (
+              <>
                 <button
                   onClick={handleApprove}
                   disabled={toolAction.isPending}
                   className="px-2.5 py-1 text-xs font-medium text-foam bg-surface border border-foam/20 rounded-lg hover:bg-foam/10 transition-colors focus:outline-none focus:ring-2 focus:ring-foam disabled:opacity-50"
-                  title="Approve directly"
+                  title="Approve tool"
                 >
                   Approve
                 </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onReject() }}
+                  disabled={toolAction.isPending}
+                  className="px-2.5 py-1 text-xs font-medium text-gold bg-surface border border-gold/20 rounded-lg hover:bg-gold/10 transition-colors focus:outline-none focus:ring-2 focus:ring-gold disabled:opacity-50"
+                  title="Reject tool"
+                >
+                  Reject
+                </button>
               </>
-            )}
-            {isPending && (
-              <button
-                onClick={handleApprove}
-                disabled={toolAction.isPending}
-                className="px-2.5 py-1 text-xs font-medium text-foam bg-surface border border-foam/20 rounded-lg hover:bg-foam/10 transition-colors focus:outline-none focus:ring-2 focus:ring-foam disabled:opacity-50"
-                title="Approve tool"
-              >
-                Approve
-              </button>
             )}
             <button
               onClick={(e) => { e.stopPropagation(); onRename() }}
@@ -541,15 +600,21 @@ function ToolCodeViewer({ code, defaultOpen = false }: ToolCodeViewerProps) {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch {
-      // Fallback for older browsers
-      const textarea = document.createElement('textarea')
-      textarea.value = code
-      document.body.appendChild(textarea)
-      textarea.select()
-      document.execCommand('copy')
-      document.body.removeChild(textarea)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      // Fallback for environments without Clipboard API
+      try {
+        const textarea = document.createElement('textarea')
+        textarea.value = code
+        textarea.style.position = 'fixed'
+        textarea.style.opacity = '0'
+        document.body.appendChild(textarea)
+        textarea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textarea)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      } catch {
+        // Both methods failed — silently ignore
+      }
     }
   }, [code])
 

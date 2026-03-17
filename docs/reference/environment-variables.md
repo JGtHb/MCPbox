@@ -39,7 +39,21 @@ Each secret must be a unique value. MCPBox checks on startup that secrets are di
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SANDBOX_MAX_RESULT_SIZE` | `1048576` (1 MB) | Maximum size in bytes for tool return values. Results exceeding this are truncated with a notice. |
-| `SANDBOX_MAX_RESPONSE_SIZE` | `10485760` (10 MB) | Maximum HTTP response body size in bytes. Responses exceeding this limit are aborted with a `ResponseTooLargeError`. Prevents memory exhaustion from large API responses in the 256MB sandbox container. |
+| `SANDBOX_MAX_RESPONSE_SIZE` | `10485760` (10 MB) | Maximum HTTP response body size in bytes. Responses exceeding this limit are aborted with a `ResponseTooLargeError`. Prevents memory exhaustion from large API responses. |
+| `SANDBOX_MAX_MEMORY_BYTES` | `268435456` (256 MB) | Per-execution memory limit (RLIMIT_AS). This is the per-tool-execution limit, not the container limit. |
+| `SANDBOX_MAX_CONCURRENT_EXECUTIONS` | `3` | Maximum number of Python tool executions that can run simultaneously. Additional requests queue and wait for a slot. Prevents memory exhaustion when multiple heavy tools run concurrently in the memory-constrained sandbox container. MCP passthrough tools are not counted. |
+| `SANDBOX_EXECUTION_QUEUE_TIMEOUT` | `120` (seconds) | How long a queued execution waits for a concurrency slot before returning a "sandbox busy" error. |
+
+## SOCKS5 Proxy (Sandbox Egress)
+
+These are set in `docker-compose.yml` on the sandbox service, not in `.env`. All sandbox outbound traffic routes through the SOCKS5 proxy.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HTTPS_PROXY` | `socks5h://socks-proxy:1080` | SOCKS5 proxy for HTTPS traffic (httpx, pip). The `h` suffix means proxy-side DNS resolution. |
+| `HTTP_PROXY` | `socks5h://socks-proxy:1080` | SOCKS5 proxy for HTTP traffic. |
+| `SOCKS_PROXY` | `socks5h://socks-proxy:1080` | SOCKS5 proxy for raw TCP via SafeSocket. |
+| `NO_PROXY` | `backend,localhost,127.0.0.1` | Hosts excluded from proxy routing (internal service communication). |
 
 ## HTTP Client
 

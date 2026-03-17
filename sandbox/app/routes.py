@@ -2,6 +2,7 @@
 
 import asyncio
 import datetime as datetime_module
+import gc
 import json as json_module
 import logging
 import os
@@ -25,7 +26,13 @@ from app.executor import (
     create_safe_builtins,
     validate_code_safety,
 )
-from app.registry import ensure_private_hosts_in_proxy_acl, tool_registry
+from app.registry import (
+    EXECUTION_QUEUE_TIMEOUT,
+    MAX_CONCURRENT_EXECUTIONS,
+    _get_execution_semaphore,
+    ensure_private_hosts_in_proxy_acl,
+    tool_registry,
+)
 from app.ssrf import SSRFError
 from app.ssrf import SSRFProtectedAsyncHttpClient
 
@@ -835,6 +842,21 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
     # the SSRF client allows the request but the proxy blocks the connection.
     ensure_private_hosts_in_proxy_acl(body.allowed_hosts)
 
+    # Acquire concurrency semaphore (same one used by tool_registry.execute_tool)
+    # to prevent concurrent executions from exhausting sandbox memory.
+    sem = _get_execution_semaphore()
+    try:
+        await asyncio.wait_for(sem.acquire(), timeout=EXECUTION_QUEUE_TIMEOUT)
+    except asyncio.TimeoutError:
+        return ExecuteCodeResponse(
+            success=False,
+            error=(
+                f"Sandbox busy: {MAX_CONCURRENT_EXECUTIONS} tools are already running. "
+                f"Timed out after {EXECUTION_QUEUE_TIMEOUT}s waiting for a slot."
+            ),
+            error_category="sandbox_error",
+        )
+
     # Phase 1: exec() the code to define functions (synchronous, just defines main())
     # Phase 2: If async main() is defined, create http client on THIS loop and await it
     # This mirrors PythonExecutor.execute() which does exec() then await main_func()
@@ -959,6 +981,10 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
         # Clean up HTTP client
         if _http_client is not None:
             await _http_client.aclose()
+        # Release concurrency semaphore
+        sem.release()
+        # Reclaim memory left by cancelled/completed executions
+        gc.collect()
 
 
 # Note: Health check is defined in main.py at /health (without auth requirement)
@@ -1162,7 +1188,11 @@ async def get_pypi_info_endpoint(body: PyPIInfoRequest):
     and project health from deps.dev. Stdlib modules skip safety checks.
     """
     from app.stdlib_detector import is_stdlib_module
-    from app.pypi_client import fetch_module_info, package_info_to_dict
+    from app.pypi_client import (
+        fetch_module_info,
+        get_package_name_for_module,
+        package_info_to_dict,
+    )
 
     is_stdlib = is_stdlib_module(body.module_name)
 
@@ -1175,7 +1205,20 @@ async def get_pypi_info_endpoint(body: PyPIInfoRequest):
         )
 
     try:
-        package_name, info = await fetch_module_info(body.module_name)
+        from app.pypi_client import PyPILookupError
+
+        try:
+            package_name, info = await fetch_module_info(body.module_name)
+        except PyPILookupError as e:
+            # Network/server error — distinct from "package doesn't exist"
+            package_name = await get_package_name_for_module(body.module_name)
+            return PyPIInfoResponse(
+                module_name=body.module_name,
+                package_name=package_name,
+                is_stdlib=False,
+                pypi_info=None,
+                error=f"PyPI lookup failed for '{package_name}': {e}",
+            )
 
         if info is None:
             return PyPIInfoResponse(

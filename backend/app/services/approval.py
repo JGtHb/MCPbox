@@ -262,14 +262,14 @@ class ApprovalService:
         self,
         tool_id: UUID,
         rejected_by: str,
-        reason: str,
+        reason: str | None = None,
     ) -> Tool:
         """Reject a tool's publish request.
 
         Args:
             tool_id: ID of the tool to reject
             rejected_by: Email of the admin rejecting
-            reason: Reason for rejection (required)
+            reason: Optional reason for rejection
 
         Returns:
             Updated tool
@@ -284,9 +284,9 @@ class ApprovalService:
         if not tool:
             raise ValueError(f"Tool {tool_id} not found")
 
-        if tool.approval_status != "pending_review":
+        if tool.approval_status not in ("pending_review", "draft"):
             raise ValueError(
-                f"Tool must be in 'pending_review' status to reject. "
+                f"Tool must be in 'pending_review' or 'draft' status to reject. "
                 f"Current status: {tool.approval_status}"
             )
 
@@ -535,7 +535,7 @@ class ApprovalService:
             Updated module request
 
         Raises:
-            ValueError: If request not found or not pending
+            ValueError: If request not found or not in pending/rejected status
         """
         stmt = (
             select(ModuleRequest)
@@ -551,13 +551,16 @@ class ApprovalService:
         if not request:
             raise ValueError(f"Module request {request_id} not found")
 
-        if request.status != "pending":
-            raise ValueError(f"Request must be in 'pending' status. Current: {request.status}")
+        if request.status not in ("pending", "rejected"):
+            raise ValueError(
+                f"Request must be in 'pending' or 'rejected' status. Current: {request.status}"
+            )
 
         # Update request status
         request.status = "approved"
         request.reviewed_at = datetime.now(UTC)
         request.reviewed_by = approved_by
+        request.rejection_reason = None
 
         # Sync allowed modules from approved records (single source of truth)
         await sync_allowed_modules(self.db)
@@ -600,14 +603,14 @@ class ApprovalService:
         self,
         request_id: UUID,
         rejected_by: str,
-        reason: str,
+        reason: str | None = None,
     ) -> ModuleRequest:
         """Reject a module whitelist request.
 
         Args:
             request_id: ID of the request to reject
             rejected_by: Email of the admin rejecting
-            reason: Reason for rejection
+            reason: Optional reason for rejection
 
         Returns:
             Updated module request
@@ -800,6 +803,38 @@ class ApprovalService:
                 "No new request needed — the tool can use it immediately."
             )
 
+        # Check if any tool on this server already has a pending request for this host+port.
+        # Network access is per-server, so one pending request covers all tools.
+        pending_port_clause = (
+            NetworkAccessRequest.port == port
+            if port is not None
+            else NetworkAccessRequest.port.is_(None)
+        )
+        pending_server_stmt = (
+            select(NetworkAccessRequest)
+            .outerjoin(Tool, NetworkAccessRequest.tool_id == Tool.id)
+            .where(
+                NetworkAccessRequest.status == "pending",
+                NetworkAccessRequest.host == host_lower,
+                pending_port_clause,
+                or_(
+                    NetworkAccessRequest.server_id == server_id,
+                    Tool.server_id == server_id,
+                ),
+            )
+            .options(selectinload(NetworkAccessRequest.tool))
+            .limit(1)
+        )
+        pending_result = await self.db.execute(pending_server_stmt)
+        existing_pending = pending_result.scalar_one_or_none()
+        if existing_pending:
+            source = f"tool '{existing_pending.tool.name}'" if existing_pending.tool else "an admin"
+            raise ValueError(
+                f"A pending request for host '{host_lower}{port_str}' already exists for this server "
+                f"(requested by {source}). Network access is per-server, so once approved "
+                "it will apply to all tools on this server."
+            )
+
         # Check if this exact tool already has a non-pending request for this host+port
         # (rejected requests that the LLM is re-requesting)
         if tool_id:
@@ -876,13 +911,16 @@ class ApprovalService:
         if not request:
             raise ValueError(f"Network access request {request_id} not found")
 
-        if request.status != "pending":
-            raise ValueError(f"Request must be in 'pending' status. Current: {request.status}")
+        if request.status not in ("pending", "rejected"):
+            raise ValueError(
+                f"Request must be in 'pending' or 'rejected' status. Current: {request.status}"
+            )
 
         # Update request status
         request.status = "approved"
         request.reviewed_at = datetime.now(UTC)
         request.reviewed_by = approved_by
+        request.rejection_reason = None
 
         # Sync allowed hosts from approved records (single source of truth)
         server = request.tool.server if request.tool else request.server
@@ -902,14 +940,14 @@ class ApprovalService:
         self,
         request_id: UUID,
         rejected_by: str,
-        reason: str,
+        reason: str | None = None,
     ) -> NetworkAccessRequest:
         """Reject a network access request.
 
         Args:
             request_id: ID of the request to reject
             rejected_by: Email of the admin rejecting
-            reason: Reason for rejection
+            reason: Optional reason for rejection
 
         Returns:
             Updated network access request
@@ -1234,10 +1272,10 @@ class ApprovalService:
         tool_id: UUID,
         revoked_by: str,
     ) -> Tool:
-        """Revoke an approved tool back to pending_review status.
+        """Revoke an approved tool back to rejected status.
 
-        The tool is removed from the live server registration and placed back
-        into the approval queue so it can be reviewed again.
+        The tool is removed from the live server registration. The admin
+        can later re-approve, or delete the tool entirely.
 
         Args:
             tool_id: ID of the tool to revoke
@@ -1262,7 +1300,7 @@ class ApprovalService:
                 f"Current status: {tool.approval_status}"
             )
 
-        tool.approval_status = "pending_review"
+        tool.approval_status = "rejected"
         tool.approved_at = None
         tool.approved_by = None
 
@@ -1280,6 +1318,7 @@ class ApprovalService:
         """Revoke an approved module request back to pending status.
 
         The allowed modules cache is resynced from remaining approved records.
+        The request can then be re-approved or deleted.
 
         Args:
             request_id: ID of the module request to revoke
@@ -1333,6 +1372,7 @@ class ApprovalService:
         """Revoke an approved network access request back to pending status.
 
         The allowed hosts cache is resynced from remaining approved records.
+        The request can then be re-approved or deleted.
 
         Args:
             request_id: ID of the network request to revoke
@@ -1478,6 +1518,49 @@ class ApprovalService:
         )
         return {"host": host, "port": str(port) if port else None, "status": request_status}
 
+    async def delete_tool(
+        self,
+        tool_id: UUID,
+        deleted_by: str,
+    ) -> dict[str, str]:
+        """Permanently delete a tool.
+
+        Only draft or rejected tools can be deleted. Approved tools must be
+        revoked first. Cascades to tool versions, execution logs, and any
+        associated module/network requests.
+
+        Args:
+            tool_id: ID of the tool to delete
+            deleted_by: Email of the admin deleting
+
+        Returns:
+            Dict with deleted tool details
+
+        Raises:
+            ValueError: If tool not found or currently approved/pending
+        """
+        stmt = select(Tool).where(Tool.id == tool_id)
+        result = await self.db.execute(stmt)
+        tool = result.scalar_one_or_none()
+
+        if not tool:
+            raise ValueError(f"Tool {tool_id} not found")
+
+        if tool.approval_status not in ("draft", "rejected"):
+            raise ValueError(
+                f"Only draft or rejected tools can be deleted. "
+                f"Current status: {tool.approval_status}"
+            )
+
+        tool_name = tool.name
+        tool_status = tool.approval_status
+
+        await self.db.delete(tool)
+        await self.db.commit()
+
+        logger.info(f"Tool {tool_id} ({tool_name}, was {tool_status}) deleted by {deleted_by}")
+        return {"name": tool_name, "status": tool_status}
+
     # =========================================================================
     # Bulk Actions
     # =========================================================================
@@ -1516,14 +1599,14 @@ class ApprovalService:
         self,
         tool_ids: list[UUID],
         rejected_by: str,
-        reason: str,
+        reason: str | None = None,
     ) -> dict:
         """Reject multiple tools at once.
 
         Args:
             tool_ids: List of tool IDs to reject
             rejected_by: Email of the admin rejecting
-            reason: Reason for rejection
+            reason: Optional reason for rejection
 
         Returns:
             Dict with processed_count and failed list
@@ -1578,14 +1661,14 @@ class ApprovalService:
         self,
         request_ids: list[UUID],
         rejected_by: str,
-        reason: str,
+        reason: str | None = None,
     ) -> dict:
         """Reject multiple module requests at once.
 
         Args:
             request_ids: List of request IDs to reject
             rejected_by: Email of the admin rejecting
-            reason: Reason for rejection
+            reason: Optional reason for rejection
 
         Returns:
             Dict with processed_count and failed list
@@ -1640,14 +1723,14 @@ class ApprovalService:
         self,
         request_ids: list[UUID],
         rejected_by: str,
-        reason: str,
+        reason: str | None = None,
     ) -> dict:
         """Reject multiple network access requests at once.
 
         Args:
             request_ids: List of request IDs to reject
             rejected_by: Email of the admin rejecting
-            reason: Reason for rejection
+            reason: Optional reason for rejection
 
         Returns:
             Dict with processed_count and failed list

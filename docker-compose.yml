@@ -23,8 +23,8 @@ services:
   # ============================================================
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: frontend/Dockerfile
     ports:
       - "127.0.0.1:${MCPBOX_FRONTEND_PORT:-3000}:3000"
     environment:
@@ -181,10 +181,11 @@ services:
       - SANDBOX_PACKAGES_DIR=/app/site-packages
       # SECURITY: All outbound traffic forced through SOCKS5 proxy.
       # Sandbox has no direct internet access (not on mcpbox-sandbox-external).
-      - HTTPS_PROXY=socks5://socks-proxy:1080
-      - HTTP_PROXY=socks5://socks-proxy:1080
+      # socks5h:// = proxy-side DNS resolution (sandbox has no external DNS).
+      - HTTPS_PROXY=socks5h://socks-proxy:1080
+      - HTTP_PROXY=socks5h://socks-proxy:1080
       # SOCKS_PROXY used by SafeSocket for raw TCP routing
-      - SOCKS_PROXY=socks5://socks-proxy:1080
+      - SOCKS_PROXY=socks5h://socks-proxy:1080
       # Exclude internal service communication from proxy
       - NO_PROXY=backend,localhost,127.0.0.1
     cap_drop:
@@ -231,8 +232,8 @@ services:
   # ============================================================
   socks-proxy:
     build:
-      context: ./socks-proxy
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: socks-proxy/Dockerfile
     cap_drop:
       - ALL
     security_opt:
@@ -312,8 +313,8 @@ services:
   # ============================================================
   cloudflared:
     build:
-      context: ./cloudflared
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: cloudflared/Dockerfile
     environment:
       - BACKEND_URL=http://backend:8000
       # Dedicated key for cloudflared (falls back to SANDBOX_API_KEY if not set)
@@ -332,6 +333,7 @@ services:
         condition: service_healthy
     networks:
       - mcpbox-internal
+      - mcpbox-tunnel    # Outbound internet access for Cloudflare tunnel
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:2000/ready"]
       interval: 30s
@@ -354,7 +356,7 @@ services:
 networks:
   mcpbox-internal:
     driver: bridge
-    internal: false
+    internal: true  # SECURITY: No outbound internet for frontend/backend/mcp-gateway
 
   mcpbox-sandbox:
     driver: bridge
@@ -367,6 +369,10 @@ networks:
   mcpbox-sandbox-external:
     driver: bridge
     internal: false  # SOCKS5 proxy outbound only (sandbox is NOT on this network)
+
+  mcpbox-tunnel:
+    driver: bridge
+    internal: false  # Cloudflared outbound to Cloudflare (only cloudflared is on this network)
 
   mcpbox-db:
     driver: bridge

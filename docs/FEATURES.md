@@ -31,7 +31,7 @@ Features are sorted by status, with broken/partial items at the top for visibili
 
 ### Tool Approval Workflow
 - **Status**: Complete
-- **Description**: Human-in-the-loop approval for tool publishing, module whitelisting, and network access. Tools start as `draft`, move to `pending_review` on publish request, then admin approves/rejects in the `/approvals` UI. Module and network access requests follow same pattern. Request tables (`NetworkAccessRequest`, `ModuleRequest`) are the **single source of truth** — `Server.allowed_hosts` and `GlobalConfig.allowed_modules` are derived caches recomputed via `sync_allowed_hosts()` / `sync_allowed_modules()`. Admin-initiated additions (manual host/module adds) create auto-approved records, making them visible alongside LLM-originated requests on the global approvals page.
+- **Description**: Human-in-the-loop approval for tool publishing, module whitelisting, and network access. Tools start as `draft`, move to `pending_review` on publish request, then admin approves/rejects in the `/approvals` UI. Module and network access requests follow same pattern. Rejection reason is optional for all three types. Rejected items can be re-approved (tools, modules, and network requests all support approve-from-rejected). Request tables (`NetworkAccessRequest`, `ModuleRequest`) are the **single source of truth** — `Server.allowed_hosts` and `GlobalConfig.allowed_modules` are derived caches recomputed via `sync_allowed_hosts()` / `sync_allowed_modules()`. Admin-initiated additions (manual host/module adds) create auto-approved records, making them visible alongside LLM-originated requests on the global approvals page. Server detail page shows all resource statuses (pending, approved, rejected) with appropriate actions.
 - **Owner modules**: `backend/app/api/approvals.py`, `backend/app/services/approval.py`, `frontend/src/pages/Approvals.tsx`
 - **Dependencies**: Admin auth (JWT), Tool service
 - **Test coverage**: `backend/tests/test_approvals.py` (50+ tests) — well covered
@@ -39,10 +39,10 @@ Features are sorted by status, with broken/partial items at the top for visibili
 
 ### Sandboxed Code Execution
 - **Status**: Complete
-- **Description**: All tool code executes in a hardened shared sandbox. Restricted builtins (no `eval`, `exec`, `open`, `type`, `getattr`), dunder attribute blocking via regex, import whitelisting, resource limits (256MB memory, 60s CPU, 256 FDs), SSRF prevention with IP pinning.
-- **Owner modules**: `sandbox/app/executor.py`, `sandbox/app/ssrf.py`, `sandbox/app/routes.py`
+- **Description**: All tool code executes in a hardened shared sandbox. Restricted builtins (no `eval`, `exec`, `open`, `type`, `getattr`), dunder attribute blocking via regex, import whitelisting, resource limits (256MB memory, 60s CPU, 256 FDs), SSRF prevention with IP pinning. Concurrent execution limited by semaphore (default: 3) to prevent memory exhaustion from parallel tool runs.
+- **Owner modules**: `sandbox/app/executor.py`, `sandbox/app/ssrf.py`, `sandbox/app/routes.py`, `sandbox/app/registry.py`
 - **Dependencies**: None (standalone execution environment)
-- **Test coverage**: `sandbox/tests/test_code_safety.py` (40+ tests), `sandbox/tests/test_sandbox_escape.py` (30+ tests), `sandbox/tests/test_security_hardening.py` (30+ tests), `sandbox/tests/test_safety_clients.py` (25+ tests) — excellent coverage
+- **Test coverage**: `sandbox/tests/test_code_safety.py` (40+ tests), `sandbox/tests/test_sandbox_escape.py` (30+ tests), `sandbox/tests/test_security_hardening.py` (30+ tests), `sandbox/tests/test_safety_clients.py` (25+ tests), `sandbox/tests/test_concurrency_limit.py` (8 tests) — excellent coverage
 - **Security notes**: See [SECURITY.md](SECURITY.md#2-sandbox-isolation) for sandbox isolation details, [SECURITY.md](SECURITY.md#1-code-validation) for code validation and forbidden patterns
 
 ### Server Management
