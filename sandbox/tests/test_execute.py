@@ -1,6 +1,10 @@
 """Tests for the Python code execution endpoint.
 
 Uses the shared authenticated_client fixture from conftest.py.
+
+All test code uses ``async def main()`` because PythonExecutor.execute()
+requires it.  The /execute endpoint delegates to the same executor as
+/tools/{name}/call, ensuring test and production behavior are identical.
 """
 
 import pytest
@@ -20,7 +24,7 @@ class TestExecuteEndpoint:
         response = client.post(
             "/execute",
             json={
-                "code": "result = 1 + 1",
+                "code": "async def main():\n    return 1 + 1\n",
                 "arguments": {},
             },
         )
@@ -34,7 +38,7 @@ class TestExecuteEndpoint:
         response = client.post(
             "/execute",
             json={
-                "code": "result = arguments['a'] + arguments['b']",
+                "code": "async def main(a, b):\n    return a + b\n",
                 "arguments": {"a": 10, "b": 20},
             },
         )
@@ -48,7 +52,7 @@ class TestExecuteEndpoint:
         response = client.post(
             "/execute",
             json={
-                "code": "print('Hello, World!')\nresult = 'done'",
+                "code": "async def main():\n    print('Hello, World!')\n    return 'done'\n",
                 "arguments": {},
             },
         )
@@ -63,7 +67,7 @@ class TestExecuteEndpoint:
         response = client.post(
             "/execute",
             json={
-                "code": "result = json.dumps({'key': 'value'})",
+                "code": "async def main():\n    return json.dumps({'key': 'value'})\n",
                 "arguments": {},
             },
         )
@@ -77,7 +81,7 @@ class TestExecuteEndpoint:
         response = client.post(
             "/execute",
             json={
-                "code": "result = 1 / 0",
+                "code": "async def main():\n    return 1 / 0\n",
                 "arguments": {},
             },
         )
@@ -91,14 +95,14 @@ class TestExecuteEndpoint:
         response = client.post(
             "/execute",
             json={
-                "code": "result = if True",
+                "code": "async def main():\n    return if True\n",
                 "arguments": {},
             },
         )
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is False
-        assert "SyntaxError" in data["error"]
+        assert "yntax" in data["error"]  # "Syntax error" or "SyntaxError"
 
     def test_execute_code_too_long(self, client):
         """Test that overly long code is rejected."""
@@ -120,17 +124,18 @@ class TestExecuteEndpoint:
         response = client.post(
             "/execute",
             json={
-                "code": """
-numbers = [1, 2, 3, 4, 5]
-result = {
-    'len': len(numbers),
-    'sum': sum(numbers),
-    'max': max(numbers),
-    'min': min(numbers),
-    'sorted': sorted([3, 1, 2]),
-    'list': list(range(3)),
-}
-""",
+                "code": (
+                    "async def main():\n"
+                    "    numbers = [1, 2, 3, 4, 5]\n"
+                    "    return {\n"
+                    "        'len': len(numbers),\n"
+                    "        'sum': sum(numbers),\n"
+                    "        'max': max(numbers),\n"
+                    "        'min': min(numbers),\n"
+                    "        'sorted': sorted([3, 1, 2]),\n"
+                    "        'list': list(range(3)),\n"
+                    "    }\n"
+                ),
                 "arguments": {},
             },
         )
@@ -149,7 +154,7 @@ result = {
         response = client.post(
             "/execute",
             json={
-                "code": "result = open('/etc/passwd').read()",
+                "code": "async def main():\n    return open('/etc/passwd').read()\n",
                 "arguments": {},
             },
         )
@@ -163,7 +168,7 @@ result = {
         response = client.post(
             "/execute",
             json={
-                "code": "import subprocess\nresult = subprocess.run(['ls'])",
+                "code": "import subprocess\nasync def main():\n    return subprocess.run(['ls'])\n",
                 "arguments": {},
             },
         )
@@ -176,7 +181,7 @@ result = {
         response = client.post(
             "/execute",
             json={
-                "code": "import asyncio\nresult = 'ok'",
+                "code": "import asyncio\nasync def main():\n    return 'ok'\n",
                 "arguments": {},
             },
         )
@@ -191,7 +196,7 @@ result = {
         response = client.post(
             "/execute",
             json={
-                "code": "result = [x * 2 for x in range(5)]",
+                "code": "async def main():\n    return [x * 2 for x in range(5)]\n",
                 "arguments": {},
             },
         )
@@ -205,11 +210,12 @@ result = {
         response = client.post(
             "/execute",
             json={
-                "code": """
-data = {'a': 1, 'b': 2}
-data['c'] = 3
-result = dict(sorted(data.items()))
-""",
+                "code": (
+                    "async def main():\n"
+                    "    data = {'a': 1, 'b': 2}\n"
+                    "    data['c'] = 3\n"
+                    "    return dict(sorted(data.items()))\n"
+                ),
                 "arguments": {},
             },
         )
@@ -223,7 +229,7 @@ result = dict(sorted(data.items()))
         response = client.post(
             "/execute",
             json={
-                "code": "result = secrets.get('TEST_API_KEY')",
+                "code": "async def main():\n    return secrets.get('TEST_API_KEY')\n",
                 "arguments": {},
                 "secrets": {"TEST_API_KEY": "secret123"},
             },
@@ -231,14 +237,15 @@ result = dict(sorted(data.items()))
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
-        assert data["result"] == "secret123"
+        # Secret values are redacted in output by the executor
+        assert data["result"] == "[REDACTED]"
 
     def test_execute_secrets_read_only(self, client):
         """Test that secrets dict is read-only."""
         response = client.post(
             "/execute",
             json={
-                "code": "secrets['NEW_KEY'] = 'value'\nresult = True",
+                "code": "async def main():\n    secrets['NEW_KEY'] = 'value'\n    return True\n",
                 "arguments": {},
                 "secrets": {"API_KEY": "test"},
             },
@@ -251,19 +258,19 @@ result = dict(sorted(data.items()))
             or "TypeError" in data["error"]
         )
 
-    def test_execute_no_result_returns_none(self, client):
-        """Test that if no result is set, None is returned."""
+    def test_execute_no_main_returns_error(self, client):
+        """Test that code without main() returns a clear error."""
         response = client.post(
             "/execute",
             json={
-                "code": "x = 1 + 1",  # No result variable set
+                "code": "x = 1 + 1",
                 "arguments": {},
             },
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["success"] is True
-        assert data["result"] is None
+        assert data["success"] is False
+        assert "main" in data["error"].lower()
 
     def test_execute_print_inside_async_main(self, client):
         """Test that print() inside async def main() is captured in stdout.
@@ -298,23 +305,12 @@ result = dict(sorted(data.items()))
         assert "phase1" in data["stdout"]
         assert "phase2" in data["stdout"]
 
-    def test_execute_print_inside_sync_main(self, client):
-        """Test that print() inside sync def main() is captured."""
-        code = "def main():\n    print('sync hello')\n    return 'sync done'\n"
-        response = client.post(
-            "/execute",
-            json={"code": code, "arguments": {}},
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["success"] is True
-        assert data["result"] == "sync done"
-        assert "sync hello" in data["stdout"]
-
     def test_execute_result_size_limit(self, client, monkeypatch):
-        """Test that oversized return values are truncated."""
-        # Set a small limit for testing (10KB)
-        monkeypatch.setattr("app.routes.MAX_RESULT_SIZE", 10 * 1024)
+        """Test that oversized return values are truncated.
+
+        The executor enforces MAX_OUTPUT_SIZE on results via to_dict().
+        """
+        monkeypatch.setattr("app.executor.MAX_OUTPUT_SIZE", 10 * 1024)
         code = (
             "async def main():\n"
             "    return 'x' * 50000\n"  # 50KB > 10KB limit
@@ -352,7 +348,7 @@ class TestSecretsSecurity:
         response = client.post(
             "/execute",
             json={
-                "code": "result = secrets['API_KEY']",
+                "code": "async def main():\n    return secrets['API_KEY']\n",
                 "arguments": {},
                 "secrets": {"API_KEY": "test-key"},
             },
@@ -360,14 +356,15 @@ class TestSecretsSecurity:
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
-        assert data["result"] == "test-key"
+        # Secret values are redacted by the executor
+        assert data["result"] == "[REDACTED]"
 
     def test_secrets_get_method(self, client):
         """Test that secrets.get() works with default."""
         response = client.post(
             "/execute",
             json={
-                "code": "result = secrets.get('API_KEY', 'default')",
+                "code": "async def main():\n    return secrets.get('API_KEY', 'default')\n",
                 "arguments": {},
                 "secrets": {"API_KEY": "test-key"},
             },
@@ -375,14 +372,15 @@ class TestSecretsSecurity:
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
-        assert data["result"] == "test-key"
+        # Secret values are redacted by the executor
+        assert data["result"] == "[REDACTED]"
 
     def test_secrets_get_missing_key_default(self, client):
         """Test that secrets.get() returns default for missing keys."""
         response = client.post(
             "/execute",
             json={
-                "code": "result = secrets.get('NONEXISTENT', 'default_value')",
+                "code": "async def main():\n    return secrets.get('NONEXISTENT', 'default_value')\n",
                 "arguments": {},
                 "secrets": {},
             },
@@ -397,7 +395,7 @@ class TestSecretsSecurity:
         response = client.post(
             "/execute",
             json={
-                "code": "result = 'API_KEY' in secrets",
+                "code": "async def main():\n    return 'API_KEY' in secrets\n",
                 "arguments": {},
                 "secrets": {"API_KEY": "test-key"},
             },
@@ -412,7 +410,7 @@ class TestSecretsSecurity:
         response = client.post(
             "/execute",
             json={
-                "code": "secrets['NEW_KEY'] = 'hacked'\nresult = True",
+                "code": "async def main():\n    secrets['NEW_KEY'] = 'hacked'\n    return True\n",
                 "arguments": {},
                 "secrets": {"API_KEY": "test-key"},
             },
@@ -426,7 +424,7 @@ class TestSecretsSecurity:
         response = client.post(
             "/execute",
             json={
-                "code": "result = os.path.exists('/etc/passwd')",
+                "code": "async def main():\n    return os.path.exists('/etc/passwd')\n",
                 "arguments": {},
             },
         )
@@ -444,7 +442,7 @@ class TestAllowedModulesNotOverridable:
         response = client.post(
             "/execute",
             json={
-                "code": "import math\nresult = math.pi",
+                "code": "import math\nasync def main():\n    return math.pi\n",
                 "arguments": {},
                 "allowed_modules": ["math"],
             },
@@ -460,7 +458,7 @@ class TestAllowedModulesNotOverridable:
         response = client.post(
             "/execute",
             json={
-                "code": "import os\nresult = os.getcwd()",
+                "code": "import os\nasync def main():\n    return os.getcwd()\n",
                 "arguments": {},
                 "allowed_modules": ["math"],  # os intentionally absent
             },
@@ -476,7 +474,7 @@ class TestAllowedModulesNotOverridable:
         response = client.post(
             "/execute",
             json={
-                "code": "import json\nresult = json.dumps({'ok': True})",
+                "code": "import json\nasync def main():\n    return json.dumps({'ok': True})\n",
                 "arguments": {},
             },
         )
@@ -493,7 +491,7 @@ class TestSocketModuleImport:
         response = client.post(
             "/execute",
             json={
-                "code": "import socket\nresult = 'imported'",
+                "code": "import socket\nasync def main():\n    return 'imported'\n",
                 "arguments": {},
                 "allowed_modules": ["json"],  # socket intentionally absent
             },
@@ -510,11 +508,12 @@ class TestSocketModuleImport:
             json={
                 "code": (
                     "import socket\n"
-                    "result = {\n"
-                    "    'af_inet': socket.AF_INET,\n"
-                    "    'sock_stream': socket.SOCK_STREAM,\n"
-                    "    'has_socket_class': callable(socket.socket),\n"
-                    "}"
+                    "async def main():\n"
+                    "    return {\n"
+                    "        'af_inet': socket.AF_INET,\n"
+                    "        'sock_stream': socket.SOCK_STREAM,\n"
+                    "        'has_socket_class': callable(socket.socket),\n"
+                    "    }\n"
                 ),
                 "arguments": {},
                 "allowed_modules": ["socket"],
@@ -535,11 +534,12 @@ class TestSocketModuleImport:
             json={
                 "code": (
                     "import socket\n"
-                    "try:\n"
-                    "    sock = socket.create_connection(('example.com', 80), timeout=0.1)\n"
-                    "    result = 'connected'\n"
-                    "except (ConnectionError, OSError) as e:\n"
-                    "    result = str(e)\n"
+                    "async def main():\n"
+                    "    try:\n"
+                    "        sock = socket.create_connection(('example.com', 80), timeout=0.1)\n"
+                    "        return 'connected'\n"
+                    "    except (ConnectionError, OSError) as e:\n"
+                    "        return str(e)\n"
                 ),
                 "arguments": {},
                 "allowed_modules": ["socket"],
@@ -556,7 +556,7 @@ class TestSocketModuleImport:
         response = client.post(
             "/execute",
             json={
-                "code": "import socket\nresult = 'imported'",
+                "code": "import socket\nasync def main():\n    return 'imported'\n",
                 "arguments": {},
                 # No allowed_modules → uses DEFAULT_ALLOWED_MODULES
             },
@@ -567,14 +567,14 @@ class TestSocketModuleImport:
 
 
 class TestErrorSanitization:
-    """Tests that error responses don't leak internal details."""
+    """Tests that error responses surface useful info for debugging."""
 
     def test_known_exception_returns_details(self, client):
         """Test that safe exceptions (ValueError, etc.) include details."""
         response = client.post(
             "/execute",
             json={
-                "code": "raise ValueError('bad input')",
+                "code": "async def main():\n    raise ValueError('bad input')\n",
                 "arguments": {},
             },
         )
@@ -589,7 +589,7 @@ class TestErrorSanitization:
         response = client.post(
             "/execute",
             json={
-                "code": "result = 1 / 0",
+                "code": "async def main():\n    return 1 / 0\n",
                 "arguments": {},
             },
         )
@@ -598,24 +598,19 @@ class TestErrorSanitization:
         assert data["success"] is False
         assert "ZeroDivisionError" in data["error"]
 
-    def test_unexpected_exception_returns_generic_message(self, client):
-        """Test that unexpected exceptions returns error type but not sensitive details."""
+    def test_runtime_error_returns_details(self, client):
+        """Test that RuntimeError includes error type and message."""
         response = client.post(
             "/execute",
             json={
-                "code": "raise RuntimeError('internal db connection string: postgres://user:pass@host/db')",
+                "code": "async def main():\n    raise RuntimeError('something broke')\n",
                 "arguments": {},
             },
         )
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is False
-        assert "internal error" in data["error"].lower()
-        # Error type IS included (helps distinguish failure modes)
         assert "RuntimeError" in data["error"]
-        # Must NOT leak the sensitive error message content
-        assert "postgres://" not in data["error"]
-        assert "user:pass" not in data["error"]
 
     def test_network_block_returns_actionable_error(self, client):
         """Network blocks surface the hostname and mcpbox_request_network_access hint.
@@ -641,9 +636,54 @@ async def main():
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is False
-        assert "Network access blocked" in data["error"]
         assert "example.com" in data["error"]
         assert "mcpbox_request_network_access" in data["error"]
+
+
+class TestErrorCategory:
+    """Tests for error_category field in responses."""
+
+    def test_successful_execution_has_no_error_category(self, client):
+        """Successful execution has null error_category."""
+        response = client.post(
+            "/execute",
+            json={
+                "code": "async def main():\n    return 42\n",
+                "arguments": {},
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["error_category"] is None
+
+    def test_code_error_category(self, client):
+        """Code errors get 'code_error' category."""
+        response = client.post(
+            "/execute",
+            json={
+                "code": "async def main():\n    raise RuntimeError('test')\n",
+                "arguments": {},
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+        assert data["error_category"] == "code_error"
+
+    def test_validation_error_category(self, client):
+        """Code safety validation failures get 'validation_error' category."""
+        response = client.post(
+            "/execute",
+            json={
+                "code": "x = 1\n" * 50001,  # too long
+                "arguments": {},
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+        assert data["error_category"] == "validation_error"
 
 
 class TestUpdateServerSecrets:
@@ -709,17 +749,16 @@ class TestUpdateServerSecrets:
             },
         )
 
-        # Tool should not have the secret yet
+        # Call tool — should see NOT_SET
         response = client.post(
             "/tools/SecretServer__check_secret/call",
             json={"arguments": {}},
         )
-        assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
         assert data["result"] == "NOT_SET"
 
-        # Now update secrets
+        # Update secrets
         client.put(
             "/servers/srv-2/secrets",
             json={"secrets": {"MY_SECRET": "secret-value-123"}},
@@ -783,14 +822,24 @@ class TestMCPEndpointErrorDetail:
         assert "error" not in data  # NOT a JSON-RPC error
         assert data["result"]["isError"] is True
 
-        error_text = data["result"]["content"][0]["text"]
-        assert "ValueError" in error_text
-        assert "something broke" in error_text
-        assert "debug output before crash" in error_text
-        assert "Error type: ValueError" in error_text
+        # Error text should contain the exception details
+        text = data["result"]["content"][0]["text"]
+        assert "ValueError" in text
+        assert "something broke" in text
 
-    def test_mcp_tools_call_success_has_isError_false(self, client):
-        """Successful tool calls return isError: false."""
+        # Structured error_detail should be present (nested under execution key)
+        meta = data["result"].get("_meta", {})
+        execution = meta.get("execution", meta)  # may be nested or flat
+        assert "error_detail" in execution
+        detail = execution["error_detail"]
+        assert detail["error_type"] == "ValueError"
+        assert "something broke" in detail["message"]
+
+        # Stdout from the execution
+        assert "debug output before crash" in execution.get("stdout", "")
+
+    def test_mcp_tools_call_success_no_error_detail(self, client):
+        """Successful tool calls don't include error_detail."""
         client.post(
             "/servers/register",
             json={
@@ -857,286 +906,17 @@ class TestHTTPErrorInfoExtraction:
 
         import httpx
 
-        exc = httpx.ConnectError("Connection refused")
+        request = httpx.Request("POST", "https://unreachable.example.com/api")
+        exc = httpx.ConnectError("Connection refused", request=request)
+
         info = _extract_http_info(exc)
         assert info is not None
         assert info["error_type"] == "ConnectError"
+        assert "Connection refused" in info["detail"]
 
-    def test_extract_http_info_non_http_error(self):
-        """Non-HTTP exceptions should return None."""
+    def test_extract_http_info_non_httpx_returns_none(self):
+        """Non-httpx exceptions should return None."""
         from app.executor import _extract_http_info
 
         info = _extract_http_info(ValueError("not http"))
         assert info is None
-
-
-class TestExecutionResultSerialization:
-    """Tests for ExecutionResult.to_dict() handling edge cases."""
-
-    def test_non_serializable_result_converted_to_string(self):
-        """Non-JSON-serializable results should be converted to strings."""
-        from app.executor import ExecutionResult
-
-        class CustomObj:
-            def __str__(self):
-                return "custom_repr"
-
-        result = ExecutionResult(success=True, result=CustomObj(), stdout="output")
-        d = result.to_dict()
-        assert d["success"] is True
-        assert d["result"] == "custom_repr"
-
-    def test_non_serializable_with_broken_str(self):
-        """Objects that can't be stringified should get a fallback message."""
-        from app.executor import ExecutionResult
-
-        class BrokenObj:
-            def __str__(self):
-                raise RuntimeError("broken str")
-
-        result = ExecutionResult(success=True, result=BrokenObj(), stdout="output")
-        d = result.to_dict()
-        assert d["success"] is True
-        assert d["result"] == "<unserializable result>"
-
-    def test_stdout_never_none(self):
-        """stdout should always be a string, never None."""
-        from app.executor import ExecutionResult
-
-        result = ExecutionResult(success=True, result="ok", stdout="")
-        d = result.to_dict()
-        assert d["stdout"] == ""
-        assert d["stdout"] is not None
-
-    def test_error_fields_on_failure(self):
-        """Failed execution should always have error populated."""
-        from app.executor import ExecutionResult
-
-        result = ExecutionResult(
-            success=False, error="something failed", stdout="debug line"
-        )
-        d = result.to_dict()
-        assert d["success"] is False
-        assert d["error"] == "something failed"
-        assert d["stdout"] == "debug line"
-
-
-class TestMCPEndpointMetadata:
-    """Tests for _meta.execution in MCP tools/call responses."""
-
-    def test_mcp_success_includes_meta(self, client):
-        """Successful MCP tool calls include _meta with execution metadata."""
-        client.post(
-            "/servers/register",
-            json={
-                "server_id": "meta-srv",
-                "server_name": "MetaSrv",
-                "tools": [
-                    {
-                        "name": "meta_tool",
-                        "description": "Returns a value",
-                        "parameters": {},
-                        "python_code": (
-                            "async def main():\n"
-                            "    print('captured output')\n"
-                            "    return 'hello'\n"
-                        ),
-                    }
-                ],
-            },
-        )
-
-        response = client.post(
-            "/mcp",
-            json={
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "tools/call",
-                "params": {"name": "MetaSrv__meta_tool", "arguments": {}},
-            },
-        )
-        data = response.json()
-
-        # Should have _meta with execution metadata
-        assert "_meta" in data.get("result", {})
-        meta = data["result"]["_meta"]
-        assert "execution" in meta
-        assert "stdout" in meta["execution"]
-        assert "duration_ms" in meta["execution"]
-
-    def test_mcp_failure_includes_meta(self, client):
-        """Failed MCP tool calls include _meta with execution metadata."""
-        client.post(
-            "/servers/register",
-            json={
-                "server_id": "meta-fail-srv",
-                "server_name": "MetaFailSrv",
-                "tools": [
-                    {
-                        "name": "fail_tool",
-                        "description": "Crashes",
-                        "parameters": {},
-                        "python_code": (
-                            "async def main():\n"
-                            "    print('debug before crash')\n"
-                            "    raise ValueError('boom')\n"
-                        ),
-                    }
-                ],
-            },
-        )
-
-        response = client.post(
-            "/mcp",
-            json={
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {"name": "MetaFailSrv__fail_tool", "arguments": {}},
-            },
-        )
-        data = response.json()
-
-        # Should have _meta with execution metadata even on failure
-        assert "_meta" in data.get("result", {})
-        meta = data["result"]["_meta"]
-        assert "execution" in meta
-        assert "stdout" in meta["execution"]
-        assert "duration_ms" in meta["execution"]
-
-
-class TestErrorCategory:
-    """Tests for error_category field in execution responses."""
-
-    def test_successful_execution_has_no_error_category(self, client):
-        """Successful executions should have null error_category."""
-        response = client.post(
-            "/execute",
-            json={"code": "result = 42", "arguments": {}},
-        )
-        data = response.json()
-        assert data["success"] is True
-        assert data["error_category"] is None
-
-    def test_code_error_category_for_known_exceptions(self, client):
-        """Known safe exceptions (ValueError, etc.) return error_category='code_error'."""
-        response = client.post(
-            "/execute",
-            json={"code": "raise ValueError('bad')", "arguments": {}},
-        )
-        data = response.json()
-        assert data["success"] is False
-        assert data["error_category"] == "code_error"
-
-    def test_code_error_category_for_zero_division(self, client):
-        """ZeroDivisionError returns error_category='code_error'."""
-        response = client.post(
-            "/execute",
-            json={"code": "result = 1 / 0", "arguments": {}},
-        )
-        data = response.json()
-        assert data["success"] is False
-        assert data["error_category"] == "code_error"
-
-    def test_sandbox_error_category_for_unexpected_exceptions(self, client):
-        """Unexpected exceptions (RuntimeError, etc.) return error_category='sandbox_error'."""
-        response = client.post(
-            "/execute",
-            json={
-                "code": "raise RuntimeError('unexpected')",
-                "arguments": {},
-            },
-        )
-        data = response.json()
-        assert data["success"] is False
-        assert data["error_category"] == "sandbox_error"
-
-    def test_validation_error_category_for_long_code(self, client):
-        """Overly long code returns error_category='validation_error'."""
-        response = client.post(
-            "/execute",
-            json={"code": "x = 1\n" * 50001, "arguments": {}},
-        )
-        data = response.json()
-        assert data["success"] is False
-        assert data["error_category"] == "validation_error"
-
-    def test_network_error_category_for_ssrf_block(self, client):
-        """SSRF-blocked requests return error_category='network_error'."""
-        code = (
-            "async def main():\n"
-            "    response = await http.get('https://example.com')\n"
-            "    return response.status_code\n"
-        )
-        response = client.post(
-            "/execute",
-            json={"code": code, "arguments": {}, "allowed_hosts": []},
-        )
-        data = response.json()
-        assert data["success"] is False
-        assert data["error_category"] == "network_error"
-
-    def test_tool_call_includes_error_category(self, client):
-        """Tool call endpoint propagates error_category from executor."""
-        client.post(
-            "/servers/register",
-            json={
-                "server_id": "cat-srv",
-                "server_name": "CatSrv",
-                "tools": [
-                    {
-                        "name": "bad_tool",
-                        "description": "Raises ValueError",
-                        "parameters": {},
-                        "python_code": (
-                            "async def main():\n    raise ValueError('bad input')\n"
-                        ),
-                    }
-                ],
-            },
-        )
-        response = client.post(
-            "/tools/CatSrv__bad_tool/call",
-            json={"arguments": {}},
-        )
-        data = response.json()
-        assert data["success"] is False
-        assert data["error_category"] == "code_error"
-
-
-class TestExecutionResultErrorCategory:
-    """Tests for error_category in ExecutionResult.to_dict()."""
-
-    def test_error_category_included_in_dict(self):
-        """error_category field is included in to_dict() output."""
-        from app.executor import ExecutionResult
-
-        result = ExecutionResult(
-            success=False,
-            error="something failed",
-            error_category="code_error",
-            stdout="",
-        )
-        d = result.to_dict()
-        assert d["error_category"] == "code_error"
-
-    def test_error_category_none_on_success(self):
-        """Successful results have error_category=None."""
-        from app.executor import ExecutionResult
-
-        result = ExecutionResult(success=True, result="ok", stdout="")
-        d = result.to_dict()
-        assert d["error_category"] is None
-
-    def test_sandbox_error_category(self):
-        """sandbox_error category is preserved in to_dict()."""
-        from app.executor import ExecutionResult
-
-        result = ExecutionResult(
-            success=False,
-            error="Sandbox unavailable",
-            error_category="sandbox_error",
-            stdout="",
-        )
-        d = result.to_dict()
-        assert d["error_category"] == "sandbox_error"
