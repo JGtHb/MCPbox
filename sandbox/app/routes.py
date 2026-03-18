@@ -22,9 +22,11 @@ from app.executor import (
     DEFAULT_ALLOWED_MODULES,
     SafeModuleProxy,
     SizeLimitedStringIO,
+    _parse_socks_proxy_env,
     create_safe_builtins,
     validate_code_safety,
 )
+from app.socket_patch import execution_socket_context
 from app.registry import (
     EXECUTION_QUEUE_TIMEOUT,
     MAX_CONCURRENT_EXECUTIONS,
@@ -851,123 +853,129 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
     # Phase 1: exec() the code to define functions (synchronous, just defines main())
     # Phase 2: If async main() is defined, create http client on THIS loop and await it
     # This mirrors PythonExecutor.execute() which does exec() then await main_func()
+    #
+    # Activate SOCKS5 routing so PatchedSocket routes third-party TCP through
+    # the proxy (mirrors PythonExecutor.execute() — see executor.py line 1961).
+    _allowed_hosts = (
+        set(body.allowed_hosts) if body.allowed_hosts is not None else None
+    )
+    socks_proxy_addr = _parse_socks_proxy_env()
+
     _http_client = None
     try:
-        try:
-            # Phase 1: Define functions by executing the code
-            with redirect_stdout(stdout_capture):
-                exec(body.code, namespace)
-
-            # Phase 2: Check if an async main() was defined
-            main_func = namespace.get("main")
-            if main_func is not None and asyncio.iscoroutinefunction(main_func):
-                # Create SSRF-protected HTTP client on the CURRENT event loop
-                # (same loop we'll await main() on — avoids event loop affinity issues).
-                # Pass allowed_hosts to enforce the same per-server network allowlist
-                # as production tool execution (None = global SSRF only).
-                _http_client = httpx.AsyncClient(follow_redirects=False)
-                _allowed_hosts = (
-                    set(body.allowed_hosts) if body.allowed_hosts is not None else None
-                )
-                _protected_http = SSRFProtectedAsyncHttpClient(
-                    _http_client, allowed_hosts=_allowed_hosts
-                )
-                namespace["http"] = _protected_http
-
-                # Await main() directly on this event loop (matches production executor)
-                result = await asyncio.wait_for(
-                    main_func(**body.arguments),
-                    timeout=timeout_seconds,
-                )
-                namespace["result"] = result
-            elif main_func is not None and callable(main_func):
-                # Synchronous main() — call it directly
-                result = main_func(**body.arguments)
-                namespace["result"] = result
-
-        except asyncio.TimeoutError:
-            return ExecuteCodeResponse(
-                success=False,
-                error=f"Execution timed out after {timeout_seconds} seconds",
-                error_category="timeout_error",
-                stdout=stdout_capture.getvalue()[:10000],
-            )
-        except SSRFError as e:
-            # Network access blocked — surface the specific host and hint so the
-            # LLM can immediately call mcpbox_request_network_access rather than
-            # guessing why the HTTP call failed silently.
-            return ExecuteCodeResponse(
-                success=False,
-                error=f"Network access blocked: {e}",
-                error_category="network_error",
-                stdout=stdout_capture.getvalue()[:10000],
-            )
-        except (
-            ValueError,
-            TypeError,
-            KeyError,
-            AttributeError,
-            IndexError,
-            ZeroDivisionError,
-            SyntaxError,
-            ImportError,
-            NameError,
-            StopIteration,
-            ArithmeticError,
-            LookupError,
-        ) as e:
-            # Known safe exceptions — return details to help debugging
-            return ExecuteCodeResponse(
-                success=False,
-                error=f"Execution error: {type(e).__name__}: {str(e)}",
-                error_category="code_error",
-                stdout=stdout_capture.getvalue()[:10000],
-            )
-        except Exception as e:
-            # Unknown/unexpected exceptions may contain sensitive internal details
-            # (e.g., database connection strings, file paths, infrastructure info).
-            # Return error *type* to help distinguish failure modes (OOM, thread
-            # exhaustion, etc.) but not the full message which may leak internals.
-            error_type = type(e).__name__
-            logger.error(f"Unexpected execution error: {error_type}: {e}")
-
-            # Provide a category hint for resource-related failures
-            error_category = "sandbox_error"
-            if isinstance(e, MemoryError) or (
-                isinstance(e, OSError) and getattr(e, "errno", None) == 12
-            ):
-                error_category = "resource_exhaustion"
-            elif isinstance(e, RuntimeError) and "can't start new thread" in str(e):
-                error_category = "resource_exhaustion"
-
-            return ExecuteCodeResponse(
-                success=False,
-                error=f"An internal error occurred during code execution ({error_type})",
-                error_category=error_category,
-                stdout=stdout_capture.getvalue()[:10000],
-            )
-
-        # Get result and enforce size limit to prevent memory exhaustion
-        result = namespace.get("result")
-        if result is not None:
+        async with execution_socket_context(_allowed_hosts, socks_proxy_addr):
             try:
-                result_str = (
-                    json_module.dumps(result) if not isinstance(result, str) else result
-                )
-                if len(result_str) > MAX_RESULT_SIZE:
-                    result = (
-                        result_str[:MAX_RESULT_SIZE]
-                        + f"\n... [RESULT TRUNCATED - exceeded"
-                        f" {MAX_RESULT_SIZE // 1024}KB limit] ..."
-                    )
-            except (TypeError, ValueError):
-                pass  # Non-serializable results handled downstream
+                # Phase 1: Define functions by executing the code
+                with redirect_stdout(stdout_capture):
+                    exec(body.code, namespace)
 
-        return ExecuteCodeResponse(
-            success=True,
-            result=result,
-            stdout=stdout_capture.getvalue()[:10000],  # Limit stdout
-        )
+                # Phase 2: Check if an async main() was defined
+                main_func = namespace.get("main")
+                if main_func is not None and asyncio.iscoroutinefunction(main_func):
+                    # Create SSRF-protected HTTP client on the CURRENT event loop
+                    # (same loop we'll await main() on — avoids event loop affinity issues).
+                    # Pass allowed_hosts to enforce the same per-server network allowlist
+                    # as production tool execution (None = global SSRF only).
+                    _http_client = httpx.AsyncClient(follow_redirects=False)
+                    _protected_http = SSRFProtectedAsyncHttpClient(
+                        _http_client, allowed_hosts=_allowed_hosts
+                    )
+                    namespace["http"] = _protected_http
+
+                    # Await main() directly on this event loop (matches production executor)
+                    result = await asyncio.wait_for(
+                        main_func(**body.arguments),
+                        timeout=timeout_seconds,
+                    )
+                    namespace["result"] = result
+                elif main_func is not None and callable(main_func):
+                    # Synchronous main() — call it directly
+                    result = main_func(**body.arguments)
+                    namespace["result"] = result
+
+            except asyncio.TimeoutError:
+                return ExecuteCodeResponse(
+                    success=False,
+                    error=f"Execution timed out after {timeout_seconds} seconds",
+                    error_category="timeout_error",
+                    stdout=stdout_capture.getvalue()[:10000],
+                )
+            except SSRFError as e:
+                # Network access blocked — surface the specific host and hint so the
+                # LLM can immediately call mcpbox_request_network_access rather than
+                # guessing why the HTTP call failed silently.
+                return ExecuteCodeResponse(
+                    success=False,
+                    error=f"Network access blocked: {e}",
+                    error_category="network_error",
+                    stdout=stdout_capture.getvalue()[:10000],
+                )
+            except (
+                ValueError,
+                TypeError,
+                KeyError,
+                AttributeError,
+                IndexError,
+                ZeroDivisionError,
+                SyntaxError,
+                ImportError,
+                NameError,
+                StopIteration,
+                ArithmeticError,
+                LookupError,
+            ) as e:
+                # Known safe exceptions — return details to help debugging
+                return ExecuteCodeResponse(
+                    success=False,
+                    error=f"Execution error: {type(e).__name__}: {str(e)}",
+                    error_category="code_error",
+                    stdout=stdout_capture.getvalue()[:10000],
+                )
+            except Exception as e:
+                # Unknown/unexpected exceptions may contain sensitive internal details
+                # (e.g., database connection strings, file paths, infrastructure info).
+                # Return error *type* to help distinguish failure modes (OOM, thread
+                # exhaustion, etc.) but not the full message which may leak internals.
+                error_type = type(e).__name__
+                logger.error(f"Unexpected execution error: {error_type}: {e}")
+
+                # Provide a category hint for resource-related failures
+                error_category = "sandbox_error"
+                if isinstance(e, MemoryError) or (
+                    isinstance(e, OSError) and getattr(e, "errno", None) == 12
+                ):
+                    error_category = "resource_exhaustion"
+                elif isinstance(e, RuntimeError) and "can't start new thread" in str(e):
+                    error_category = "resource_exhaustion"
+
+                return ExecuteCodeResponse(
+                    success=False,
+                    error=f"An internal error occurred during code execution ({error_type})",
+                    error_category=error_category,
+                    stdout=stdout_capture.getvalue()[:10000],
+                )
+
+            # Get result and enforce size limit to prevent memory exhaustion
+            result = namespace.get("result")
+            if result is not None:
+                try:
+                    result_str = (
+                        json_module.dumps(result) if not isinstance(result, str) else result
+                    )
+                    if len(result_str) > MAX_RESULT_SIZE:
+                        result = (
+                            result_str[:MAX_RESULT_SIZE]
+                            + f"\n... [RESULT TRUNCATED - exceeded"
+                            f" {MAX_RESULT_SIZE // 1024}KB limit] ..."
+                        )
+                except (TypeError, ValueError):
+                    pass  # Non-serializable results handled downstream
+
+            return ExecuteCodeResponse(
+                success=True,
+                result=result,
+                stdout=stdout_capture.getvalue()[:10000],  # Limit stdout
+            )
     finally:
         # Clean up HTTP client
         if _http_client is not None:
