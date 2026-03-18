@@ -25,6 +25,7 @@ from app.socket_patch import (
     _patched_gethostbyname_ex,
     _socks5_handshake,
     _validate_for_tool_context,
+    bypass_socket_patch,
     execution_socket_context,
     patch_socket,
 )
@@ -607,6 +608,45 @@ class TestExecutionSocketContext:
         async with execution_socket_context(None, ("proxy", 1080)):
             ctx = _execution_context.get()
             assert ctx.allowed_hosts is None
+
+
+# ---------------------------------------------------------------------------
+# bypass_socket_patch
+# ---------------------------------------------------------------------------
+
+
+class TestBypassSocketPatch:
+    def test_clears_context_and_restores(self):
+        """bypass_socket_patch clears execution context, restores on exit."""
+        ctx = _ExecutionContext(allowed_hosts=None, proxy_addr=("proxy", 1080))
+        token = _execution_context.set(ctx)
+        try:
+            assert _execution_context.get() is ctx
+            with bypass_socket_patch():
+                assert _execution_context.get() is None
+            assert _execution_context.get() is ctx
+        finally:
+            _execution_context.reset(token)
+
+    def test_noop_without_context(self):
+        """bypass_socket_patch is a no-op when no execution context is set."""
+        assert _execution_context.get() is None
+        with bypass_socket_patch():
+            assert _execution_context.get() is None
+
+    @pytest.mark.asyncio
+    async def test_works_across_await(self):
+        """Context stays cleared across await boundaries within the same task."""
+        ctx = _ExecutionContext(allowed_hosts=None, proxy_addr=("proxy", 1080))
+        token = _execution_context.set(ctx)
+        try:
+            with bypass_socket_patch():
+                assert _execution_context.get() is None
+                await asyncio.sleep(0)
+                assert _execution_context.get() is None
+            assert _execution_context.get() is ctx
+        finally:
+            _execution_context.reset(token)
 
 
 # ---------------------------------------------------------------------------

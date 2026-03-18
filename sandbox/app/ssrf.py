@@ -25,6 +25,8 @@ from urllib.parse import urlparse, urlunparse
 
 import httpx
 
+from app.socket_patch import bypass_socket_patch
+
 logger = logging.getLogger(__name__)
 
 # Maximum response body size (configurable, default 10MB).
@@ -693,46 +695,50 @@ class SSRFProtectedAsyncHttpClient:
         max_size = self.__max_response_size
 
         request = self.__wrapped_client.build_request(method, pinned_url, **kwargs)
-        response = await self.__wrapped_client.send(request, stream=True)
+        # httpx handles SOCKS5 proxying itself (via HTTPS_PROXY).  Temporarily
+        # clear the execution context so PatchedSocket doesn't double-proxy
+        # the connection.  Covers both the initial connect and streaming reads.
+        with bypass_socket_patch():
+            response = await self.__wrapped_client.send(request, stream=True)
 
-        try:
-            # Fast path: check Content-Length header before reading body
-            content_length = response.headers.get("content-length")
-            if content_length:
-                try:
-                    size = int(content_length)
-                    if size > max_size:
+            try:
+                # Fast path: check Content-Length header before reading body
+                content_length = response.headers.get("content-length")
+                if content_length:
+                    try:
+                        size = int(content_length)
+                        if size > max_size:
+                            raise ResponseTooLargeError(
+                                f"Response too large: server reported {size:,} bytes. "
+                                f"Maximum allowed: {max_size:,} bytes "
+                                f"({max_size // (1024 * 1024)}MB). "
+                                f"Consider using pagination or filtering."
+                            )
+                    except (ValueError, TypeError):
+                        pass  # Malformed Content-Length, fall through to streaming check
+
+                # Read body in chunks with size enforcement.
+                # Uses BytesIO instead of chunks-list + join to avoid 2x peak memory
+                # (the join would allocate a second copy of the full response).
+                buffer = io.BytesIO()
+                total = 0
+                async for chunk in response.aiter_bytes(chunk_size=65536):
+                    total += len(chunk)
+                    if total > max_size:
                         raise ResponseTooLargeError(
-                            f"Response too large: server reported {size:,} bytes. "
-                            f"Maximum allowed: {max_size:,} bytes "
-                            f"({max_size // (1024 * 1024)}MB). "
+                            f"Response body exceeded {max_size:,} byte limit "
+                            f"({max_size // (1024 * 1024)}MB) while streaming. "
+                            f"Read {total:,} bytes before aborting. "
                             f"Consider using pagination or filtering."
                         )
-                except (ValueError, TypeError):
-                    pass  # Malformed Content-Length, fall through to streaming check
+                    buffer.write(chunk)
 
-            # Read body in chunks with size enforcement.
-            # Uses BytesIO instead of chunks-list + join to avoid 2x peak memory
-            # (the join would allocate a second copy of the full response).
-            buffer = io.BytesIO()
-            total = 0
-            async for chunk in response.aiter_bytes(chunk_size=65536):
-                total += len(chunk)
-                if total > max_size:
-                    raise ResponseTooLargeError(
-                        f"Response body exceeded {max_size:,} byte limit "
-                        f"({max_size // (1024 * 1024)}MB) while streaming. "
-                        f"Read {total:,} bytes before aborting. "
-                        f"Consider using pagination or filtering."
-                    )
-                buffer.write(chunk)
-
-            # Set response content so .text, .json(), .content work normally
-            response._content = buffer.getvalue()
-        except ResponseTooLargeError:
-            raise
-        finally:
-            await response.aclose()
+                # Set response content so .text, .json(), .content work normally
+                response._content = buffer.getvalue()
+            except ResponseTooLargeError:
+                raise
+            finally:
+                await response.aclose()
 
         return response
 

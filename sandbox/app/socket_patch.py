@@ -30,7 +30,7 @@ import contextvars
 import ipaddress
 import socket as _real_socket_module
 import struct
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from typing import Any
 
@@ -324,6 +324,26 @@ def _patched_gethostbyname_ex(hostname: str) -> tuple[str, list[str], list[str]]
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
+
+@contextmanager
+def bypass_socket_patch():
+    """Temporarily disable PatchedSocket routing for the calling task.
+
+    Use around code that handles SOCKS5 proxying itself (e.g. httpx with
+    HTTPS_PROXY).  Clears the execution ContextVar so all patched functions
+    delegate to originals, then restores it on exit.  Safe to nest and safe
+    across ``await`` boundaries (ContextVars are per-task).
+    """
+    ctx = _execution_context.get()
+    if ctx is None:
+        yield
+        return
+    token = _execution_context.set(None)
+    try:
+        yield
+    finally:
+        _execution_context.reset(token)
 
 
 def patch_socket() -> None:
