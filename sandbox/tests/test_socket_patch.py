@@ -243,6 +243,116 @@ class TestSocks5Handshake:
                 _socks5_handshake(sock, ("proxy", 1080), "example.com", 80)
         sock.close()
 
+    def test_nonblocking_socket_handshake_completes(self):
+        """Non-blocking socket: handshake completes and non-blocking is restored.
+
+        asyncio sets sockets non-blocking before connect().  The SOCKS5
+        handshake must temporarily switch to blocking (PySocks pattern),
+        then restore non-blocking afterward.
+        """
+        sent_data = []
+        recv_responses = [
+            b"\x05\x00",
+            b"\x05\x00\x00\x01",
+            b"\x00\x00\x00\x00\x00\x00",
+        ]
+        recv_idx = [0]
+        blocking_during_handshake = []
+
+        def mock_connect(self, addr):
+            # Record blocking state at time of connect
+            blocking_during_handshake.append(self.getblocking())
+
+        def mock_sendall(self, data, flags=0):
+            sent_data.append(data)
+
+        def mock_recv(self, size, flags=0):
+            idx = recv_idx[0]
+            recv_idx[0] += 1
+            return recv_responses[idx]
+
+        sock = PatchedSocket(real_socket_module.AF_INET, real_socket_module.SOCK_STREAM)
+        sock.setblocking(False)
+        assert not sock.getblocking()
+
+        with (
+            patch.object(_OriginalSocket, "connect", mock_connect),
+            patch.object(_OriginalSocket, "sendall", mock_sendall),
+            patch.object(_OriginalSocket, "recv", mock_recv),
+        ):
+            _socks5_handshake(sock, ("proxy", 1080), "example.com", 443)
+
+        # Handshake ran in blocking mode
+        assert blocking_during_handshake == [True]
+        # Non-blocking restored after handshake
+        assert not sock.getblocking()
+        # Full SOCKS5 exchange happened (not just a raw TCP connect)
+        assert sent_data[0] == b"\x05\x01\x00"  # method negotiation
+        assert sent_data[1][0:4] == b"\x05\x01\x00\x03"  # CONNECT request
+        sock.close()
+
+    def test_nonblocking_restored_on_handshake_error(self):
+        """Non-blocking mode is restored even if the handshake fails."""
+
+        def mock_connect(self, addr):
+            pass
+
+        def mock_sendall(self, data, flags=0):
+            pass
+
+        def mock_recv(self, size, flags=0):
+            return b"\x05\xff"  # reject auth
+
+        sock = PatchedSocket(real_socket_module.AF_INET, real_socket_module.SOCK_STREAM)
+        sock.setblocking(False)
+
+        with (
+            patch.object(_OriginalSocket, "connect", mock_connect),
+            patch.object(_OriginalSocket, "sendall", mock_sendall),
+            patch.object(_OriginalSocket, "recv", mock_recv),
+        ):
+            with pytest.raises(ConnectionError, match="rejected authentication"):
+                _socks5_handshake(sock, ("proxy", 1080), "example.com", 80)
+
+        # Non-blocking restored despite error
+        assert not sock.getblocking()
+        sock.close()
+
+    def test_blocking_socket_unchanged(self):
+        """Blocking socket stays blocking throughout (no unnecessary toggle)."""
+        blocking_during_handshake = []
+        recv_responses = [
+            b"\x05\x00",
+            b"\x05\x00\x00\x01",
+            b"\x00\x00\x00\x00\x00\x00",
+        ]
+        recv_idx = [0]
+
+        def mock_connect(self, addr):
+            blocking_during_handshake.append(self.getblocking())
+
+        def mock_sendall(self, data, flags=0):
+            pass
+
+        def mock_recv(self, size, flags=0):
+            idx = recv_idx[0]
+            recv_idx[0] += 1
+            return recv_responses[idx]
+
+        sock = PatchedSocket(real_socket_module.AF_INET, real_socket_module.SOCK_STREAM)
+        assert sock.getblocking()  # default is blocking
+
+        with (
+            patch.object(_OriginalSocket, "connect", mock_connect),
+            patch.object(_OriginalSocket, "sendall", mock_sendall),
+            patch.object(_OriginalSocket, "recv", mock_recv),
+        ):
+            _socks5_handshake(sock, ("proxy", 1080), "example.com", 443)
+
+        assert blocking_during_handshake == [True]
+        assert sock.getblocking()
+        sock.close()
+
 
 # ---------------------------------------------------------------------------
 # PatchedSocket

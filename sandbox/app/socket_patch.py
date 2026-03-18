@@ -135,51 +135,74 @@ def _socks5_handshake(
 
     Mirrors ``SafeSocket.connect()`` from ``safe_socket.py`` — keep in sync.
     DNS resolution happens proxy-side (DOMAINNAME address type).
+
+    **Non-blocking sockets (PySocks pattern):**  asyncio sets sockets
+    non-blocking before calling ``connect()``.  The multi-step SOCKS5
+    handshake requires synchronous I/O, so we temporarily switch to
+    blocking mode and restore afterward.  Event-loop stall is negligible
+    (~1-3 ms to a Docker-local proxy).
     """
-    # Connect to the SOCKS5 proxy itself
-    _OriginalSocket.connect(sock, proxy_addr)
+    # asyncio (and other event loops) set sockets non-blocking before
+    # connect().  The SOCKS5 handshake is a multi-step synchronous
+    # exchange — it cannot be split across select/poll iterations.
+    # Temporarily switch to blocking, then restore (PySocks pattern).
+    was_blocking = sock.getblocking()
+    if not was_blocking:
+        _OriginalSocket.setblocking(sock, True)
+    try:
+        # Connect to the SOCKS5 proxy itself
+        _OriginalSocket.connect(sock, proxy_addr)
 
-    # Method negotiation: version 5, 1 method, NO_AUTH
-    _OriginalSocket.sendall(sock, struct.pack("!BBB", _SOCKS_VERSION, 1, _AUTH_NONE))
-    response = _OriginalSocket.recv(sock, 2)
-    if len(response) < 2 or response[0] != _SOCKS_VERSION or response[1] != _AUTH_NONE:
-        raise ConnectionError("SOCKS5 proxy rejected authentication method")
-
-    # CONNECT request using DOMAINNAME type (proxy resolves DNS)
-    host_bytes = target_host.encode("ascii")
-    request = (
-        struct.pack(
-            "!BBBBB",
-            _SOCKS_VERSION,
-            _CMD_CONNECT,
-            0x00,
-            _ATYP_DOMAINNAME,
-            len(host_bytes),
+        # Method negotiation: version 5, 1 method, NO_AUTH
+        _OriginalSocket.sendall(
+            sock, struct.pack("!BBB", _SOCKS_VERSION, 1, _AUTH_NONE)
         )
-        + host_bytes
-        + struct.pack("!H", target_port)
-    )
-    _OriginalSocket.sendall(sock, request)
+        response = _OriginalSocket.recv(sock, 2)
+        if (
+            len(response) < 2
+            or response[0] != _SOCKS_VERSION
+            or response[1] != _AUTH_NONE
+        ):
+            raise ConnectionError("SOCKS5 proxy rejected authentication method")
 
-    # Read response header: VER(1) + REP(1) + RSV(1) + ATYP(1)
-    resp_header = _OriginalSocket.recv(sock, 4)
-    if len(resp_header) < 4:
-        raise ConnectionError("SOCKS5 proxy: incomplete response")
+        # CONNECT request using DOMAINNAME type (proxy resolves DNS)
+        host_bytes = target_host.encode("ascii")
+        request = (
+            struct.pack(
+                "!BBBBB",
+                _SOCKS_VERSION,
+                _CMD_CONNECT,
+                0x00,
+                _ATYP_DOMAINNAME,
+                len(host_bytes),
+            )
+            + host_bytes
+            + struct.pack("!H", target_port)
+        )
+        _OriginalSocket.sendall(sock, request)
 
-    rep = resp_header[1]
-    if rep != _REP_SUCCESS:
-        msg = _SOCKS5_ERRORS.get(rep, f"unknown error (0x{rep:02x})")
-        raise ConnectionError(f"SOCKS5 proxy: {msg}")
+        # Read response header: VER(1) + REP(1) + RSV(1) + ATYP(1)
+        resp_header = _OriginalSocket.recv(sock, 4)
+        if len(resp_header) < 4:
+            raise ConnectionError("SOCKS5 proxy: incomplete response")
 
-    # Consume remaining response bytes (bind address + port)
-    atyp = resp_header[3]
-    if atyp == _ATYP_IPV4:
-        _OriginalSocket.recv(sock, 4 + 2)
-    elif atyp == _ATYP_DOMAINNAME:
-        length = _OriginalSocket.recv(sock, 1)[0]
-        _OriginalSocket.recv(sock, length + 2)
-    elif atyp == 0x04:  # IPv6
-        _OriginalSocket.recv(sock, 16 + 2)
+        rep = resp_header[1]
+        if rep != _REP_SUCCESS:
+            msg = _SOCKS5_ERRORS.get(rep, f"unknown error (0x{rep:02x})")
+            raise ConnectionError(f"SOCKS5 proxy: {msg}")
+
+        # Consume remaining response bytes (bind address + port)
+        atyp = resp_header[3]
+        if atyp == _ATYP_IPV4:
+            _OriginalSocket.recv(sock, 4 + 2)
+        elif atyp == _ATYP_DOMAINNAME:
+            length = _OriginalSocket.recv(sock, 1)[0]
+            _OriginalSocket.recv(sock, length + 2)
+        elif atyp == 0x04:  # IPv6
+            _OriginalSocket.recv(sock, 16 + 2)
+    finally:
+        if not was_blocking:
+            _OriginalSocket.setblocking(sock, False)
 
 
 # ---------------------------------------------------------------------------
