@@ -117,6 +117,8 @@ _execution_context: contextvars.ContextVar[_ExecutionContext | None] = (
 _OriginalSocket = _real_socket_module.socket
 _original_getaddrinfo = _real_socket_module.getaddrinfo
 _original_create_connection = _real_socket_module.create_connection
+_original_gethostbyname = _real_socket_module.gethostbyname
+_original_gethostbyname_ex = _real_socket_module.gethostbyname_ex
 
 # ---------------------------------------------------------------------------
 # SOCKS5 handshake helper (shared by PatchedSocket.connect)
@@ -185,12 +187,18 @@ def _socks5_handshake(
 # ---------------------------------------------------------------------------
 
 
-def _validate_for_tool_context(host: str, ctx: _ExecutionContext) -> None:
-    """Raise ConnectionError if *host* is not allowed in *ctx*."""
+def _validate_for_tool_context(host: str, port: int, ctx: _ExecutionContext) -> None:
+    """Raise ConnectionError if *host:port* is not allowed in *ctx*.
+
+    Checks both ``"host:port"`` and ``"host"`` entries in ``allowed_hosts``,
+    consistent with SafeSocket and the SSRF client.
+    """
     if ctx.allowed_hosts is not None:
-        if host.lower() not in ctx.allowed_hosts:
+        host_lower = host.lower()
+        host_port = f"{host_lower}:{port}"
+        if host_port not in ctx.allowed_hosts and host_lower not in ctx.allowed_hosts:
             raise ConnectionError(
-                f"Network access to '{host}' is not approved for this server. "
+                f"Network access to '{host_port}' is not approved for this server. "
                 f"Use mcpbox_request_network_access to request access."
             )
     if _is_always_blocked_ip(host):
@@ -230,7 +238,7 @@ class PatchedSocket(_OriginalSocket):  # type: ignore[type-arg]
         # the SOCKS5 proxy also blocks it.  Sandbox API requires auth.
         if _is_loopback(host):
             return _OriginalSocket.connect(self, address)
-        _validate_for_tool_context(host, ctx)
+        _validate_for_tool_context(host, port, ctx)
         _socks5_handshake(self, ctx.proxy_addr, host, port)
 
     def connect_ex(self, address: Any) -> int:
@@ -287,6 +295,27 @@ def _patched_create_connection(
     return sock
 
 
+def _patched_gethostbyname(hostname: str) -> str:
+    """In tool context, return the hostname as-is (DNS resolves proxy-side)."""
+    ctx = _execution_context.get()
+    if ctx is None:
+        return _original_gethostbyname(hostname)
+    # Return the hostname unchanged — the SOCKS5 proxy resolves DNS.
+    # Returning an IP here would bypass the proxy-side resolution.
+    return hostname
+
+
+def _patched_gethostbyname_ex(hostname: str) -> tuple[str, list[str], list[str]]:
+    """In tool context, return synthetic results (DNS resolves proxy-side)."""
+    ctx = _execution_context.get()
+    if ctx is None:
+        return _original_gethostbyname_ex(hostname)
+    # (hostname, aliases, addresses) — return hostname as its own "address"
+    # so libraries that iterate addresses will connect to the hostname,
+    # which PatchedSocket sends to the SOCKS5 proxy for resolution.
+    return (hostname, [], [hostname])
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -303,6 +332,8 @@ def patch_socket() -> None:
     _real_socket_module.socket = PatchedSocket  # type: ignore[misc]
     _real_socket_module.getaddrinfo = _patched_getaddrinfo  # type: ignore[assignment]
     _real_socket_module.create_connection = _patched_create_connection  # type: ignore[assignment]
+    _real_socket_module.gethostbyname = _patched_gethostbyname  # type: ignore[assignment]
+    _real_socket_module.gethostbyname_ex = _patched_gethostbyname_ex  # type: ignore[assignment]
 
 
 @asynccontextmanager
