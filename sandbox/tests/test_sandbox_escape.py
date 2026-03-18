@@ -441,7 +441,7 @@ class TestImportRestrictions:
         response = client.post(
             "/execute",
             json={
-                "code": "import json\nresult = json.dumps({'ok': True})",
+                "code": "import json\nasync def main():\n    return json.dumps({'ok': True})\n",
                 "arguments": {},
             },
         )
@@ -455,7 +455,7 @@ class TestImportRestrictions:
         response = client.post(
             "/execute",
             json={
-                "code": "import math\nresult = math.sqrt(16)",
+                "code": "import math\nasync def main():\n    return math.sqrt(16)\n",
                 "arguments": {},
             },
         )
@@ -469,7 +469,7 @@ class TestImportRestrictions:
         response = client.post(
             "/execute",
             json={
-                "code": "import datetime\nresult = str(datetime.date(2024, 1, 1))",
+                "code": "import datetime\nasync def main():\n    return str(datetime.date(2024, 1, 1))\n",
                 "arguments": {},
             },
         )
