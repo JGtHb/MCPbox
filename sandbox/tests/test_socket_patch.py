@@ -366,6 +366,27 @@ class TestPatchedSocket:
         finally:
             _execution_context.reset(token)
 
+    def test_proxy_address_passthrough_in_context(self):
+        """Connection to the SOCKS proxy itself passes through directly (avoids double-proxy)."""
+        ctx = _ExecutionContext(allowed_hosts=None, proxy_addr=("socks-proxy", 1080))
+        token = _execution_context.set(ctx)
+        connected_to = [None]
+
+        def mock_connect(self, addr):
+            connected_to[0] = addr
+
+        try:
+            sock = PatchedSocket(
+                real_socket_module.AF_INET, real_socket_module.SOCK_STREAM
+            )
+            with patch.object(_OriginalSocket, "connect", mock_connect):
+                sock.connect(("socks-proxy", 1080))
+            # Should connect directly to the proxy, not SOCKS5-wrap it
+            assert connected_to[0] == ("socks-proxy", 1080)
+            sock.close()
+        finally:
+            _execution_context.reset(token)
+
     def test_non_loopback_blocked_ip_still_rejected(self):
         """Non-loopback blocked IPs (e.g. 169.254.x.x) are still rejected."""
         ctx = _ExecutionContext(allowed_hosts=None, proxy_addr=("proxy", 1080))

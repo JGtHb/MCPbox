@@ -238,6 +238,11 @@ class PatchedSocket(_OriginalSocket):  # type: ignore[type-arg]
         # the SOCKS5 proxy also blocks it.  Sandbox API requires auth.
         if _is_loopback(host):
             return _OriginalSocket.connect(self, address)
+        # Connection to the SOCKS proxy itself must pass through directly.
+        # httpx/httpcore already handle SOCKS5 proxying via HTTPS_PROXY;
+        # intercepting their connection to the proxy would create a loop.
+        if (host, port) == ctx.proxy_addr:
+            return _OriginalSocket.connect(self, address)
         _validate_for_tool_context(host, port, ctx)
         _socks5_handshake(self, ctx.proxy_addr, host, port)
 
@@ -296,24 +301,24 @@ def _patched_create_connection(
 
 
 def _patched_gethostbyname(hostname: str) -> str:
-    """In tool context, return the hostname as-is (DNS resolves proxy-side)."""
+    """In tool context, delegate to patched getaddrinfo (single DNS code path)."""
     ctx = _execution_context.get()
     if ctx is None:
         return _original_gethostbyname(hostname)
-    # Return the hostname unchanged — the SOCKS5 proxy resolves DNS.
-    # Returning an IP here would bypass the proxy-side resolution.
-    return hostname
+    # Delegate to getaddrinfo so all DNS goes through one code path.
+    # In tool context this returns the hostname as-is (DNS resolves proxy-side).
+    results = _patched_getaddrinfo(hostname, 0)
+    return results[0][4][0]
 
 
 def _patched_gethostbyname_ex(hostname: str) -> tuple[str, list[str], list[str]]:
-    """In tool context, return synthetic results (DNS resolves proxy-side)."""
+    """In tool context, delegate to patched getaddrinfo (single DNS code path)."""
     ctx = _execution_context.get()
     if ctx is None:
         return _original_gethostbyname_ex(hostname)
-    # (hostname, aliases, addresses) — return hostname as its own "address"
-    # so libraries that iterate addresses will connect to the hostname,
-    # which PatchedSocket sends to the SOCKS5 proxy for resolution.
-    return (hostname, [], [hostname])
+    results = _patched_getaddrinfo(hostname, 0)
+    addresses = [r[4][0] for r in results]
+    return (hostname, [], addresses)
 
 
 # ---------------------------------------------------------------------------
