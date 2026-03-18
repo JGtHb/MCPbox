@@ -18,6 +18,7 @@ from app.socket_patch import (
     _OriginalSocket,
     _execution_context,
     _is_always_blocked_ip,
+    _is_loopback,
     _patched_create_connection,
     _patched_getaddrinfo,
     _socks5_handshake,
@@ -40,6 +41,29 @@ class TestIsAlwaysBlockedIP:
     @pytest.mark.parametrize("ip", ["8.8.8.8", "192.168.1.1", "10.0.0.1", "not-an-ip"])
     def test_allowed_ips(self, ip):
         assert _is_always_blocked_ip(ip) is False
+
+
+class TestIsLoopback:
+    @pytest.mark.parametrize(
+        "host",
+        ["127.0.0.1", "127.0.0.2", "127.255.255.255", "::1", "localhost", "LOCALHOST"],
+    )
+    def test_loopback_hosts(self, host):
+        assert _is_loopback(host) is True
+
+    @pytest.mark.parametrize(
+        "host",
+        [
+            "8.8.8.8",
+            "192.168.1.1",
+            "10.0.0.1",
+            "169.254.169.254",
+            "example.com",
+            "not-an-ip",
+        ],
+    )
+    def test_non_loopback_hosts(self, host):
+        assert _is_loopback(host) is False
 
 
 # ---------------------------------------------------------------------------
@@ -254,7 +278,68 @@ class TestPatchedSocket:
         finally:
             _execution_context.reset(token)
 
-    def test_always_blocked_ip_in_context(self):
+    def test_loopback_ipv4_passthrough_in_context(self):
+        """Loopback passes through directly — not proxied, not blocked."""
+        ctx = _ExecutionContext(allowed_hosts=None, proxy_addr=("proxy", 1080))
+        token = _execution_context.set(ctx)
+        connected_to = [None]
+
+        def mock_connect(self, addr):
+            connected_to[0] = addr
+
+        try:
+            sock = PatchedSocket(
+                real_socket_module.AF_INET, real_socket_module.SOCK_STREAM
+            )
+            with patch.object(_OriginalSocket, "connect", mock_connect):
+                sock.connect(("127.0.0.1", 8888))
+            assert connected_to[0] == ("127.0.0.1", 8888)
+            sock.close()
+        finally:
+            _execution_context.reset(token)
+
+    def test_loopback_ipv6_passthrough_in_context(self):
+        """IPv6 loopback (::1) also passes through directly."""
+        ctx = _ExecutionContext(allowed_hosts=None, proxy_addr=("proxy", 1080))
+        token = _execution_context.set(ctx)
+        connected_to = [None]
+
+        def mock_connect(self, addr):
+            connected_to[0] = addr
+
+        try:
+            sock = PatchedSocket(
+                real_socket_module.AF_INET6, real_socket_module.SOCK_STREAM
+            )
+            with patch.object(_OriginalSocket, "connect", mock_connect):
+                sock.connect(("::1", 8888))
+            assert connected_to[0] == ("::1", 8888)
+            sock.close()
+        finally:
+            _execution_context.reset(token)
+
+    def test_loopback_localhost_passthrough_in_context(self):
+        """'localhost' hostname passes through directly."""
+        ctx = _ExecutionContext(allowed_hosts=None, proxy_addr=("proxy", 1080))
+        token = _execution_context.set(ctx)
+        connected_to = [None]
+
+        def mock_connect(self, addr):
+            connected_to[0] = addr
+
+        try:
+            sock = PatchedSocket(
+                real_socket_module.AF_INET, real_socket_module.SOCK_STREAM
+            )
+            with patch.object(_OriginalSocket, "connect", mock_connect):
+                sock.connect(("localhost", 9999))
+            assert connected_to[0] == ("localhost", 9999)
+            sock.close()
+        finally:
+            _execution_context.reset(token)
+
+    def test_non_loopback_blocked_ip_still_rejected(self):
+        """Non-loopback blocked IPs (e.g. 169.254.x.x) are still rejected."""
         ctx = _ExecutionContext(allowed_hosts=None, proxy_addr=("proxy", 1080))
         token = _execution_context.set(ctx)
         try:
@@ -262,7 +347,7 @@ class TestPatchedSocket:
                 real_socket_module.AF_INET, real_socket_module.SOCK_STREAM
             )
             with pytest.raises(ConnectionError, match="reserved IP range"):
-                sock.connect(("127.0.0.1", 80))
+                sock.connect(("169.254.169.254", 80))
             sock.close()
         finally:
             _execution_context.reset(token)

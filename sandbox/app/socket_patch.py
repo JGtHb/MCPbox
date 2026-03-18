@@ -61,6 +61,16 @@ def _is_always_blocked_ip(ip_str: str) -> bool:
         return False
 
 
+def _is_loopback(host: str) -> bool:
+    """Return True if *host* is a loopback address (127.0.0.0/8, ::1, localhost)."""
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 # ---------------------------------------------------------------------------
 # SOCKS5 constants
 # ---------------------------------------------------------------------------
@@ -214,6 +224,12 @@ class PatchedSocket(_OriginalSocket):  # type: ignore[type-arg]
             return _OriginalSocket.connect(self, address)
 
         host, port = address
+        # Loopback is container-local and cannot be meaningfully proxied
+        # through SOCKS5 (the proxy would reach its own loopback, not ours).
+        # SafeSocket independently blocks loopback for tool-authored code;
+        # the SOCKS5 proxy also blocks it.  Sandbox API requires auth.
+        if _is_loopback(host):
+            return _OriginalSocket.connect(self, address)
         _validate_for_tool_context(host, ctx)
         _socks5_handshake(self, ctx.proxy_addr, host, port)
 
