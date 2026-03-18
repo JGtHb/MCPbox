@@ -947,8 +947,6 @@ ALLOWED_BUILTIN_NAMES = {
 
 def create_safe_builtins(
     allowed_modules: set[str] | None = None,
-    allowed_hosts: set[str] | None = None,
-    socks_proxy_addr: tuple[str, int] | None = None,
 ) -> dict[str, Any]:
     """Create a restricted builtins dict for safe code execution.
 
@@ -958,10 +956,6 @@ def create_safe_builtins(
     Args:
         allowed_modules: Set of module names that can be imported.
                         If None, uses DEFAULT_ALLOWED_MODULES.
-        allowed_hosts: Per-server network allowlist for SafeSocket
-                      (None = no restriction, passed to safe socket module).
-        socks_proxy_addr: SOCKS5 proxy (host, port) tuple for SafeSocket
-                         routing (None = not configured).
 
     Returns:
         A dict suitable for use as __builtins__ in exec().
@@ -991,16 +985,6 @@ def create_safe_builtins(
                 f"Import of '{name}' is not allowed. "
                 f"Use mcpbox_request_module to request it be whitelisted. "
                 f"Allowed modules: {sorted(allowed_modules)}"
-            )
-
-        # Special handling for socket module: return SOCKS5-routing wrapper
-        # instead of real socket module (mirrors regex special case below).
-        if name == "socket":
-            from app.safe_socket import create_safe_socket_module
-
-            return create_safe_socket_module(
-                allowed_hosts=allowed_hosts,
-                socks_proxy_addr=socks_proxy_addr,
             )
 
         module = real_import(name, globals, locals, fromlist, level)
@@ -1836,8 +1820,6 @@ class PythonExecutor:
     def _create_safe_builtins(
         self,
         allowed_modules: set[str] | None = None,
-        allowed_hosts: set[str] | None = None,
-        socks_proxy_addr: tuple[str, int] | None = None,
     ) -> dict[str, Any]:
         """Create a restricted builtins dict for safe execution.
 
@@ -1846,8 +1828,6 @@ class PythonExecutor:
         """
         return create_safe_builtins(
             allowed_modules=allowed_modules,
-            allowed_hosts=allowed_hosts,
-            socks_proxy_addr=socks_proxy_addr,
         )
 
     def _create_execution_namespace(
@@ -1873,17 +1853,9 @@ class PythonExecutor:
             http_client, allowed_hosts=allowed_hosts
         )
 
-        # Parse SOCKS5 proxy address for SafeSocket routing.
-        # SafeSocket is only used when 'socket' is in allowed_modules;
-        # the address is passed to create_safe_builtins() so it's captured
-        # in the safe_import closure.
-        socks_proxy_addr = _parse_socks_proxy_env()
-
         namespace = {
             "__builtins__": self._create_safe_builtins(
                 allowed_modules,
-                allowed_hosts=allowed_hosts,
-                socks_proxy_addr=socks_proxy_addr,
             ),
             # Inject SSRF-protected HTTP client
             "http": protected_client,
@@ -1980,11 +1952,10 @@ class PythonExecutor:
                 *args, file=stdout_capture, **kwargs
             )
 
-            # Activate SOCKS5 routing for third-party library TCP.
+            # Activate SOCKS5 routing for all TCP (tool code + third-party libs).
             # This sets a ContextVar so that the monkey-patched socket.socket
-            # (from socket_patch.py) routes connections through the SOCKS5 proxy
-            # for the duration of this tool execution.  Direct `import socket`
-            # in tool code still gets SafeSocket via safe_import (defense in depth).
+            # (PatchedSocket from socket_patch.py) routes connections through
+            # the SOCKS5 proxy for the duration of this tool execution.
             socks_proxy_addr = _parse_socks_proxy_env()
 
             async with execution_socket_context(allowed_hosts, socks_proxy_addr):

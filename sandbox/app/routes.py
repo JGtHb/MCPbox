@@ -22,7 +22,6 @@ from app.executor import (
     DEFAULT_ALLOWED_MODULES,
     SafeModuleProxy,
     SizeLimitedStringIO,
-    _parse_socks_proxy_env,
     create_safe_builtins,
     validate_code_safety,
 )
@@ -797,17 +796,9 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
         else DEFAULT_ALLOWED_MODULES
     )
 
-    # Parse allowed_hosts and SOCKS proxy for SafeSocket (used when 'socket'
-    # module is approved).  Must be available at exec() time since tool code
-    # may import socket during module-level init.
-    _allowed_hosts = set(body.allowed_hosts) if body.allowed_hosts is not None else None
-    _socks_proxy_addr = _parse_socks_proxy_env()
-
     # Create builtins using the shared function (single source of truth)
     safe_builtins_with_import = create_safe_builtins(
         allowed_modules=allowed_modules_set,
-        allowed_hosts=_allowed_hosts,
-        socks_proxy_addr=_socks_proxy_addr,
     )
 
     # Create isolated namespace matching published tool environment
