@@ -357,8 +357,8 @@ class TestMemoryCleanup:
         mock_gc.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_gc_collect_after_executor_timeout(self):
-        """gc.collect() runs in the executor after asyncio.TimeoutError."""
+    async def test_gc_not_called_on_timeout(self):
+        """gc.collect() is NOT called on timeout — only on MemoryError."""
         from app.executor import python_executor
 
         # asyncio must be in allowed_modules for the tool code to import it
@@ -377,4 +377,4 @@ class TestMemoryCleanup:
 
         assert not result.success
         assert "timed out" in result.error
-        mock_gc.assert_called_once()
+        mock_gc.assert_not_called()
