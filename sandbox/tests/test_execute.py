@@ -503,8 +503,8 @@ class TestSocketModuleImport:
         assert data["success"] is False
         assert "socket" in data["error"]
 
-    def test_socket_returns_safe_module_when_approved(self, client):
-        """socket import returns SafeSocket module when in allowed_modules."""
+    def test_socket_returns_module_when_approved(self, client):
+        """socket import returns socket module (with PatchedSocket) when in allowed_modules."""
         response = client.post(
             "/execute",
             json={
@@ -513,7 +513,7 @@ class TestSocketModuleImport:
                     "result = {\n"
                     "    'af_inet': socket.AF_INET,\n"
                     "    'sock_stream': socket.SOCK_STREAM,\n"
-                    "    'module_name': socket.__name__,\n"
+                    "    'has_socket_class': callable(socket.socket),\n"
                     "}"
                 ),
                 "arguments": {},
@@ -526,7 +526,7 @@ class TestSocketModuleImport:
         result = data["result"]
         assert result["af_inet"] == 2  # AF_INET value
         assert result["sock_stream"] == 1  # SOCK_STREAM value
-        assert result["module_name"] == "socket"
+        assert result["has_socket_class"] is True
 
     def test_socket_create_connection_requires_proxy(self, client):
         """socket.create_connection fails without proxy (expected in tests)."""
