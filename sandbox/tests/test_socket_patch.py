@@ -21,6 +21,8 @@ from app.socket_patch import (
     _is_loopback,
     _patched_create_connection,
     _patched_getaddrinfo,
+    _patched_gethostbyname,
+    _patched_gethostbyname_ex,
     _socks5_handshake,
     _validate_for_tool_context,
     execution_socket_context,
@@ -78,23 +80,23 @@ class TestValidateForToolContext:
             proxy_addr=("proxy", 1080),
         )
         with pytest.raises(ConnectionError, match="not approved"):
-            _validate_for_tool_context("unapproved.local", ctx)
+            _validate_for_tool_context("unapproved.local", 80, ctx)
 
     def test_host_in_allowlist_passes(self):
         ctx = _ExecutionContext(
             allowed_hosts=frozenset({"approved.local"}),
             proxy_addr=("proxy", 1080),
         )
-        _validate_for_tool_context("approved.local", ctx)  # should not raise
+        _validate_for_tool_context("approved.local", 80, ctx)  # should not raise
 
     def test_no_allowlist_passes_any_host(self):
         ctx = _ExecutionContext(allowed_hosts=None, proxy_addr=("proxy", 1080))
-        _validate_for_tool_context("anything.com", ctx)  # should not raise
+        _validate_for_tool_context("anything.com", 80, ctx)  # should not raise
 
     def test_always_blocked_ip_rejected(self):
         ctx = _ExecutionContext(allowed_hosts=None, proxy_addr=("proxy", 1080))
         with pytest.raises(ConnectionError, match="reserved IP range"):
-            _validate_for_tool_context("127.0.0.1", ctx)
+            _validate_for_tool_context("127.0.0.1", 80, ctx)
 
     def test_blocked_ip_rejected_even_if_in_allowlist(self):
         ctx = _ExecutionContext(
@@ -102,14 +104,40 @@ class TestValidateForToolContext:
             proxy_addr=("proxy", 1080),
         )
         with pytest.raises(ConnectionError, match="reserved IP range"):
-            _validate_for_tool_context("127.0.0.1", ctx)
+            _validate_for_tool_context("127.0.0.1", 80, ctx)
 
     def test_case_insensitive(self):
         ctx = _ExecutionContext(
             allowed_hosts=frozenset({"myhost.local"}),
             proxy_addr=("proxy", 1080),
         )
-        _validate_for_tool_context("MYHOST.LOCAL", ctx)  # should not raise
+        _validate_for_tool_context("MYHOST.LOCAL", 80, ctx)  # should not raise
+
+    def test_port_scoped_entry_matches(self):
+        """host:port entry matches connection to that exact port."""
+        ctx = _ExecutionContext(
+            allowed_hosts=frozenset({"192.168.1.2:1883"}),
+            proxy_addr=("proxy", 1080),
+        )
+        _validate_for_tool_context("192.168.1.2", 1883, ctx)  # should not raise
+
+    def test_port_scoped_entry_rejects_wrong_port(self):
+        """host:port entry does NOT match a different port."""
+        ctx = _ExecutionContext(
+            allowed_hosts=frozenset({"192.168.1.2:1883"}),
+            proxy_addr=("proxy", 1080),
+        )
+        with pytest.raises(ConnectionError, match="not approved"):
+            _validate_for_tool_context("192.168.1.2", 8080, ctx)
+
+    def test_host_only_entry_matches_any_port(self):
+        """Plain host entry matches any port."""
+        ctx = _ExecutionContext(
+            allowed_hosts=frozenset({"192.168.1.2"}),
+            proxy_addr=("proxy", 1080),
+        )
+        _validate_for_tool_context("192.168.1.2", 1883, ctx)  # should not raise
+        _validate_for_tool_context("192.168.1.2", 8080, ctx)  # should not raise
 
 
 # ---------------------------------------------------------------------------
@@ -459,6 +487,49 @@ class TestPatchedCreateConnection:
 
 
 # ---------------------------------------------------------------------------
+# Patched gethostbyname / gethostbyname_ex
+# ---------------------------------------------------------------------------
+
+
+class TestPatchedGethostbyname:
+    def test_synthetic_in_context(self):
+        """In tool context, returns hostname as-is (DNS resolves proxy-side)."""
+        ctx = _ExecutionContext(allowed_hosts=None, proxy_addr=("proxy", 1080))
+        token = _execution_context.set(ctx)
+        try:
+            result = _patched_gethostbyname("mqtt.local")
+            assert result == "mqtt.local"
+        finally:
+            _execution_context.reset(token)
+
+    def test_real_without_context(self):
+        """Without context, delegates to real gethostbyname."""
+        assert _execution_context.get() is None
+        result = _patched_gethostbyname("localhost")
+        assert result == "127.0.0.1"
+
+
+class TestPatchedGethostbynameEx:
+    def test_synthetic_in_context(self):
+        """In tool context, returns hostname in address list (DNS resolves proxy-side)."""
+        ctx = _ExecutionContext(allowed_hosts=None, proxy_addr=("proxy", 1080))
+        token = _execution_context.set(ctx)
+        try:
+            hostname, aliases, addresses = _patched_gethostbyname_ex("mqtt.local")
+            assert hostname == "mqtt.local"
+            assert aliases == []
+            assert addresses == ["mqtt.local"]
+        finally:
+            _execution_context.reset(token)
+
+    def test_real_without_context(self):
+        """Without context, delegates to real gethostbyname_ex."""
+        assert _execution_context.get() is None
+        hostname, aliases, addresses = _patched_gethostbyname_ex("localhost")
+        assert "127.0.0.1" in addresses
+
+
+# ---------------------------------------------------------------------------
 # execution_socket_context
 # ---------------------------------------------------------------------------
 
@@ -529,14 +600,20 @@ class TestPatchSocket:
         orig_socket = real_socket_module.socket
         orig_gai = real_socket_module.getaddrinfo
         orig_cc = real_socket_module.create_connection
+        orig_ghbn = real_socket_module.gethostbyname
+        orig_ghbn_ex = real_socket_module.gethostbyname_ex
 
         try:
             patch_socket()
             assert real_socket_module.socket is PatchedSocket
             assert real_socket_module.getaddrinfo is _patched_getaddrinfo
             assert real_socket_module.create_connection is _patched_create_connection
+            assert real_socket_module.gethostbyname is _patched_gethostbyname
+            assert real_socket_module.gethostbyname_ex is _patched_gethostbyname_ex
         finally:
             # Restore originals to avoid affecting other tests
             real_socket_module.socket = orig_socket
             real_socket_module.getaddrinfo = orig_gai
             real_socket_module.create_connection = orig_cc
+            real_socket_module.gethostbyname = orig_ghbn
+            real_socket_module.gethostbyname_ex = orig_ghbn_ex
