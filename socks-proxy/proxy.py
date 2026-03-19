@@ -150,10 +150,17 @@ class ACLReader:
         if now - self._last_read > self._ttl:
             self._refresh()
 
-    def is_approved(self, hostname: str) -> bool:
-        """Check if hostname/IP is in the approved hosts list."""
+    def is_approved(self, hostname: str, port: int | None = None) -> bool:
+        """Check if hostname/IP is in the approved hosts list.
+
+        Checks both ``"host:port"`` and ``"host"`` entries when *port* is
+        provided, consistent with sandbox-side allowlist matching.
+        """
         self._ensure_fresh()
-        return hostname.lower() in self._cache
+        h = hostname.lower()
+        if port is not None and f"{h}:{port}" in self._cache:
+            return True
+        return h in self._cache
 
     def has_entries(self) -> bool:
         """Check if the ACL has any entries (i.e. servers are registered)."""
@@ -188,6 +195,7 @@ def is_infrastructure_host(hostname: str) -> bool:
 def validate_connection(
     hostname: str,
     resolved_ip: ipaddress.IPv4Address | ipaddress.IPv6Address,
+    port: int | None = None,
 ) -> str | None:
     """Validate whether a connection should be allowed.
 
@@ -202,6 +210,7 @@ def validate_connection(
     Args:
         hostname: Original hostname from the SOCKS5 request (for ACL lookup).
         resolved_ip: The IP address that the hostname resolved to.
+        port: Target port (enables ``host:port`` ACL matching).
     """
     # Always-blocked ranges cannot be overridden
     if is_always_blocked(resolved_ip):
@@ -210,7 +219,10 @@ def validate_connection(
     # Private IPs require ACL approval
     if is_private(resolved_ip):
         # Check if the original hostname or the resolved IP is approved
-        if acl_reader.is_approved(hostname) or acl_reader.is_approved(str(resolved_ip)):
+        # (both host:port and host-only entries are checked)
+        if acl_reader.is_approved(hostname, port) or acl_reader.is_approved(
+            str(resolved_ip), port
+        ):
             return None
         return (
             f"blocked: {resolved_ip} is a private IP and '{hostname}' "
@@ -226,7 +238,9 @@ def validate_connection(
     # The ACL contains the union of all servers' allowed_hosts — this is a
     # coarse filter. The app-layer SSRF check enforces per-server restrictions.
     if acl_reader.has_entries():
-        if acl_reader.is_approved(hostname) or acl_reader.is_approved(str(resolved_ip)):
+        if acl_reader.is_approved(hostname, port) or acl_reader.is_approved(
+            str(resolved_ip), port
+        ):
             return None
         return (
             f"blocked: '{hostname}' ({resolved_ip}) is not in the approved "
@@ -334,7 +348,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             await _send_reply(writer, REP_HOST_UNREACHABLE)
             return
 
-        error = validate_connection(target_host, ip_obj)
+        error = validate_connection(target_host, ip_obj, target_port)
         if error is not None:
             logger.info("[%s] %s:%d -> %s", peer, target_host, target_port, error)
             await _send_reply(writer, REP_NOT_ALLOWED)
