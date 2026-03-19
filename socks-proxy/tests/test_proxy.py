@@ -232,7 +232,9 @@ class TestValidateConnection:
         """Public IPs allowed when host is in the ACL."""
         with patch("proxy.acl_reader") as mock_reader:
             mock_reader.has_entries.return_value = True
-            mock_reader.is_approved.side_effect = lambda h: h == "api.example.com"
+            mock_reader.is_approved.side_effect = (
+                lambda h, p=None: h == "api.example.com"
+            )
             result = validate_connection(
                 "api.example.com", ipaddress.ip_address("93.184.216.34")
             )
@@ -270,13 +272,13 @@ class TestValidateConnection:
 
     def test_private_ip_allowed_with_hostname_approval(self):
         with patch("proxy.acl_reader") as mock_reader:
-            mock_reader.is_approved.side_effect = lambda h: h == "myhost"
+            mock_reader.is_approved.side_effect = lambda h, p=None: h == "myhost"
             result = validate_connection("myhost", ipaddress.ip_address("192.168.1.1"))
             assert result is None
 
     def test_private_ip_allowed_with_ip_approval(self):
         with patch("proxy.acl_reader") as mock_reader:
-            mock_reader.is_approved.side_effect = lambda h: h == "192.168.1.1"
+            mock_reader.is_approved.side_effect = lambda h, p=None: h == "192.168.1.1"
             result = validate_connection("myhost", ipaddress.ip_address("192.168.1.1"))
             assert result is None
 
@@ -300,11 +302,48 @@ class TestValidateConnection:
         """Public IP approved by its string representation in ACL."""
         with patch("proxy.acl_reader") as mock_reader:
             mock_reader.has_entries.return_value = True
-            mock_reader.is_approved.side_effect = lambda h: h == "93.184.216.34"
+            mock_reader.is_approved.side_effect = (
+                lambda h, p=None: h == "93.184.216.34"
+            )
             result = validate_connection(
                 "unknown.host", ipaddress.ip_address("93.184.216.34")
             )
             assert result is None
+
+    def test_port_scoped_private_ip_allowed(self):
+        """Private IP approved with port-scoped ACL entry."""
+        result = validate_connection(
+            "192.168.1.2", ipaddress.ip_address("192.168.1.2"), port=1883
+        )
+        # Without ACL approval, should be blocked
+        assert result is not None
+
+    def test_port_scoped_acl_matching(self):
+        """ACL with host:port entry matches when port is provided."""
+        acl = ACLReader.__new__(ACLReader)
+        acl._cache = {"192.168.1.2:1883"}
+        acl._last_read = float("inf")  # never refresh
+        acl._ttl = 5.0
+        acl._path = None
+
+        # Matching port
+        assert acl.is_approved("192.168.1.2", 1883) is True
+        # Wrong port — no bare-host entry
+        assert acl.is_approved("192.168.1.2", 8080) is False
+        # No port — bare-host check only
+        assert acl.is_approved("192.168.1.2") is False
+
+    def test_host_only_acl_matches_any_port(self):
+        """ACL with bare host entry matches regardless of port."""
+        acl = ACLReader.__new__(ACLReader)
+        acl._cache = {"192.168.1.2"}
+        acl._last_read = float("inf")
+        acl._ttl = 5.0
+        acl._path = None
+
+        assert acl.is_approved("192.168.1.2", 1883) is True
+        assert acl.is_approved("192.168.1.2", 8080) is True
+        assert acl.is_approved("192.168.1.2") is True
 
 
 # --- SOCKS5 protocol tests ---
