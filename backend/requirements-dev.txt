@@ -1,7 +1,7 @@
 # Development dependencies
 pytest==9.0.2
 pytest-asyncio==1.3.0
-pytest-cov==7.0.0
+pytest-cov==7.1.0
 httpx==0.28.1  # For TestClient
 aiosqlite==0.22.1  # For in-memory test database
 
