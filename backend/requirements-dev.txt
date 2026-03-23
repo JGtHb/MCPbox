@@ -7,7 +7,7 @@ aiosqlite==0.22.1  # For in-memory test database
 
 # Testcontainers for automatic PostgreSQL provisioning (optional but recommended)
 # Install with: pip install testcontainers[postgres]
-testcontainers[postgres]==4.14.1
+testcontainers[postgres]==4.14.2
 
 # Code quality
 ruff==0.15.3
