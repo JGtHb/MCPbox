@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from app.core.retry import CircuitBreaker
 from app.services.sandbox_client import (
     SandboxClient,
     _classify_sandbox_error,
@@ -19,7 +18,6 @@ class TestSandboxClientSingleton:
     def setup_method(self):
         """Reset singleton before each test."""
         SandboxClient._instance = None
-        CircuitBreaker._instances = {}  # Reset circuit breakers too
 
     def test_get_instance_creates_singleton(self):
         """Test that get_instance creates a singleton."""
@@ -64,7 +62,6 @@ class TestSandboxClientHeaders:
     def setup_method(self):
         """Reset singleton before each test."""
         SandboxClient._instance = None
-        CircuitBreaker._instances = {}
 
     def test_headers_include_content_type(self):
         """Test that headers include Content-Type."""
@@ -90,64 +87,12 @@ class TestSandboxClientHeaders:
         assert "X-API-Key" not in headers
 
 
-class TestSandboxClientCircuitBreaker:
-    """Tests for circuit breaker functionality."""
-
-    def setup_method(self):
-        """Reset singleton and circuit breakers before each test."""
-        SandboxClient._instance = None
-        CircuitBreaker._instances = {}
-
-    def test_get_circuit_state(self):
-        """Test getting circuit breaker state."""
-        client = SandboxClient()
-        state = client.get_circuit_state()
-
-        assert "state" in state
-        assert state["state"] == "closed"  # Should start closed
-
-    @pytest.mark.asyncio
-    async def test_reset_circuit(self):
-        """Test resetting circuit breaker."""
-        client = SandboxClient()
-
-        # This should not raise
-        await client.reset_circuit()
-
-        state = client.get_circuit_state()
-        assert state["state"] == "closed"
-
-    @pytest.mark.asyncio
-    async def test_circuit_opens_after_failures(self):
-        """Test that circuit breaker opens after consecutive failures."""
-        client = SandboxClient()
-
-        # Mock the HTTP client to fail
-        mock_response = MagicMock()
-        mock_response.status_code = 500
-
-        with patch.object(client, "_get_client") as mock_get_client:
-            mock_client = AsyncMock()
-            mock_client.get.side_effect = httpx.ConnectError("Connection failed")
-            mock_get_client.return_value = mock_client
-
-            # Make multiple failing requests to trip the circuit breaker
-            for _ in range(12):  # Threshold is configurable (default 10)
-                result = await client.health_check()
-                assert result is False
-
-            # Circuit should be open now
-            _state = client.get_circuit_state()
-            # May be open or half-open depending on timing
-
-
 class TestSandboxClientHealthCheck:
     """Tests for health check functionality."""
 
     def setup_method(self):
         """Reset singleton before each test."""
         SandboxClient._instance = None
-        CircuitBreaker._instances = {}
 
     @pytest.mark.asyncio
     async def test_health_check_returns_true_on_success(self):
@@ -205,7 +150,6 @@ class TestSandboxClientRegisterServer:
     def setup_method(self):
         """Reset singleton before each test."""
         SandboxClient._instance = None
-        CircuitBreaker._instances = {}
 
     @pytest.mark.asyncio
     async def test_register_server_success(self):
@@ -253,27 +197,6 @@ class TestSandboxClientRegisterServer:
             assert result["success"] is False
             assert "error" in result
 
-    @pytest.mark.asyncio
-    async def test_register_server_circuit_breaker_open(self):
-        """Test server registration when circuit breaker is open."""
-        client = SandboxClient()
-
-        # Force circuit breaker open by recording failures (threshold configurable, default 10)
-        for _ in range(12):
-            await client._circuit_breaker.record_failure(Exception("test"))
-
-        result = await client.register_server(
-            server_id="test-server-id",
-            server_name="Test Server",
-            tools=[],
-        )
-
-        assert result["success"] is False
-        assert (
-            result.get("circuit_breaker_open") is True
-            or "unavailable" in result.get("error", "").lower()
-        )
-
 
 class TestSandboxClientUpdateSecrets:
     """Tests for server secret updates."""
@@ -281,7 +204,6 @@ class TestSandboxClientUpdateSecrets:
     def setup_method(self):
         """Reset singleton before each test."""
         SandboxClient._instance = None
-        CircuitBreaker._instances = {}
 
     @pytest.mark.asyncio
     async def test_update_server_secrets_success(self):
@@ -354,7 +276,6 @@ class TestSandboxClientMCPRequest:
     def setup_method(self):
         """Reset singleton before each test."""
         SandboxClient._instance = None
-        CircuitBreaker._instances = {}
 
     @pytest.mark.asyncio
     async def test_mcp_request_success(self):
@@ -419,7 +340,6 @@ class TestSandboxClientCleanup:
     def setup_method(self):
         """Reset singleton before each test."""
         SandboxClient._instance = None
-        CircuitBreaker._instances = {}
 
     @pytest.mark.asyncio
     async def test_close_closes_client(self):
@@ -594,7 +514,6 @@ class TestSandboxClientErrorClassification:
     def setup_method(self):
         """Reset singleton before each test."""
         SandboxClient._instance = None
-        CircuitBreaker._instances = {}
 
     @pytest.mark.asyncio
     async def test_mcp_request_timeout_produces_classified_error(self):
@@ -616,7 +535,6 @@ class TestSandboxClientErrorClassification:
             assert "timed out" in error["message"].lower()
             assert error["message"] != "Sandbox communication error: "
             assert error["data"]["error_category"] == "timeout"
-            assert "circuit_breaker" in error["data"]
 
     @pytest.mark.asyncio
     async def test_execute_code_timeout_produces_classified_error(self):
@@ -634,7 +552,6 @@ class TestSandboxClientErrorClassification:
             assert "timed out" in result["error"].lower()
             assert result["error"] != "Sandbox communication error: "
             assert result["error_category"] == "timeout"
-            assert "circuit_breaker" in result
 
     @pytest.mark.asyncio
     async def test_execute_code_connect_error_produces_classified_error(self):

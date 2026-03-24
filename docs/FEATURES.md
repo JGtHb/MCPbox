@@ -200,13 +200,6 @@ Features are sorted by status, with broken/partial items at the top for visibili
 - **Dependencies**: External webhook URL
 - **Test coverage**: `backend/tests/test_webhook_alerting.py`
 
-### Circuit Breaker
-- **Status**: Complete
-- **Description**: Circuit breaker pattern for sandbox communication. Configurable thresholds (default: 10 failures to open, 30s recovery timeout, 1 success to close). Each failing request counts as a single failure regardless of retries. Env vars: `CIRCUIT_BREAKER_FAILURE_THRESHOLD`, `CIRCUIT_BREAKER_TIMEOUT`, `CIRCUIT_BREAKER_SUCCESS_THRESHOLD`.
-- **Owner modules**: `backend/app/core/retry.py`, `backend/app/services/sandbox_client.py`
-- **Dependencies**: None
-- **Test coverage**: `backend/tests/test_retry.py`, `backend/tests/test_circuit_breaker_api.py`
-
 ### Single-Source Versioning
 - **Status**: Complete
 - **Description**: The `VERSION` file at repo root is the single source of truth for the monorepo version. Python components (`backend/app/core/config.py`, `sandbox/app/main.py`) read it at runtime via `_read_version()`, checking `/app/VERSION` (Docker) then repo root (local dev). JS components (`frontend/package.json`, `worker/package.json`) and Python metadata (`backend/pyproject.toml`, `sandbox/pyproject.toml`) are synced by `scripts/bump-version.sh`. CI `version-check` job validates all 5 secondary locations match `VERSION`. Pre-PR check (`scripts/pre-pr-check.sh` step 3.5) also validates sync locally.

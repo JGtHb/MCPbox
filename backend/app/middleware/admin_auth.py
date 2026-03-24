@@ -68,7 +68,6 @@ def cleanup_expired_jti_cache() -> int:
 
 
 # Paths that don't require admin auth (even when enabled)
-# Only read-only health endpoints are excluded - circuit breaker reset requires auth
 EXCLUDED_PATHS = [
     "/api/config",  # Frontend needs to check if auth is required
     "/mcp",  # MCP gateway has its own auth via Cloudflare
@@ -81,11 +80,9 @@ READ_ONLY_HEALTH_PATHS = [
     "/health",
     "/health/detail",
     "/health/services",
-    "/health/circuits",
     "/api/health",
     "/api/health/detail",
     "/api/health/services",
-    "/api/health/circuits",
 ]
 
 

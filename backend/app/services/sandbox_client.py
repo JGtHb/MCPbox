@@ -11,9 +11,6 @@ import httpx
 
 from app.core import settings
 from app.core.retry import (
-    CircuitBreaker,
-    CircuitBreakerConfig,
-    CircuitBreakerOpen,
     RetryConfig,
     retry_async,
 )
@@ -87,15 +84,6 @@ SANDBOX_RETRY_CONFIG = RetryConfig(
     jitter=True,
 )
 
-# Circuit breaker configuration for sandbox — reads from env vars
-# (CIRCUIT_BREAKER_FAILURE_THRESHOLD, CIRCUIT_BREAKER_TIMEOUT,
-#  CIRCUIT_BREAKER_SUCCESS_THRESHOLD) with sensible defaults.
-SANDBOX_CIRCUIT_CONFIG = CircuitBreakerConfig(
-    failure_threshold=settings.circuit_breaker_failure_threshold,
-    success_threshold=settings.circuit_breaker_success_threshold,
-    timeout=settings.circuit_breaker_timeout,
-)
-
 
 class SandboxClient:
     """Client for communicating with the shared sandbox service.
@@ -103,8 +91,8 @@ class SandboxClient:
     Replaces DockerService - instead of spawning containers, we register
     tools with the shared sandbox service.
 
-    Includes retry logic with exponential backoff and circuit breaker
-    for resilience against transient failures.
+    Includes retry logic with exponential backoff for resilience against
+    transient failures.
     """
 
     _instance: SandboxClient | None = None
@@ -115,10 +103,6 @@ class SandboxClient:
         self._client: httpx.AsyncClient | None = None
         self._client_lock = asyncio.Lock()
         self._api_key = settings.sandbox_api_key
-        self._circuit_breaker = CircuitBreaker.get_or_create(
-            "sandbox",
-            SANDBOX_CIRCUIT_CONFIG,
-        )
 
     def _get_headers(self) -> dict[str, str]:
         """Get headers for sandbox requests including API key."""
@@ -205,15 +189,6 @@ class SandboxClient:
         # but satisfies mypy's missing return statement check.
         raise httpx.CloseError("All retry attempts exhausted")  # pragma: no cover
 
-    def get_circuit_state(self) -> dict[str, Any]:
-        """Get current circuit breaker state."""
-        result: dict[str, Any] = self._circuit_breaker.get_state()
-        return result
-
-    async def reset_circuit(self) -> None:
-        """Reset circuit breaker to closed state."""
-        await self._circuit_breaker.reset()
-
     async def health_check(self) -> bool:
         """Check if sandbox service is healthy."""
         try:
@@ -230,12 +205,8 @@ class SandboxClient:
             result: bool = await retry_async(
                 do_health_check,
                 config=RetryConfig(max_retries=2, base_delay=0.5),
-                circuit_breaker=self._circuit_breaker,
             )
             return result
-        except CircuitBreakerOpen as e:
-            logger.warning(f"Sandbox circuit breaker open: {e}")
-            return False
         except Exception as e:
             logger.warning(f"Sandbox health check failed: {e}")
             return False
@@ -308,17 +279,9 @@ class SandboxClient:
             result: dict[str, Any] = await retry_async(
                 do_register,
                 config=SANDBOX_RETRY_CONFIG,
-                circuit_breaker=self._circuit_breaker,
             )
             return result
 
-        except CircuitBreakerOpen as e:
-            logger.error(f"Cannot register server - circuit breaker open: {e}")
-            return {
-                "success": False,
-                "error": f"Sandbox temporarily unavailable: {e}",
-                "circuit_breaker_open": True,
-            }
         except Exception as e:
             logger.exception(f"Error registering server: {e}")
             return {
@@ -366,17 +329,9 @@ class SandboxClient:
             result: dict[str, Any] = await retry_async(
                 do_update,
                 config=SANDBOX_RETRY_CONFIG,
-                circuit_breaker=self._circuit_breaker,
             )
             return result
 
-        except CircuitBreakerOpen as e:
-            logger.error(f"Cannot update secrets - circuit breaker open: {e}")
-            return {
-                "success": False,
-                "error": f"Sandbox temporarily unavailable: {e}",
-                "circuit_breaker_open": True,
-            }
         except Exception as e:
             logger.exception(f"Error updating server secrets: {e}")
             return {"success": False, "error": str(e)}
@@ -416,17 +371,9 @@ class SandboxClient:
             result: dict[str, Any] = await retry_async(
                 do_unregister,
                 config=SANDBOX_RETRY_CONFIG,
-                circuit_breaker=self._circuit_breaker,
             )
             return result
 
-        except CircuitBreakerOpen as e:
-            logger.error(f"Cannot unregister server - circuit breaker open: {e}")
-            return {
-                "success": False,
-                "error": f"Sandbox temporarily unavailable: {e}",
-                "circuit_breaker_open": True,
-            }
         except Exception as e:
             logger.exception(f"Error unregistering server: {e}")
             return {"success": False, "error": str(e)}
@@ -464,13 +411,9 @@ class SandboxClient:
             result: list[dict[str, Any]] = await retry_async(
                 do_list,
                 config=SANDBOX_RETRY_CONFIG,
-                circuit_breaker=self._circuit_breaker,
             )
             return result
 
-        except CircuitBreakerOpen:
-            logger.warning("Cannot list tools - circuit breaker open")
-            return []
         except Exception as e:
             logger.warning(f"Error listing tools: {e}")
             return []
@@ -518,27 +461,12 @@ class SandboxClient:
             result: dict[str, Any] = await retry_async(
                 do_request,
                 config=SANDBOX_RETRY_CONFIG,
-                circuit_breaker=self._circuit_breaker,
             )
             return result
 
-        except CircuitBreakerOpen as e:
-            logger.error(f"Cannot process MCP request - circuit breaker open: {e}")
-            return {
-                "jsonrpc": "2.0",
-                "id": request.get("id"),
-                "error": {
-                    "code": -32603,
-                    "message": f"Sandbox temporarily unavailable: {e}",
-                },
-            }
         except Exception as e:
             category, message = _classify_sandbox_error(e)
-            circuit_state = self._circuit_breaker.get_state()
-            logger.exception(
-                f"Error with MCP request ({category}): {e!r} "
-                f"[circuit: {circuit_state['state']}, failures: {circuit_state['failure_count']}]"
-            )
+            logger.exception(f"Error with MCP request ({category}): {e!r}")
             return {
                 "jsonrpc": "2.0",
                 "id": request.get("id"),
@@ -547,7 +475,6 @@ class SandboxClient:
                     "message": message,
                     "data": {
                         "error_category": category,
-                        "circuit_breaker": circuit_state["state"],
                     },
                 },
             }
@@ -620,29 +547,16 @@ class SandboxClient:
             result: dict[str, Any] = await retry_async(
                 do_execute,
                 config=SANDBOX_RETRY_CONFIG,
-                circuit_breaker=self._circuit_breaker,
             )
             return result
 
-        except CircuitBreakerOpen as e:
-            logger.error(f"Cannot execute code - circuit breaker open: {e}")
-            return {
-                "success": False,
-                "error": f"Sandbox temporarily unavailable: {e}",
-                "error_category": "sandbox_error",
-            }
         except Exception as e:
             category, message = _classify_sandbox_error(e)
-            circuit_state = self._circuit_breaker.get_state()
-            logger.exception(
-                f"Error executing code ({category}): {e!r} "
-                f"[circuit: {circuit_state['state']}, failures: {circuit_state['failure_count']}]"
-            )
+            logger.exception(f"Error executing code ({category}): {e!r}")
             return {
                 "success": False,
                 "error": message,
                 "error_category": category,
-                "circuit_breaker": circuit_state["state"],
             }
 
     async def discover_external_tools(
@@ -690,12 +604,9 @@ class SandboxClient:
             result: dict[str, Any] = await retry_async(
                 do_discover,
                 config=SANDBOX_RETRY_CONFIG,
-                circuit_breaker=self._circuit_breaker,
             )
             return result
 
-        except CircuitBreakerOpen as e:
-            return {"success": False, "error": f"Sandbox unavailable: {e}"}
         except Exception as e:
             logger.exception(f"Error discovering external tools: {e}")
             return {"success": False, "error": str(e)}
@@ -747,16 +658,9 @@ class SandboxClient:
             result: dict[str, Any] = await retry_async(
                 do_health_check,
                 config=SANDBOX_RETRY_CONFIG,
-                circuit_breaker=self._circuit_breaker,
             )
             return result
 
-        except CircuitBreakerOpen as e:
-            return {
-                "healthy": False,
-                "latency_ms": 0,
-                "error": f"Sandbox unavailable: {e}",
-            }
         except Exception as e:
             logger.exception(f"Error checking external health: {e}")
             return {"healthy": False, "latency_ms": 0, "error": str(e)}
@@ -810,12 +714,9 @@ class SandboxClient:
             result: dict[str, Any] = await retry_async(
                 do_install,
                 config=RetryConfig(max_retries=2, base_delay=1.0),
-                circuit_breaker=self._circuit_breaker,
             )
             return result
 
-        except CircuitBreakerOpen as e:
-            return {"success": False, "error": f"Sandbox unavailable: {e}"}
         except Exception as e:
             logger.exception(f"Error installing package {module_name}: {e}")
             return {"success": False, "error": str(e)}
@@ -852,12 +753,9 @@ class SandboxClient:
             result: dict[str, Any] = await retry_async(
                 do_sync,
                 config=RetryConfig(max_retries=2, base_delay=2.0),
-                circuit_breaker=self._circuit_breaker,
             )
             return result
 
-        except CircuitBreakerOpen as e:
-            return {"success": False, "error": f"Sandbox unavailable: {e}"}
         except Exception as e:
             logger.exception(f"Error syncing packages: {e}")
             return {"success": False, "error": str(e)}
@@ -892,12 +790,9 @@ class SandboxClient:
             result: dict[str, Any] = await retry_async(
                 do_status,
                 config=SANDBOX_RETRY_CONFIG,
-                circuit_breaker=self._circuit_breaker,
             )
             return result
 
-        except CircuitBreakerOpen as e:
-            return {"error": f"Sandbox unavailable: {e}"}
         except Exception as e:
             logger.warning(f"Error getting package status for {module_name}: {e}")
             return {"error": str(e)}
@@ -929,12 +824,9 @@ class SandboxClient:
             result: list[dict[str, str]] = await retry_async(
                 do_list,
                 config=SANDBOX_RETRY_CONFIG,
-                circuit_breaker=self._circuit_breaker,
             )
             return result
 
-        except CircuitBreakerOpen:
-            return []
         except Exception as e:
             logger.warning(f"Error listing installed packages: {e}")
             return []
@@ -969,7 +861,6 @@ class SandboxClient:
             result: dict[str, list[str]] = await retry_async(
                 do_classify,
                 config=SANDBOX_RETRY_CONFIG,
-                circuit_breaker=self._circuit_breaker,
             )
             return result
 
@@ -1007,7 +898,6 @@ class SandboxClient:
             result: dict[str, Any] = await retry_async(
                 do_pypi,
                 config=SANDBOX_RETRY_CONFIG,
-                circuit_breaker=self._circuit_breaker,
             )
             return result
 

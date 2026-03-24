@@ -18,7 +18,7 @@ paths:
 - Use `@pytest.mark.asyncio` for async tests (asyncio_mode = auto in config)
 - Use fixtures from `conftest.py`: `db_session`, `async_client`, `admin_headers`, `server_factory`, `tool_factory`
 - Mock sandbox client with `mock_sandbox_client` fixture for API tests
-- Autouse fixtures handle circuit breaker, rate limiter, and service token cache reset
+- Autouse fixtures handle rate limiter and service token cache reset
 - Test API key: must be 32+ chars (validation enforced)
 - Encryption key for tests: must be exactly 64 hex characters
 - Coverage minimum: 60% (enforced in pyproject.toml)
