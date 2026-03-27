@@ -42,10 +42,3 @@ class TestExcludedPathMatching:
         for path, excluded in similar_paths:
             matches = path == excluded or path.startswith(excluded + "/")
             assert not matches, f"Path '{path}' should NOT match excluded prefix '{excluded}'"
-
-    def test_circuit_breaker_reset_not_in_read_only_paths(self):
-        """Test that POST circuit breaker reset paths require auth."""
-        from app.middleware.admin_auth import READ_ONLY_HEALTH_PATHS
-
-        assert "/health/circuits/reset" not in READ_ONLY_HEALTH_PATHS
-        assert "/api/health/circuits/reset" not in READ_ONLY_HEALTH_PATHS

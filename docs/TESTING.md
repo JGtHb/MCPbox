@@ -153,7 +153,6 @@ cd backend && pytest tests/test_tools.py::test_create_tool -v
 - `auth_tokens`, `admin_headers` — JWT token generation
 - `server_factory`, `tool_factory` — Test data factories
 - `mock_sandbox_client` — Mocked sandbox HTTP client
-- `reset_circuit_breakers` (autouse) — Prevents cascade failures between tests
 - `reset_rate_limiter` (autouse) — Prevents 429 errors in tests
 - `reset_service_token_cache` (autouse) — Ensures local mode in tests
 

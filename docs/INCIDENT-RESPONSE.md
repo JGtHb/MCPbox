@@ -64,7 +64,7 @@ docker compose up -d
 
 ## 2. Sandbox Failure / Tool Registration Loss
 
-**Symptoms:** Tool execution fails, health check shows `"sandbox": "disconnected"`, circuit breaker opens. After sandbox restart, servers show "running" but tools return "not found".
+**Symptoms:** Tool execution fails, health check shows `"sandbox": "disconnected"`. After sandbox restart, servers show "running" but tools return "not found".
 
 ### Diagnosis
 
@@ -74,9 +74,6 @@ docker compose ps sandbox
 
 # Check sandbox logs
 docker compose logs --tail=50 sandbox
-
-# Check circuit breaker state
-curl http://localhost:8000/health/circuits | python -m json.tool
 
 # Test sandbox health directly
 docker compose exec sandbox curl -s http://localhost:8001/health
@@ -96,10 +93,6 @@ docker compose logs --tail=20 mcp-gateway | grep -i "recover"
 
 # If automatic recovery failed, restart backend/mcp-gateway to trigger it again:
 docker compose restart backend mcp-gateway
-
-# If circuit breaker is stuck open, reset it (requires admin JWT)
-curl -X POST http://localhost:8000/health/circuits/reset \
-  -H "Authorization: Bearer <admin-jwt-token>"
 
 # If sandbox is OOM-killed, check resource limits
 docker compose logs sandbox | grep -i "killed\|oom"
@@ -290,7 +283,6 @@ docker compose logs sandbox | grep -i "safety\|forbidden\|blocked\|__class__\|__
 After any incident:
 
 - [ ] Verify all services healthy: `curl http://localhost:8000/health/services`
-- [ ] Check circuit breakers are closed: `curl http://localhost:8000/health/circuits`
 - [ ] Review activity logs for anomalies
 - [ ] Verify remote access works (if configured): test from a remote MCP client
 - [ ] Document the incident and update this runbook if needed

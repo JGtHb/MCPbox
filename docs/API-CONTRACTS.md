@@ -6,7 +6,7 @@
 
 - **Interface**: HTTP REST over Docker network (`mcpbox-sandbox`). Backend uses `SandboxClient` (`backend/app/services/sandbox_client.py`) to communicate with sandbox at `http://sandbox:8001`.
 - **Auth**: `Authorization: Bearer <SANDBOX_API_KEY>` header on all requests
-- **Circuit breaker**: 5 failures → open state, 60s recovery timeout
+- **Retry**: Exponential backoff with 3 retries on transient failures
 
 #### POST /servers/register
 - **Purpose**: Register a server and its approved tools with the sandbox
