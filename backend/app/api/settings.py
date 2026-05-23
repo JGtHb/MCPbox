@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import get_global_config_service, get_setting_service
 from app.core import get_db
 from app.models.module_request import ModuleRequest
 from app.schemas.setting import (
@@ -133,11 +134,6 @@ class UpdateModulesRequest(BaseModel):
     reset_to_defaults: bool | None = Field(None, description="Reset to default modules")
 
 
-def get_setting_service(db: AsyncSession = Depends(get_db)) -> SettingService:
-    """Dependency to get setting service."""
-    return SettingService(db)
-
-
 @router.get("", response_model=SettingListResponse)
 async def list_settings(
     setting_service: SettingService = Depends(get_setting_service),
@@ -240,11 +236,6 @@ async def update_security_policy(
 
 
 # --- Module Configuration Endpoints ---
-
-
-def get_global_config_service(db: AsyncSession = Depends(get_db)) -> GlobalConfigService:
-    """Dependency to get global config service."""
-    return GlobalConfigService(db)
 
 
 @router.get("/modules", response_model=ModuleConfigResponse)

@@ -1,13 +1,11 @@
 """Sandbox API routes."""
 
 import asyncio
-import datetime as datetime_module
-import json as json_module
+import gc
 import logging
 import os
 import time
 
-from contextlib import redirect_stdout
 from typing import Any, Optional
 
 import httpx
@@ -19,14 +17,16 @@ from slowapi.util import get_remote_address
 from app.auth import verify_api_key
 from app.executor import (
     DEFAULT_ALLOWED_MODULES,
-    SafeModuleProxy,
-    SizeLimitedStringIO,
-    create_safe_builtins,
+    python_executor,
     validate_code_safety,
 )
-from app.registry import ensure_private_hosts_in_squid_acl, tool_registry
-from app.ssrf import SSRFError
-from app.ssrf import SSRFProtectedAsyncHttpClient
+from app.registry import (
+    EXECUTION_QUEUE_TIMEOUT,
+    MAX_CONCURRENT_EXECUTIONS,
+    _get_execution_semaphore,
+    ensure_private_hosts_in_proxy_acl,
+    tool_registry,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,6 @@ router = APIRouter(dependencies=[Depends(verify_api_key)])
 MAX_CODE_SIZE = 100 * 1024  # 100KB
 
 # Maximum result size (return value from main()), configurable, default 1MB
-MAX_RESULT_SIZE = int(os.environ.get("SANDBOX_MAX_RESULT_SIZE", 1024 * 1024))
 
 
 class ToolDef(BaseModel):
@@ -157,6 +156,7 @@ class ToolCallResponse(BaseModel):
     success: bool
     result: Optional[Any] = None
     error: Optional[str] = None
+    error_category: Optional[str] = None
     error_detail: Optional[ErrorDetailResponse] = None
     status_code: Optional[int] = None
     stdout: Optional[str] = None
@@ -413,6 +413,7 @@ async def call_tool(request: Request, tool_name: str, body: ToolCallRequest):
         success=result.get("success", False),
         result=result.get("result"),
         error=result.get("error"),
+        error_category=result.get("error_category"),
         error_detail=error_detail,
         status_code=result.get("status_code"),
         stdout=result.get("stdout"),
@@ -441,7 +442,21 @@ async def mcp_endpoint(request: Request, body: dict[str, Any]):
     )
 
     if method == "tools/list":
-        tools = tool_registry.list_tools()
+        try:
+            tools = tool_registry.list_tools()
+        except Exception as e:
+            logger.error(
+                f"MCP tools/list failed: {type(e).__name__}: {e}",
+                exc_info=True,
+            )
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {
+                    "code": -32603,
+                    "message": f"Failed to list tools: {type(e).__name__}: {e}",
+                },
+            }
         logger.info(f"MCP tools/list: returning {len(tools)} tools")
         return {
             "jsonrpc": "2.0",
@@ -715,11 +730,8 @@ class ExecuteCodeResponse(BaseModel):
     success: bool
     result: Optional[Any] = None
     error: Optional[str] = None
+    error_category: Optional[str] = None
     stdout: Optional[str] = None
-
-
-# Safe builtins are provided by create_safe_builtins() from executor.py
-# (single source of truth — do NOT duplicate the builtin list here)
 
 
 @router.post("/execute", response_model=ExecuteCodeResponse)
@@ -727,35 +739,28 @@ class ExecuteCodeResponse(BaseModel):
 async def execute_python_code(request: Request, body: ExecuteCodeRequest):
     """Execute Python code in a sandboxed environment.
 
-    This endpoint provides direct code execution for testing.
+    This endpoint provides direct code execution for testing (mcpbox_test_code).
     For production use, register tools and use the /tools/{name}/call endpoint.
 
-    The code runs in an isolated namespace with:
-    - Limited builtins (no file/network access from builtins)
-    - Access to httpx for HTTP requests
-    - Access to json for JSON parsing
-    - Secrets available via read-only `secrets` dict
-
-    The code must set a 'result' variable to return data.
-
-    Security:
-    - Secrets are injected as a read-only MappingProxyType
-    - Code cannot access the real system environment
+    Delegates to PythonExecutor.execute() — the same code path used by
+    /tools/{name}/call — so behavior is identical between test and production.
     """
-    # Validate code length
+    # Validate code length (request-level, before hitting the executor)
     if len(body.code) > 50000:
         return ExecuteCodeResponse(
             success=False,
             error="Code too long (max 50,000 characters)",
+            error_category="validation_error",
         )
 
-    # SECURITY: Validate code safety before execution
-    # This checks for sandbox escape patterns like __class__, __mro__, __subclasses__, etc.
+    # Pre-validate code safety so we can return a cleaner error message
+    # (the executor also validates, but wraps the error differently)
     is_safe, error_msg = validate_code_safety(body.code, "<execute>")
     if not is_safe:
         return ExecuteCodeResponse(
             success=False,
             error=f"Code safety validation failed: {error_msg}",
+            error_category="validation_error",
         )
 
     # Validate timeout bounds (1 second to 5 minutes max)
@@ -770,151 +775,68 @@ async def execute_python_code(request: Request, body: ExecuteCodeRequest):
         else DEFAULT_ALLOWED_MODULES
     )
 
-    # Create builtins using the shared function (single source of truth)
-    safe_builtins_with_import = create_safe_builtins(
-        allowed_modules=allowed_modules_set
+    allowed_hosts_set = (
+        set(body.allowed_hosts) if body.allowed_hosts is not None else None
     )
 
-    # Create isolated namespace matching published tool environment
-    # This ensures test_code results match production behavior
-    from types import MappingProxyType
-
-    namespace = {
-        "__builtins__": safe_builtins_with_import,
-        # Wrap modules with SafeModuleProxy to prevent attribute traversal
-        # (e.g., datetime.sys.modules["os"].popen("id"))
-        "json": SafeModuleProxy(json_module, name="json"),
-        "datetime": SafeModuleProxy(datetime_module, name="datetime"),
-        "arguments": body.arguments,
-        "secrets": MappingProxyType(body.secrets),  # Read-only secrets dict
-        "result": None,
-    }
-
-    # Capture stdout (size-limited to prevent memory exhaustion)
-    stdout_capture = SizeLimitedStringIO()
-
-    # SECURITY: Override print() in builtins to capture stdout per-execution
-    # (matches PythonExecutor.execute() pattern — see executor.py line 1879).
-    # redirect_stdout only covers Phase 1 (exec), so print() inside main()
-    # would go to real stdout without this override.
-    safe_builtins_with_import["print"] = lambda *args, **kwargs: print(
-        *args, file=stdout_capture, **kwargs
-    )
-
-    # Ensure approved private hosts are in the squid ACL file BEFORE execution.
+    # Ensure approved hosts are in the proxy ACL file BEFORE execution.
     # The /execute endpoint bypasses the registry (no register_server() call),
-    # so _update_squid_approved_hosts() is never triggered.  Without this,
-    # the SSRF client allows the request but squid blocks it with 403.
-    ensure_private_hosts_in_squid_acl(body.allowed_hosts)
+    # so _update_proxy_approved_hosts() is never triggered.  Without this,
+    # the SSRF client allows the request but the proxy blocks the connection.
+    ensure_private_hosts_in_proxy_acl(body.allowed_hosts)
 
-    # Phase 1: exec() the code to define functions (synchronous, just defines main())
-    # Phase 2: If async main() is defined, create http client on THIS loop and await it
-    # This mirrors PythonExecutor.execute() which does exec() then await main_func()
-    _http_client = None
+    # Acquire concurrency semaphore (same one used by tool_registry.execute_tool)
+    # to prevent concurrent executions from exhausting sandbox memory.
+    sem = _get_execution_semaphore()
     try:
-        try:
-            # Phase 1: Define functions by executing the code
-            with redirect_stdout(stdout_capture):
-                exec(body.code, namespace)
-
-            # Phase 2: Check if an async main() was defined
-            main_func = namespace.get("main")
-            if main_func is not None and asyncio.iscoroutinefunction(main_func):
-                # Create SSRF-protected HTTP client on the CURRENT event loop
-                # (same loop we'll await main() on — avoids event loop affinity issues).
-                # Pass allowed_hosts to enforce the same per-server network allowlist
-                # as production tool execution (None = global SSRF only).
-                _http_client = httpx.AsyncClient()
-                _allowed_hosts = (
-                    set(body.allowed_hosts) if body.allowed_hosts is not None else None
-                )
-                _protected_http = SSRFProtectedAsyncHttpClient(
-                    _http_client, allowed_hosts=_allowed_hosts
-                )
-                namespace["http"] = _protected_http
-
-                # Await main() directly on this event loop (matches production executor)
-                result = await asyncio.wait_for(
-                    main_func(**body.arguments),
-                    timeout=timeout_seconds,
-                )
-                namespace["result"] = result
-            elif main_func is not None and callable(main_func):
-                # Synchronous main() — call it directly
-                result = main_func(**body.arguments)
-                namespace["result"] = result
-
-        except asyncio.TimeoutError:
-            return ExecuteCodeResponse(
-                success=False,
-                error=f"Execution timed out after {timeout_seconds} seconds",
-                stdout=stdout_capture.getvalue()[:10000],
-            )
-        except SSRFError as e:
-            # Network access blocked — surface the specific host and hint so the
-            # LLM can immediately call mcpbox_request_network_access rather than
-            # guessing why the HTTP call failed silently.
-            return ExecuteCodeResponse(
-                success=False,
-                error=f"Network access blocked: {e}",
-                stdout=stdout_capture.getvalue()[:10000],
-            )
-        except (
-            ValueError,
-            TypeError,
-            KeyError,
-            AttributeError,
-            IndexError,
-            ZeroDivisionError,
-            SyntaxError,
-            ImportError,
-            NameError,
-            StopIteration,
-            ArithmeticError,
-            LookupError,
-        ) as e:
-            # Known safe exceptions — return details to help debugging
-            return ExecuteCodeResponse(
-                success=False,
-                error=f"Execution error: {type(e).__name__}: {str(e)}",
-                stdout=stdout_capture.getvalue()[:10000],
-            )
-        except Exception as e:
-            # Unknown/unexpected exceptions may contain sensitive internal details
-            # (e.g., database connection strings, file paths, infrastructure info).
-            # Return a generic error message and log the real error server-side.
-            logger.error(f"Unexpected execution error: {type(e).__name__}: {e}")
-            return ExecuteCodeResponse(
-                success=False,
-                error="An internal error occurred during code execution",
-                stdout=stdout_capture.getvalue()[:10000],
-            )
-
-        # Get result and enforce size limit to prevent memory exhaustion
-        result = namespace.get("result")
-        if result is not None:
-            try:
-                result_str = (
-                    json_module.dumps(result) if not isinstance(result, str) else result
-                )
-                if len(result_str) > MAX_RESULT_SIZE:
-                    result = (
-                        result_str[:MAX_RESULT_SIZE]
-                        + f"\n... [RESULT TRUNCATED - exceeded"
-                        f" {MAX_RESULT_SIZE // 1024}KB limit] ..."
-                    )
-            except (TypeError, ValueError):
-                pass  # Non-serializable results handled downstream
-
+        await asyncio.wait_for(sem.acquire(), timeout=EXECUTION_QUEUE_TIMEOUT)
+    except asyncio.TimeoutError:
         return ExecuteCodeResponse(
-            success=True,
-            result=result,
-            stdout=stdout_capture.getvalue()[:10000],  # Limit stdout
+            success=False,
+            error=(
+                f"Sandbox busy: {MAX_CONCURRENT_EXECUTIONS} tools are already running. "
+                f"Timed out after {EXECUTION_QUEUE_TIMEOUT}s waiting for a slot."
+            ),
+            error_category="sandbox_error",
+        )
+
+    # Delegate to PythonExecutor — same code path as /tools/{name}/call.
+    # This ensures SOCKS5 routing, namespace setup, SSRF protection, secret
+    # redaction, and error handling are always in sync.
+    http_client = httpx.AsyncClient(
+        timeout=timeout_seconds,
+        follow_redirects=False,
+    )
+    try:
+        exec_result = await python_executor.execute(
+            python_code=body.code,
+            arguments=body.arguments,
+            http_client=http_client,
+            timeout=timeout_seconds,
+            allowed_modules=allowed_modules_set,
+            secrets=body.secrets,
+            allowed_hosts=allowed_hosts_set,
+        )
+
+        # Convert ExecutionResult → ExecuteCodeResponse.
+        # Use to_dict() which handles result size truncation and serialization.
+        result_dict = exec_result.to_dict()
+        return ExecuteCodeResponse(
+            success=result_dict["success"],
+            result=result_dict.get("result"),
+            error=result_dict.get("error"),
+            error_category=result_dict.get("error_category"),
+            stdout=(result_dict.get("stdout") or "")[:10000],
         )
     finally:
-        # Clean up HTTP client
-        if _http_client is not None:
-            await _http_client.aclose()
+        try:
+            await http_client.aclose()
+        except Exception as e:
+            logger.warning(f"Error closing HTTP client: {e}")
+        # Release concurrency semaphore
+        sem.release()
+        # Reclaim memory left by cancelled/completed executions
+        gc.collect()
 
 
 # Note: Health check is defined in main.py at /health (without auth requirement)
@@ -1118,7 +1040,11 @@ async def get_pypi_info_endpoint(body: PyPIInfoRequest):
     and project health from deps.dev. Stdlib modules skip safety checks.
     """
     from app.stdlib_detector import is_stdlib_module
-    from app.pypi_client import fetch_module_info, package_info_to_dict
+    from app.pypi_client import (
+        fetch_module_info,
+        get_package_name_for_module,
+        package_info_to_dict,
+    )
 
     is_stdlib = is_stdlib_module(body.module_name)
 
@@ -1131,7 +1057,20 @@ async def get_pypi_info_endpoint(body: PyPIInfoRequest):
         )
 
     try:
-        package_name, info = await fetch_module_info(body.module_name)
+        from app.pypi_client import PyPILookupError
+
+        try:
+            package_name, info = await fetch_module_info(body.module_name)
+        except PyPILookupError as e:
+            # Network/server error — distinct from "package doesn't exist"
+            package_name = await get_package_name_for_module(body.module_name)
+            return PyPIInfoResponse(
+                module_name=body.module_name,
+                package_name=package_name,
+                is_stdlib=False,
+                pypi_info=None,
+                error=f"PyPI lookup failed for '{package_name}': {e}",
+            )
 
         if info is None:
             return PyPIInfoResponse(

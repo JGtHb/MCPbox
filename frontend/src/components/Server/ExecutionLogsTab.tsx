@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useServerExecutionLogs, type ExecutionLog } from '../../api/executionLogs'
+import { Pagination } from '../ui'
 
 export function formatDuration(ms: number | null): string {
   if (ms === null) return '-'
@@ -200,27 +201,7 @@ export function ExecutionLogsTab({ serverId }: ExecutionLogsTabProps) {
         ))}
       </div>
 
-      {data.pages > 1 && (
-        <div className="flex items-center justify-between mt-4 text-sm">
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page <= 1}
-            className="px-3 py-1 border border-hl-med rounded-lg text-on-base disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
-          >
-            Previous
-          </button>
-          <span className="text-subtle">
-            Page {page} of {data.pages}
-          </span>
-          <button
-            onClick={() => setPage((p) => Math.min(data.pages, p + 1))}
-            disabled={page >= data.pages}
-            className="px-3 py-1 border border-hl-med rounded-lg text-on-base disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
-          >
-            Next
-          </button>
-        </div>
-      )}
+      <Pagination page={page} totalPages={data.pages} onPageChange={setPage} />
     </div>
   )
 }

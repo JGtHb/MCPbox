@@ -208,7 +208,7 @@ ALERT_WEBHOOK_URL=https://hooks.slack.com/services/your/webhook/url
 ALERT_WEBHOOK_URL=https://your-service.com/webhook
 ```
 
-Alerts are sent on `log_alert()` calls (circuit breaker trips, security events, etc.).
+Alerts are sent on `log_alert()` calls (security events, etc.).
 
 ### Log Aggregation
 
@@ -371,7 +371,7 @@ curl http://localhost:8000/health/services
 See [INCIDENT-RESPONSE.md](./INCIDENT-RESPONSE.md) for operational runbooks covering:
 
 - Database failure recovery
-- Sandbox failure and circuit breaker reset
+- Sandbox failure recovery
 - Encryption key compromise
 - Tunnel disconnection
 - Rate limiting issues
@@ -383,8 +383,6 @@ Hardcoded limits and timeouts across the codebase:
 
 | Setting | Value | Location | Description |
 |---------|-------|----------|-------------|
-| Circuit breaker failure threshold | 5 | `core/retry.py` | Failures before circuit opens |
-| Circuit breaker recovery timeout | 60s | `core/retry.py` | Seconds before half-open attempt |
 | Tool execution timeout | 30s default | `sandbox/app/routes.py` | Per-tool, configurable up to 300s |
 | Max SSE connections | 50 | `api/mcp_gateway.py` | Concurrent MCP SSE connections |
 | Sandbox memory limit | 256MB | `sandbox/app/executor.py` | RLIMIT_AS per process |

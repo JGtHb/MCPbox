@@ -1,9 +1,9 @@
 # MCPbox Backend Dependencies
-fastapi==0.133.1
+fastapi==0.136.1
 uvicorn[standard]==0.40.0
 pydantic==2.12.5
 pydantic-settings==2.12.0
-python-dotenv==1.2.1
+python-dotenv==1.2.2
 
 # Database
 sqlalchemy[asyncio]==2.0.47
@@ -11,8 +11,8 @@ asyncpg==0.31.0
 alembic==1.18.4
 
 # Security
-cryptography==46.0.5
-PyJWT[crypto]==2.11.0
+cryptography==46.0.7
+PyJWT[crypto]==2.12.0
 argon2-cffi==25.1.0
 
 # Metrics

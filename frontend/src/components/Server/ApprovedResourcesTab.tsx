@@ -6,12 +6,32 @@ import {
   useRevokeToolApproval,
   useRevokeModuleRequest,
   useRevokeNetworkRequest,
+  useModuleRequestAction,
+  useNetworkRequestAction,
+  useDeleteModuleRequest,
+  useDeleteNetworkRequest,
 } from '../../api/approvals'
 import { useAddAllowedHost, useRemoveAllowedHost } from '../../api/servers'
 import { ConfirmModal } from '../ui'
 
 interface ApprovedResourcesTabProps {
   serverId: string
+}
+
+const STATUS_BADGE: Record<string, { className: string; label: string }> = {
+  approved: { className: 'bg-foam/10 text-foam', label: 'Approved' },
+  pending: { className: 'bg-gold/10 text-gold', label: 'Pending' },
+  pending_review: { className: 'bg-gold/10 text-gold', label: 'Pending' },
+  rejected: { className: 'bg-love/10 text-love', label: 'Rejected' },
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const badge = STATUS_BADGE[status] ?? { className: 'bg-overlay text-subtle', label: status }
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded ${badge.className}`}>
+      {badge.label}
+    </span>
+  )
 }
 
 function RevokeButton({
@@ -37,7 +57,7 @@ function RevokeButton({
       <ConfirmModal
         isOpen={confirming}
         title="Revoke Approval"
-        message={`Are you sure you want to revoke "${label}"? It will be placed back in the pending review queue.`}
+        message={`Are you sure you want to revoke "${label}"? It will be removed from the active configuration.`}
         confirmLabel="Revoke"
         destructive
         isLoading={isLoading}
@@ -89,24 +109,31 @@ function RemoveHostButton({
 }
 
 export function ApprovedResourcesTab({ serverId }: ApprovedResourcesTabProps) {
-  const { data: moduleData, isLoading: modulesLoading } = useServerModuleRequests(serverId)
-  const { data: networkData, isLoading: networkLoading } = useServerNetworkRequests(serverId)
+  const { data: moduleData, isLoading: modulesLoading } = useServerModuleRequests(serverId, 'all')
+  const { data: networkData, isLoading: networkLoading } = useServerNetworkRequests(serverId, 'all')
   const { data: toolsData, isLoading: toolsLoading } = useServerApprovedTools(serverId)
 
   const revokeToolMutation = useRevokeToolApproval()
   const revokeModuleMutation = useRevokeModuleRequest()
   const revokeNetworkMutation = useRevokeNetworkRequest()
+  const moduleActionMutation = useModuleRequestAction()
+  const networkActionMutation = useNetworkRequestAction()
+  const deleteModuleMutation = useDeleteModuleRequest()
+  const deleteNetworkMutation = useDeleteNetworkRequest()
   const addHostMutation = useAddAllowedHost()
   const removeHostMutation = useRemoveAllowedHost()
 
   const [error, setError] = useState<string | null>(null)
   const [showAddHost, setShowAddHost] = useState(false)
   const [newHost, setNewHost] = useState('')
+  const [rejectModuleTarget, setRejectModuleTarget] = useState<{ id: string; name: string } | null>(null)
+  const [rejectNetworkTarget, setRejectNetworkTarget] = useState<{ id: string; name: string } | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
 
-  const handleRevokeWithError = (fn: () => Promise<unknown>) => {
+  const handleWithError = (fn: () => Promise<unknown>) => {
     setError(null)
     fn().catch((err: unknown) => {
-      setError(err instanceof Error ? err.message : 'Revocation failed')
+      setError(err instanceof Error ? err.message : 'Operation failed')
     })
   }
 
@@ -158,8 +185,13 @@ export function ApprovedResourcesTab({ serverId }: ApprovedResourcesTabProps) {
   const networkHosts = networkData?.items ?? []
   const approvedTools = toolsData?.items ?? []
 
-  // All hosts now come from network request records (both LLM and admin-originated)
-  const totalHostCount = networkHosts.length
+  const pendingModules = modules.filter((m) => !m.status || m.status === 'pending')
+  const approvedModules = modules.filter((m) => m.status === 'approved')
+  const rejectedModules = modules.filter((m) => m.status === 'rejected')
+
+  const pendingNetwork = networkHosts.filter((n) => !n.status || n.status === 'pending')
+  const approvedNetwork = networkHosts.filter((n) => n.status === 'approved')
+  const rejectedNetwork = networkHosts.filter((n) => n.status === 'rejected')
 
   return (
     <div className="space-y-6">
@@ -249,7 +281,7 @@ export function ApprovedResourcesTab({ serverId }: ApprovedResourcesTabProps) {
                         label={tool.name}
                         isLoading={revokeToolMutation.isPending}
                         onRevoke={() =>
-                          handleRevokeWithError(() =>
+                          handleWithError(() =>
                             revokeToolMutation.mutateAsync(tool.id)
                           )
                         }
@@ -263,14 +295,14 @@ export function ApprovedResourcesTab({ serverId }: ApprovedResourcesTabProps) {
         )}
       </div>
 
-      {/* Approved Modules */}
+      {/* Modules */}
       <div className="bg-surface rounded-lg shadow">
         <div className="px-6 py-4 border-b border-hl-med">
           <h3 className="text-lg font-medium text-on-base">
-            Approved Modules ({modules.length})
+            Modules ({modules.length})
           </h3>
           <p className="text-xs text-muted mt-0.5">
-            Revoke to remove the module from the global whitelist
+            Python modules allowed for import in the sandbox
           </p>
         </div>
         {modules.length === 0 ? (
@@ -288,7 +320,7 @@ export function ApprovedResourcesTab({ serverId }: ApprovedResourcesTabProps) {
                 d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
               />
             </svg>
-            <p className="text-subtle">No approved modules for this server</p>
+            <p className="text-subtle">No module requests for this server</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -302,7 +334,7 @@ export function ApprovedResourcesTab({ serverId }: ApprovedResourcesTabProps) {
                     Tool
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-subtle uppercase tracking-wider">
-                    Reviewed By
+                    Status
                   </th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-subtle uppercase tracking-wider">
                     Actions
@@ -310,10 +342,14 @@ export function ApprovedResourcesTab({ serverId }: ApprovedResourcesTabProps) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-hl-med">
-                {modules.map((mod) => (
+                {/* Pending first */}
+                {pendingModules.map((mod) => (
                   <tr key={mod.id}>
-                    <td className="px-6 py-3 text-sm font-mono text-on-base">
-                      {mod.module_name}
+                    <td className="px-6 py-3">
+                      <span className="text-sm font-mono text-on-base">{mod.module_name}</span>
+                      {mod.justification && (
+                        <p className="text-xs text-muted mt-0.5 truncate max-w-xs">{mod.justification}</p>
+                      )}
                     </td>
                     <td className="px-6 py-3 text-sm text-subtle">
                       {mod.source === 'admin' ? (
@@ -322,19 +358,88 @@ export function ApprovedResourcesTab({ serverId }: ApprovedResourcesTabProps) {
                         mod.tool_name ?? '—'
                       )}
                     </td>
-                    <td className="px-6 py-3 text-sm text-subtle">
-                      {mod.reviewed_by ?? '—'}
+                    <td className="px-6 py-3"><StatusBadge status={mod.status} /></td>
+                    <td className="px-6 py-3 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => handleWithError(() => moduleActionMutation.mutateAsync({ requestId: mod.id, action: 'approve' }))}
+                          disabled={moduleActionMutation.isPending}
+                          className="px-2.5 py-1 text-xs font-medium text-foam bg-surface border border-foam/20 rounded-lg hover:bg-foam/10 transition-colors focus:outline-none focus:ring-2 focus:ring-foam disabled:opacity-50"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => setRejectModuleTarget({ id: mod.id, name: mod.module_name })}
+                          disabled={moduleActionMutation.isPending}
+                          className="px-2.5 py-1 text-xs font-medium text-gold bg-surface border border-gold/20 rounded-lg hover:bg-gold/10 transition-colors focus:outline-none focus:ring-2 focus:ring-gold disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                      </div>
                     </td>
+                  </tr>
+                ))}
+                {/* Approved */}
+                {approvedModules.map((mod) => (
+                  <tr key={mod.id}>
+                    <td className="px-6 py-3">
+                      <span className="text-sm font-mono text-on-base">{mod.module_name}</span>
+                    </td>
+                    <td className="px-6 py-3 text-sm text-subtle">
+                      {mod.source === 'admin' ? (
+                        <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-iris/10 text-iris border border-iris/20">Admin</span>
+                      ) : (
+                        mod.tool_name ?? '—'
+                      )}
+                    </td>
+                    <td className="px-6 py-3"><StatusBadge status={mod.status} /></td>
                     <td className="px-6 py-3 text-right">
                       <RevokeButton
                         label={mod.module_name}
                         isLoading={revokeModuleMutation.isPending}
                         onRevoke={() =>
-                          handleRevokeWithError(() =>
+                          handleWithError(() =>
                             revokeModuleMutation.mutateAsync(mod.id)
                           )
                         }
                       />
+                    </td>
+                  </tr>
+                ))}
+                {/* Rejected */}
+                {rejectedModules.map((mod) => (
+                  <tr key={mod.id}>
+                    <td className="px-6 py-3">
+                      <span className="text-sm font-mono text-on-base">{mod.module_name}</span>
+                      {mod.rejection_reason && (
+                        <p className="text-xs text-love mt-0.5 truncate max-w-xs">{mod.rejection_reason}</p>
+                      )}
+                    </td>
+                    <td className="px-6 py-3 text-sm text-subtle">
+                      {mod.source === 'admin' ? (
+                        <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-iris/10 text-iris border border-iris/20">Admin</span>
+                      ) : (
+                        mod.tool_name ?? '—'
+                      )}
+                    </td>
+                    <td className="px-6 py-3"><StatusBadge status={mod.status} /></td>
+                    <td className="px-6 py-3 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => handleWithError(() => moduleActionMutation.mutateAsync({ requestId: mod.id, action: 'approve' }))}
+                          disabled={moduleActionMutation.isPending}
+                          className="px-2.5 py-1 text-xs font-medium text-foam bg-surface border border-foam/20 rounded-lg hover:bg-foam/10 transition-colors focus:outline-none focus:ring-2 focus:ring-foam disabled:opacity-50"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => handleWithError(() => deleteModuleMutation.mutateAsync(mod.id))}
+                          disabled={deleteModuleMutation.isPending}
+                          className="px-2.5 py-1 text-xs font-medium text-love bg-surface border border-love/20 rounded-lg hover:bg-love/10 transition-colors focus:outline-none focus:ring-2 focus:ring-love disabled:opacity-50"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -344,12 +449,12 @@ export function ApprovedResourcesTab({ serverId }: ApprovedResourcesTabProps) {
         )}
       </div>
 
-      {/* Network Access (approved requests + manually-added hosts) */}
+      {/* Network Access */}
       <div className="bg-surface rounded-lg shadow">
         <div className="px-6 py-4 border-b border-hl-med flex items-start justify-between">
           <div>
             <h3 className="text-lg font-medium text-on-base">
-              Network Access ({totalHostCount})
+              Network Access ({networkHosts.length})
             </h3>
             <p className="text-xs text-muted mt-0.5">
               Hosts allowed to be reached from the sandbox
@@ -404,7 +509,7 @@ export function ApprovedResourcesTab({ serverId }: ApprovedResourcesTabProps) {
           </div>
         )}
 
-        {totalHostCount === 0 && !showAddHost ? (
+        {networkHosts.length === 0 && !showAddHost ? (
           <div className="px-6 py-8 text-center">
             <svg
               className="w-12 h-12 text-subtle mx-auto mb-3"
@@ -433,7 +538,7 @@ export function ApprovedResourcesTab({ serverId }: ApprovedResourcesTabProps) {
                     Port
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-subtle uppercase tracking-wider">
-                    Source
+                    Status
                   </th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-subtle uppercase tracking-wider">
                     Actions
@@ -441,21 +546,43 @@ export function ApprovedResourcesTab({ serverId }: ApprovedResourcesTabProps) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-hl-med">
-                {networkHosts.map((req) => (
+                {/* Pending first */}
+                {pendingNetwork.map((req) => (
+                  <tr key={req.id}>
+                    <td className="px-6 py-3">
+                      <span className="text-sm font-mono text-on-base">{req.host}</span>
+                      {req.justification && (
+                        <p className="text-xs text-muted mt-0.5 truncate max-w-xs">{req.justification}</p>
+                      )}
+                    </td>
+                    <td className="px-6 py-3 text-sm text-subtle">{req.port ?? 'Any'}</td>
+                    <td className="px-6 py-3"><StatusBadge status={req.status} /></td>
+                    <td className="px-6 py-3 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => handleWithError(() => networkActionMutation.mutateAsync({ requestId: req.id, action: 'approve' }))}
+                          disabled={networkActionMutation.isPending}
+                          className="px-2.5 py-1 text-xs font-medium text-foam bg-surface border border-foam/20 rounded-lg hover:bg-foam/10 transition-colors focus:outline-none focus:ring-2 focus:ring-foam disabled:opacity-50"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => setRejectNetworkTarget({ id: req.id, name: `${req.host}${req.port ? `:${req.port}` : ''}` })}
+                          disabled={networkActionMutation.isPending}
+                          className="px-2.5 py-1 text-xs font-medium text-gold bg-surface border border-gold/20 rounded-lg hover:bg-gold/10 transition-colors focus:outline-none focus:ring-2 focus:ring-gold disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {/* Approved */}
+                {approvedNetwork.map((req) => (
                   <tr key={req.id}>
                     <td className="px-6 py-3 text-sm font-mono text-on-base">{req.host}</td>
                     <td className="px-6 py-3 text-sm text-subtle">{req.port ?? 'Any'}</td>
-                    <td className="px-6 py-3 text-sm text-subtle">
-                      {req.source === 'admin' ? (
-                        <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-iris/10 text-iris border border-iris/20">
-                          Manual
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-foam/10 text-foam border border-foam/20">
-                          Request ({req.tool_name ?? 'unknown'})
-                        </span>
-                      )}
-                    </td>
+                    <td className="px-6 py-3"><StatusBadge status={req.status} /></td>
                     <td className="px-6 py-3 text-right">
                       {req.source === 'admin' ? (
                         <RemoveHostButton
@@ -468,7 +595,7 @@ export function ApprovedResourcesTab({ serverId }: ApprovedResourcesTabProps) {
                           label={req.host}
                           isLoading={revokeNetworkMutation.isPending}
                           onRevoke={() =>
-                            handleRevokeWithError(() =>
+                            handleWithError(() =>
                               revokeNetworkMutation.mutateAsync(req.id)
                             )
                           }
@@ -477,11 +604,114 @@ export function ApprovedResourcesTab({ serverId }: ApprovedResourcesTabProps) {
                     </td>
                   </tr>
                 ))}
+                {/* Rejected */}
+                {rejectedNetwork.map((req) => (
+                  <tr key={req.id}>
+                    <td className="px-6 py-3">
+                      <span className="text-sm font-mono text-on-base">{req.host}</span>
+                      {req.rejection_reason && (
+                        <p className="text-xs text-love mt-0.5 truncate max-w-xs">{req.rejection_reason}</p>
+                      )}
+                    </td>
+                    <td className="px-6 py-3 text-sm text-subtle">{req.port ?? 'Any'}</td>
+                    <td className="px-6 py-3"><StatusBadge status={req.status} /></td>
+                    <td className="px-6 py-3 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => handleWithError(() => networkActionMutation.mutateAsync({ requestId: req.id, action: 'approve' }))}
+                          disabled={networkActionMutation.isPending}
+                          className="px-2.5 py-1 text-xs font-medium text-foam bg-surface border border-foam/20 rounded-lg hover:bg-foam/10 transition-colors focus:outline-none focus:ring-2 focus:ring-foam disabled:opacity-50"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => handleWithError(() => deleteNetworkMutation.mutateAsync(req.id))}
+                          disabled={deleteNetworkMutation.isPending}
+                          className="px-2.5 py-1 text-xs font-medium text-love bg-surface border border-love/20 rounded-lg hover:bg-love/10 transition-colors focus:outline-none focus:ring-2 focus:ring-love disabled:opacity-50"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
         )}
       </div>
+
+      {/* Module Reject Modal */}
+      {rejectModuleTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50" role="dialog" aria-modal="true" onClick={() => { setRejectModuleTarget(null); setRejectReason('') }}>
+          <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl mx-4" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-medium text-on-base">Reject: {rejectModuleTarget.name}</h3>
+            <p className="mt-1 text-sm text-subtle">Provide a reason for the rejection (optional).</p>
+            <textarea
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              className="mt-4 w-full rounded-lg border border-hl-med p-2 text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
+              rows={3}
+              placeholder="Reason (optional)..."
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => { setRejectModuleTarget(null); setRejectReason('') }}
+                className="rounded-lg border border-hl-med px-3 py-1.5 text-sm font-medium text-on-base hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  await moduleActionMutation.mutateAsync({ requestId: rejectModuleTarget.id, action: 'reject', reason: rejectReason.trim() || undefined })
+                  setRejectModuleTarget(null)
+                  setRejectReason('')
+                }}
+                disabled={moduleActionMutation.isPending}
+                className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
+              >
+                Reject
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Network Reject Modal */}
+      {rejectNetworkTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/50" role="dialog" aria-modal="true" onClick={() => { setRejectNetworkTarget(null); setRejectReason('') }}>
+          <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl mx-4" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-medium text-on-base">Reject: {rejectNetworkTarget.name}</h3>
+            <p className="mt-1 text-sm text-subtle">Provide a reason for the rejection (optional).</p>
+            <textarea
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              className="mt-4 w-full rounded-lg border border-hl-med p-2 text-sm bg-surface text-on-base focus:outline-none focus:ring-2 focus:ring-iris focus:border-iris"
+              rows={3}
+              placeholder="Reason (optional)..."
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => { setRejectNetworkTarget(null); setRejectReason('') }}
+                className="rounded-lg border border-hl-med px-3 py-1.5 text-sm font-medium text-on-base hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  await networkActionMutation.mutateAsync({ requestId: rejectNetworkTarget.id, action: 'reject', reason: rejectReason.trim() || undefined })
+                  setRejectNetworkTarget(null)
+                  setRejectReason('')
+                }}
+                disabled={networkActionMutation.isPending}
+                className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-base hover:bg-gold/80 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
+              >
+                Reject
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

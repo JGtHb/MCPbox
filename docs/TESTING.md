@@ -2,14 +2,14 @@
 
 ## Summary
 
-MCPbox maintains **1,300+ test functions** across backend, sandbox, frontend, and worker. Security-critical paths (sandbox escape, SSRF, auth) have excellent coverage. Backend API coverage is good for core endpoints but has gaps in secondary endpoints. Frontend coverage is poor (4 components tested out of ~30). Worker tests are comprehensive.
+MCPbox maintains **1,350+ test functions** across backend, sandbox, frontend, and worker. Security-critical paths (sandbox escape, SSRF, auth) have excellent coverage. Backend API coverage is good for core endpoints but has gaps in secondary endpoints. Frontend coverage is poor (4 components tested out of ~30). Worker tests are comprehensive.
 
 | Component | Test Files | Test Functions | Estimated Coverage | Grade |
 |-----------|-----------|---------------|-------------------|-------|
 | Backend | 46 | ~840 | 65-70% | B |
-| Sandbox | 13 | ~350 | 75-80% | A |
+| Sandbox | 15 | ~380 | 75-80% | A |
 | Frontend | 4 | ~50 | 15-20% | D |
-| Worker | 1 | ~72 | 85% | A |
+| Worker | 1 | ~78 | 85% | A |
 
 **Coverage minimum enforced**: Backend `fail_under = 60` in `pyproject.toml`. No minimum for other components.
 
@@ -58,9 +58,10 @@ MCPbox maintains **1,300+ test functions** across backend, sandbox, frontend, an
 
 | Module | Unit Tests | Integration Tests | E2E Tests | Estimated Coverage | Critical Gaps |
 |--------|-----------|-------------------|-----------|-------------------|---------------|
-| `executor.py` | 40+ safety, 30+ escape, 30+ hardening | 15+ execute | - | 80% | Concurrent execution untested |
-| `ssrf.py` | 95+ tests (direct, proxy, admin-approved) | - | - | 95% | Integration: sandbox → squid → internet |
-| `registry.py` | 15+ tests | - | - | 75% | - |
+| `executor.py` | 40+ safety, 30+ escape, 30+ hardening | 15+ execute | - | 80% | - |
+| `ssrf.py` | 95+ tests (direct, proxy, admin-approved) | - | - | 95% | Integration: sandbox → socks-proxy → internet |
+| `safe_socket.py` | 20+ tests | - | - | 85% | SafeSocket, module interface, SOCKS5 handshake |
+| `registry.py` | 15+ tests, 8 concurrency tests | - | - | 80% | - |
 | `mcp_client.py` | 20+ tests | - | - | 70% | SSRF validation gap untested |
 | `mcp_session_pool.py` | 15+ tests | - | - | 70% | - |
 | `package_installer.py` | 20+ tests | - | - | 75% | - |
@@ -89,7 +90,7 @@ MCPbox maintains **1,300+ test functions** across backend, sandbox, frontend, an
 
 | Module | Unit Tests | Integration Tests | E2E Tests | Estimated Coverage | Critical Gaps |
 |--------|-----------|-------------------|-----------|-------------------|---------------|
-| `index.ts` | 72 tests | - | - | 85% | - |
+| `index.ts` | 78 tests | - | - | 85% | - |
 | `access-handler.ts` | tested via index | - | - | 70% | Some OIDC edge cases |
 
 ---
@@ -152,7 +153,6 @@ cd backend && pytest tests/test_tools.py::test_create_tool -v
 - `auth_tokens`, `admin_headers` — JWT token generation
 - `server_factory`, `tool_factory` — Test data factories
 - `mock_sandbox_client` — Mocked sandbox HTTP client
-- `reset_circuit_breakers` (autouse) — Prevents cascade failures between tests
 - `reset_rate_limiter` (autouse) — Prevents 429 errors in tests
 - `reset_service_token_cache` (autouse) — Ensures local mode in tests
 

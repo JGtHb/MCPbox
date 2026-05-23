@@ -1,7 +1,6 @@
 """Tunnel Configuration service - business logic for managing tunnel profiles."""
 
 import logging
-import math
 from uuid import UUID
 
 from sqlalchemy import func, select, update
@@ -41,7 +40,7 @@ class TunnelConfigurationService:
         total = (await self.db.execute(count_query)).scalar() or 0
 
         # Calculate pagination
-        pages = max(1, math.ceil(total / page_size))
+        pages = (total + page_size - 1) // page_size if total > 0 else 0
         offset = (page - 1) * page_size
 
         # Get items

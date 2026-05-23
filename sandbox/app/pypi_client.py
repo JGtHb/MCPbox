@@ -8,6 +8,15 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+
+class PyPILookupError(Exception):
+    """Raised when a PyPI lookup fails due to a network or server error.
+
+    Distinct from a 404 (package genuinely not found) so callers can
+    show the right error message to the user.
+    """
+
+
 # Common module name to PyPI package name mappings
 # When the import name differs from the package name
 MODULE_TO_PACKAGE: dict[str, str] = {
@@ -87,7 +96,11 @@ async def fetch_package_info(package_name: str) -> PyPIPackageInfo | None:
         package_name: The PyPI package name
 
     Returns:
-        PyPIPackageInfo if found, None otherwise
+        PyPIPackageInfo if found, None if the package doesn't exist on PyPI.
+
+    Raises:
+        PyPILookupError: On network errors, timeouts, or server failures
+            (so the caller can distinguish "not found" from "lookup failed").
     """
     url = f"https://pypi.org/pypi/{package_name}/json"
 
@@ -118,13 +131,17 @@ async def fetch_package_info(package_name: str) -> PyPIPackageInfo | None:
 
     except httpx.TimeoutException:
         logger.warning(f"Timeout fetching package info for {package_name}")
-        return None
+        raise PyPILookupError(
+            f"Timed out connecting to PyPI after {PYPI_TIMEOUT}s"
+        ) from None
     except httpx.HTTPStatusError as e:
         logger.warning(f"HTTP error fetching package info for {package_name}: {e}")
-        return None
+        raise PyPILookupError(f"PyPI returned HTTP {e.response.status_code}") from None
     except Exception as e:
         logger.error(f"Error fetching package info for {package_name}: {e}")
-        return None
+        raise PyPILookupError(
+            f"Failed to connect to PyPI: {type(e).__name__}: {e}"
+        ) from None
 
 
 async def fetch_module_info(module_name: str) -> tuple[str, PyPIPackageInfo | None]:
@@ -137,6 +154,9 @@ async def fetch_module_info(module_name: str) -> tuple[str, PyPIPackageInfo | No
 
     Returns:
         Tuple of (package_name, PyPIPackageInfo or None)
+
+    Raises:
+        PyPILookupError: On network errors (propagated from fetch_package_info)
     """
     package_name = await get_package_name_for_module(module_name)
     info = await fetch_package_info(package_name)

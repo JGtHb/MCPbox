@@ -108,6 +108,5 @@ docker compose restart mcp-gateway
 After any incident:
 
 - [ ] All services healthy: `curl http://localhost:8000/health/services`
-- [ ] Circuit breakers closed: `curl http://localhost:8000/health/circuits`
 - [ ] Review activity logs for anomalies
 - [ ] Test remote access if configured

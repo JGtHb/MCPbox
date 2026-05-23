@@ -67,7 +67,7 @@ class ToolUpdate(BaseModel):
     description: str | None = Field(None, max_length=2000)
     enabled: bool | None = None
     timeout_ms: int | None = Field(None, ge=1000, le=300000)
-    python_code: str | None = Field(None, max_length=100000)
+    python_code: str | None = Field(None, min_length=1, max_length=100000)
     code_dependencies: list[str] | None = Field(None, max_length=20)
 
     @model_validator(mode="after")

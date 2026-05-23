@@ -96,7 +96,12 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 def get_auth_service(db: AsyncSession = Depends(get_db)) -> AuthService:
-    """Dependency to get auth service."""
+    """Dependency to get auth service.
+
+    NOTE: Kept local because auth.py's get_current_user depends on this
+    and is imported by other modules — moving to deps.py would create
+    circular imports.
+    """
     return AuthService(db)
 
 

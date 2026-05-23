@@ -22,7 +22,7 @@ class ServerService:
         server = Server(
             name=data.name,
             description=data.description,
-            status="imported",
+            status="running",
         )
         self.db.add(server)
         await self.db.flush()

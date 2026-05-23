@@ -14,9 +14,12 @@ import asyncio
 import hashlib
 import logging
 import time
-from typing import Any
+from collections.abc import Awaitable, Callable
+from typing import Any, TypeVar
 
 from app.mcp_client import CloudflareChallengeError, MCPClient, MCPClientError
+
+T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
 
@@ -187,6 +190,53 @@ class MCPSessionPool:
             if entry:
                 await entry.close()
 
+    async def _with_retry(
+        self,
+        url: str,
+        headers: dict[str, str],
+        operation: Callable[["_PoolEntry"], Awaitable[T]],
+        label: str,
+        error_extras: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Execute an operation against a pooled session with retry logic.
+
+        On transient errors (timeouts, 502/503/504, connection resets),
+        retries with exponential backoff up to MAX_RETRIES times.
+        Non-transient errors (401, 403, CF challenges) fail immediately.
+        """
+        last_error: MCPClientError | None = None
+
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                entry = await self._get_or_create(url, headers)
+                return await operation(entry)
+            except MCPClientError as e:
+                last_error = e
+                await self._evict(url, headers)
+
+                if not _is_transient_error(e) or attempt == MAX_RETRIES:
+                    break
+
+                delay = min(RETRY_BASE_DELAY * (2**attempt), RETRY_MAX_DELAY)
+                logger.warning(
+                    f"Transient error {label} "
+                    f"(attempt {attempt + 1}/{MAX_RETRIES + 1}), "
+                    f"retrying in {delay:.1f}s: {e}"
+                )
+                await asyncio.sleep(delay)
+            except Exception as e:
+                await self._evict(url, headers)
+                logger.exception(f"Unexpected error {label}: {e}")
+                return {
+                    "success": False,
+                    "error": f"Unexpected error: {e}",
+                    **(error_extras or {}),
+                }
+
+        error_msg = str(last_error) if last_error else "Unknown error"
+        logger.error(f"All retries exhausted for {label}: {error_msg}")
+        return {"success": False, "error": error_msg, **(error_extras or {})}
+
     async def call_tool(
         self,
         url: str,
@@ -194,41 +244,14 @@ class MCPSessionPool:
         arguments: dict[str, Any],
         auth_headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """Call a tool on an external MCP server with session reuse and retries.
+        """Call a tool on an external MCP server with session reuse and retries."""
 
-        On transient errors (timeouts, 502/503/504, connection resets),
-        retries with exponential backoff up to MAX_RETRIES times.
-        Non-transient errors (401, 403, CF challenges) fail immediately.
-        """
-        headers = auth_headers or {}
-        last_error: MCPClientError | None = None
+        async def _op(entry: _PoolEntry) -> dict[str, Any]:
+            return await entry.call_tool(tool_name, arguments)
 
-        for attempt in range(MAX_RETRIES + 1):
-            try:
-                entry = await self._get_or_create(url, headers)
-                return await entry.call_tool(tool_name, arguments)
-            except MCPClientError as e:
-                last_error = e
-                await self._evict(url, headers)
-
-                if not _is_transient_error(e) or attempt == MAX_RETRIES:
-                    break
-
-                delay = min(RETRY_BASE_DELAY * (2**attempt), RETRY_MAX_DELAY)
-                logger.warning(
-                    f"Transient error calling {tool_name}@{url} "
-                    f"(attempt {attempt + 1}/{MAX_RETRIES + 1}), "
-                    f"retrying in {delay:.1f}s: {e}"
-                )
-                await asyncio.sleep(delay)
-            except Exception as e:
-                await self._evict(url, headers)
-                logger.exception(f"Unexpected error calling {tool_name}@{url}: {e}")
-                return {"success": False, "error": f"Unexpected error: {e}"}
-
-        error_msg = str(last_error) if last_error else "Unknown error"
-        logger.error(f"All retries exhausted for {tool_name}@{url}: {error_msg}")
-        return {"success": False, "error": error_msg}
+        return await self._with_retry(
+            url, auth_headers or {}, _op, f"calling {tool_name}@{url}"
+        )
 
     async def discover_tools(
         self,
@@ -236,40 +259,18 @@ class MCPSessionPool:
         auth_headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Discover tools with session reuse and retries."""
-        headers = auth_headers or {}
-        last_error: MCPClientError | None = None
 
-        for attempt in range(MAX_RETRIES + 1):
-            try:
-                entry = await self._get_or_create(url, headers)
-                tools = await entry.list_tools()
-                return {"success": True, "tools": tools}
-            except MCPClientError as e:
-                last_error = e
-                await self._evict(url, headers)
+        async def _op(entry: _PoolEntry) -> dict[str, Any]:
+            tools = await entry.list_tools()
+            return {"success": True, "tools": tools}
 
-                if not _is_transient_error(e) or attempt == MAX_RETRIES:
-                    break
-
-                delay = min(RETRY_BASE_DELAY * (2**attempt), RETRY_MAX_DELAY)
-                logger.warning(
-                    f"Transient error discovering tools at {url} "
-                    f"(attempt {attempt + 1}/{MAX_RETRIES + 1}), "
-                    f"retrying in {delay:.1f}s: {e}"
-                )
-                await asyncio.sleep(delay)
-            except Exception as e:
-                await self._evict(url, headers)
-                logger.exception(f"Unexpected error discovering tools at {url}: {e}")
-                return {
-                    "success": False,
-                    "error": f"Unexpected error: {e}",
-                    "tools": [],
-                }
-
-        error_msg = str(last_error) if last_error else "Unknown error"
-        logger.error(f"All retries exhausted for discovery at {url}: {error_msg}")
-        return {"success": False, "error": error_msg, "tools": []}
+        return await self._with_retry(
+            url,
+            auth_headers or {},
+            _op,
+            f"discovering tools at {url}",
+            error_extras={"tools": []},
+        )
 
     async def health_check(
         self,

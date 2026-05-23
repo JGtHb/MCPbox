@@ -42,7 +42,7 @@ class Server(BaseModel):
     status: Mapped[str] = mapped_column(
         ServerStatus,
         nullable=False,
-        default="imported",
+        default="running",
     )
 
     # Network configuration: empty list = no network access (truly isolated)

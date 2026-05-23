@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import calc_pages
 from app.core import get_db
 from app.models import ActivityLog
 from app.services.activity_logger import ActivityLoggerService, get_activity_logger
@@ -140,7 +141,7 @@ async def list_activity_logs(
     result = await db.execute(query)
     logs = result.scalars().all()
 
-    pages = (total + page_size - 1) // page_size if total > 0 else 0
+    pages = calc_pages(total, page_size)
 
     return ActivityLogsListResponse(
         items=[ActivityLogResponse.model_validate(log) for log in logs],

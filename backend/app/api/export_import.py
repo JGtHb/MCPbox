@@ -22,6 +22,7 @@ from app.models.network_access_request import NetworkAccessRequest
 
 if TYPE_CHECKING:
     from app.models.tool import Tool
+from app.api.deps import get_server_service, get_tool_service
 from app.schemas.server import ServerCreate
 from app.schemas.tool import ToolCreate
 from app.services.approval import sync_allowed_hosts, sync_allowed_modules
@@ -72,16 +73,6 @@ router = APIRouter(
     prefix="/export",
     tags=["export-import"],
 )
-
-
-def get_server_service(db: AsyncSession = Depends(get_db)) -> ServerService:
-    """Dependency to get server service."""
-    return ServerService(db)
-
-
-def get_tool_service(db: AsyncSession = Depends(get_db)) -> ToolService:
-    """Dependency to get tool service."""
-    return ToolService(db)
 
 
 # Export schemas

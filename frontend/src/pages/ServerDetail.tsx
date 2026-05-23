@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import { Header } from '../components/Layout'
 import {
@@ -16,18 +16,14 @@ import { LoadingCard } from '../components/ui'
 import { useServer, useServerStatus } from '../api/servers'
 import { useTools } from '../api/tools'
 import { useCopyToClipboard } from '../hooks/useCopyToClipboard'
+import { useHashTab } from '../hooks/useHashTab'
 import { STATUS_COLORS, STATUS_LABELS, type ServerStatus } from '../lib/constants'
 
-// Read initial tab from URL hash
-function getTabFromHash(): TabId {
-  const hash = window.location.hash.replace('#', '')
-  const validTabs: TabId[] = ['overview', 'tools', 'external', 'resources', 'logs', 'secrets', 'settings']
-  return validTabs.includes(hash as TabId) ? (hash as TabId) : 'overview'
-}
+const VALID_TABS = ['overview', 'tools', 'external', 'resources', 'logs', 'secrets', 'settings'] as const
 
 export function ServerDetail() {
   const { id } = useParams<{ id: string }>()
-  const [activeTab, setActiveTab] = useState<TabId>(getTabFromHash)
+  const [activeTab, setActiveTab] = useHashTab<TabId>(VALID_TABS, 'overview')
   const { copied, copy } = useCopyToClipboard()
 
   const [importToast, setImportToast] = useState<string | null>(null)
@@ -40,21 +36,7 @@ export function ServerDetail() {
     setActiveTab('tools')
     setImportToast(`${count} tool${count !== 1 ? 's' : ''} imported successfully`)
     setTimeout(() => setImportToast(null), 4000)
-  }, [])
-
-  // Sync tab to URL hash
-  useEffect(() => {
-    window.location.hash = activeTab
-  }, [activeTab])
-
-  // Listen for hash changes (browser back/forward)
-  useEffect(() => {
-    const handleHashChange = () => {
-      setActiveTab(getTabFromHash())
-    }
-    window.addEventListener('hashchange', handleHashChange)
-    return () => window.removeEventListener('hashchange', handleHashChange)
-  }, [])
+  }, [setActiveTab])
 
   if (isLoading || !server) {
     return (

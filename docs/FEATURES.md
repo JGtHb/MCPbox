@@ -31,7 +31,7 @@ Features are sorted by status, with broken/partial items at the top for visibili
 
 ### Tool Approval Workflow
 - **Status**: Complete
-- **Description**: Human-in-the-loop approval for tool publishing, module whitelisting, and network access. Tools start as `draft`, move to `pending_review` on publish request, then admin approves/rejects in the `/approvals` UI. Module and network access requests follow same pattern. Request tables (`NetworkAccessRequest`, `ModuleRequest`) are the **single source of truth** — `Server.allowed_hosts` and `GlobalConfig.allowed_modules` are derived caches recomputed via `sync_allowed_hosts()` / `sync_allowed_modules()`. Admin-initiated additions (manual host/module adds) create auto-approved records, making them visible alongside LLM-originated requests on the global approvals page.
+- **Description**: Human-in-the-loop approval for tool publishing, module whitelisting, and network access. Tools start as `draft`, move to `pending_review` on publish request, then admin approves/rejects in the `/approvals` UI. Module and network access requests follow same pattern. Rejection reason is optional for all three types. Rejected items can be re-approved (tools, modules, and network requests all support approve-from-rejected). Request tables (`NetworkAccessRequest`, `ModuleRequest`) are the **single source of truth** — `Server.allowed_hosts` and `GlobalConfig.allowed_modules` are derived caches recomputed via `sync_allowed_hosts()` / `sync_allowed_modules()`. Admin-initiated additions (manual host/module adds) create auto-approved records, making them visible alongside LLM-originated requests on the global approvals page. Server detail page shows all resource statuses (pending, approved, rejected) with appropriate actions.
 - **Owner modules**: `backend/app/api/approvals.py`, `backend/app/services/approval.py`, `frontend/src/pages/Approvals.tsx`
 - **Dependencies**: Admin auth (JWT), Tool service
 - **Test coverage**: `backend/tests/test_approvals.py` (50+ tests) — well covered
@@ -39,10 +39,10 @@ Features are sorted by status, with broken/partial items at the top for visibili
 
 ### Sandboxed Code Execution
 - **Status**: Complete
-- **Description**: All tool code executes in a hardened shared sandbox. Restricted builtins (no `eval`, `exec`, `open`, `type`, `getattr`), dunder attribute blocking via regex, import whitelisting, resource limits (256MB memory, 60s CPU, 256 FDs), SSRF prevention with IP pinning.
-- **Owner modules**: `sandbox/app/executor.py`, `sandbox/app/ssrf.py`, `sandbox/app/routes.py`
+- **Description**: All tool code executes in a hardened shared sandbox. Restricted builtins (no `eval`, `exec`, `open`, `type`, `getattr`), dunder attribute blocking via regex, import whitelisting, resource limits (256MB memory, 60s CPU, 256 FDs), SSRF prevention with IP pinning. Concurrent execution limited by semaphore (default: 3) to prevent memory exhaustion from parallel tool runs.
+- **Owner modules**: `sandbox/app/executor.py`, `sandbox/app/ssrf.py`, `sandbox/app/routes.py`, `sandbox/app/registry.py`
 - **Dependencies**: None (standalone execution environment)
-- **Test coverage**: `sandbox/tests/test_code_safety.py` (40+ tests), `sandbox/tests/test_sandbox_escape.py` (30+ tests), `sandbox/tests/test_security_hardening.py` (30+ tests), `sandbox/tests/test_safety_clients.py` (25+ tests) — excellent coverage
+- **Test coverage**: `sandbox/tests/test_code_safety.py` (40+ tests), `sandbox/tests/test_sandbox_escape.py` (30+ tests), `sandbox/tests/test_security_hardening.py` (30+ tests), `sandbox/tests/test_safety_clients.py` (25+ tests), `sandbox/tests/test_concurrency_limit.py` (8 tests) — excellent coverage
 - **Security notes**: See [SECURITY.md](SECURITY.md#2-sandbox-isolation) for sandbox isolation details, [SECURITY.md](SECURITY.md#1-code-validation) for code validation and forbidden patterns
 
 ### Server Management
@@ -150,6 +150,14 @@ Features are sorted by status, with broken/partial items at the top for visibili
 - **Test coverage**: Existing frontend tests; standards enforced via documentation
 - **Security notes**: None (UI-only changes)
 
+### Raw TCP / WebSocket Support (SOCKS5 Proxy)
+- **Status**: Complete
+- **Description**: Tools can use raw TCP protocols (MQTT, WebSocket, custom TCP) via the `socket` module. All sandbox outbound traffic (HTTP + raw TCP) routes through a single SOCKS5 proxy. The `socket` module is not in `DEFAULT_ALLOWED_MODULES` — admins must approve it per-server. When approved, `import socket` returns a `SafeSocket` wrapper that enforces per-server `allowed_hosts` and routes connections through the SOCKS5 proxy. DNS resolution happens proxy-side to prevent DNS rebinding. The proxy blocks private IPs unless admin-approved via ACL file. A global monkey-patch (`socket_patch.py`) ensures third-party libraries and stdlib modules (e.g., `asyncio.open_connection()`) also route through SOCKS5 during tool execution via a `ContextVar`-guarded `PatchedSocket` subclass.
+- **Owner modules**: `socks-proxy/proxy.py`, `sandbox/app/safe_socket.py`, `sandbox/app/socket_patch.py`, `sandbox/app/executor.py` (socket special case in `safe_import` + `execution_socket_context`)
+- **Dependencies**: SOCKS5 proxy container, `socksio` (httpx SOCKS5 transport)
+- **Test coverage**: `socks-proxy/tests/test_proxy.py` (IP validation, ACL, SOCKS5 protocol), `sandbox/tests/test_safe_socket.py` (SafeSocket, module interface, SOCKS5 handshake), `sandbox/tests/test_socket_patch.py` (PatchedSocket, ContextVar isolation, SOCKS5 handshake, getaddrinfo/create_connection patching), `sandbox/tests/test_execute.py::TestSocketModuleImport` (4 tests)
+- **Security notes**: Three-layer enforcement: (1) SafeSocket for direct `import socket` in tool code checks `allowed_hosts` + always-blocked IPs; (2) PatchedSocket monkey-patch catches third-party library socket usage via ContextVar; (3) SOCKS5 proxy resolves DNS and re-validates IPs. `socket` stays out of default modules — admin opt-in only. `bind()`, `listen()`, `accept()` blocked. Only TCP (`SOCK_STREAM`) allowed. ContextVar isolation ensures concurrent tool executions have independent network policies.
+
 ### Rate Limiting
 - **Status**: Complete
 - **Description**: Per-IP rate limiting on API endpoints (100 req/min default). Login rate limiting (5/min). Service token failure rate limiting (10/min). Sandbox tool rate limiting (60/min).
@@ -191,13 +199,6 @@ Features are sorted by status, with broken/partial items at the top for visibili
 - **Owner modules**: `backend/app/services/webhook_alerting.py`
 - **Dependencies**: External webhook URL
 - **Test coverage**: `backend/tests/test_webhook_alerting.py`
-
-### Circuit Breaker
-- **Status**: Complete
-- **Description**: Circuit breaker pattern for sandbox communication. Configurable thresholds (default: 10 failures to open, 30s recovery timeout, 1 success to close). Each failing request counts as a single failure regardless of retries. Env vars: `CIRCUIT_BREAKER_FAILURE_THRESHOLD`, `CIRCUIT_BREAKER_TIMEOUT`, `CIRCUIT_BREAKER_SUCCESS_THRESHOLD`.
-- **Owner modules**: `backend/app/core/retry.py`, `backend/app/services/sandbox_client.py`
-- **Dependencies**: None
-- **Test coverage**: `backend/tests/test_retry.py`, `backend/tests/test_circuit_breaker_api.py`
 
 ### Single-Source Versioning
 - **Status**: Complete

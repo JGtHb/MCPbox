@@ -1,4 +1,4 @@
-"""Health check endpoint with database connectivity check and circuit breaker status.
+"""Health check endpoint with database connectivity check.
 
 All health endpoints are accessible without authentication since the admin panel
 is only exposed locally (Option B architecture).
@@ -10,7 +10,6 @@ from fastapi import APIRouter, Response, status
 from pydantic import BaseModel
 
 from app.core import check_db_connection, settings
-from app.core.retry import CircuitBreaker
 from app.services.sandbox_client import get_sandbox_client
 
 router = APIRouter(tags=["health"])
@@ -97,7 +96,7 @@ async def health_detail(response: Response) -> HealthDetailResponse:
 async def service_health(response: Response) -> dict[str, Any]:
     """Check health of all connected services.
 
-    Returns status of database, sandbox, and circuit breakers.
+    Returns status of database and sandbox.
     """
     db_healthy = await check_db_connection()
     sandbox_client = get_sandbox_client()
@@ -117,45 +116,6 @@ async def service_health(response: Response) -> dict[str, Any]:
             "sandbox": {
                 "status": "connected" if sandbox_healthy else "disconnected",
                 "healthy": sandbox_healthy,
-                "circuit_breaker": sandbox_client.get_circuit_state(),
             },
         },
-    }
-
-
-@router.get("/health/circuits")
-async def get_circuit_states() -> dict[str, Any]:
-    """Get all circuit breaker states.
-
-    Returns the current state of all circuit breakers in the system.
-    Useful for monitoring and debugging connection issues.
-    """
-    return {
-        "circuits": CircuitBreaker.get_all_states(),
-    }
-
-
-@router.post("/health/circuits/reset")
-async def reset_all_circuits() -> dict[str, str]:
-    """Reset all circuit breakers to closed state.
-
-    Use this to manually recover from circuit breaker trips
-    when you know the underlying issue has been resolved.
-    """
-    await CircuitBreaker.reset_all()
-    return {"message": "All circuit breakers reset"}
-
-
-@router.post("/health/circuits/{service_name}/reset")
-async def reset_circuit(service_name: str) -> dict[str, Any]:
-    """Reset a specific circuit breaker.
-
-    Args:
-        service_name: Name of the service circuit breaker to reset
-    """
-    circuit = CircuitBreaker.get_or_create(service_name)
-    await circuit.reset()
-    return {
-        "message": f"Circuit breaker for {service_name} reset",
-        "state": circuit.get_state(),
     }

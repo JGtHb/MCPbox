@@ -15,8 +15,8 @@ FROM python:3.14.3-slim
 
 # Security: Create non-root user
 RUN useradd -m -u 1000 -s /bin/bash sandbox && \
-    mkdir -p /app /app/site-packages && \
-    chown -R sandbox:sandbox /app
+    mkdir -p /app /app/site-packages /shared/proxy-acl && \
+    chown -R sandbox:sandbox /app /shared/proxy-acl
 
 # Copy installed packages from builder (includes our deps + their transitive deps)
 COPY --from=builder /usr/local/lib/python3.14/site-packages/ /usr/local/lib/python3.14/site-packages/

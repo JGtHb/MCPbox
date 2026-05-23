@@ -36,18 +36,18 @@ class TestStartServer:
         assert "not found" in response.json()["detail"].lower()
 
     @pytest.mark.asyncio
-    async def test_start_server_already_running(
+    async def test_start_server_already_running_no_tools(
         self, async_client: AsyncClient, server_factory, admin_headers
     ):
-        """Test starting a server that is already running."""
+        """Test starting a server that is already running but has no tools."""
         server = await server_factory(status="running")
 
         response = await async_client.post(
             f"/api/sandbox/servers/{server.id}/start", headers=admin_headers
         )
 
-        assert response.status_code == 409
-        assert "already running" in response.json()["detail"].lower()
+        assert response.status_code == 400
+        assert "no tools" in response.json()["detail"].lower()
 
     @pytest.mark.asyncio
     async def test_start_server_no_tools(

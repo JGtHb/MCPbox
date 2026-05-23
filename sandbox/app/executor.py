@@ -1,6 +1,7 @@
 """Python Executor - safely executes user-provided Python code."""
 
 import asyncio
+import gc
 import json
 import logging
 import os
@@ -14,6 +15,7 @@ from typing import Any, Optional
 
 import httpx
 
+from app.socket_patch import execution_socket_context
 from app.ssrf import SSRFProtectedAsyncHttpClient
 
 logger = logging.getLogger(__name__)
@@ -31,6 +33,31 @@ DEFAULT_TIMEOUT = 30.0
 REQUIRE_RESOURCE_LIMITS = (
     os.environ.get("REQUIRE_RESOURCE_LIMITS", "true").lower() == "true"
 )
+
+
+def _parse_socks_proxy_env() -> tuple[str, int] | None:
+    """Parse SOCKS_PROXY env var into (host, port) tuple.
+
+    Expected format: ``socks5://host:port``
+    Returns None if not configured.
+    """
+    raw = os.environ.get("SOCKS_PROXY")
+    if not raw:
+        return None
+    # Strip scheme prefix
+    addr = raw
+    for prefix in ("socks5://", "socks5h://", "socks://"):
+        if addr.lower().startswith(prefix):
+            addr = addr[len(prefix) :]
+            break
+    # Parse host:port
+    if ":" in addr:
+        host, port_str = addr.rsplit(":", 1)
+        try:
+            return (host, int(port_str))
+        except ValueError:
+            pass
+    return (addr, 1080)
 
 
 @dataclass
@@ -397,7 +424,6 @@ _MODULE_SAFE_ATTRS: dict[str, set[str]] = {
     "decimal": {
         "Decimal",
         "getcontext",
-        "setcontext",
         "localcontext",
         "BasicContext",
         "ExtendedContext",
@@ -1087,6 +1113,12 @@ def _ast_validate(code: str, source_name: str) -> tuple[bool, str | None]:
         "__del__",
         "__reduce__",
         "__reduce_ex__",
+        "__getstate__",
+        "__setstate__",
+        "__subclasshook__",
+        "__getattribute__",
+        "__setattr__",
+        "__delattr__",
     }
 
     # Forbidden function calls
@@ -1272,37 +1304,37 @@ class TimeoutProtectedRegex:
 
     @property
     def VERBOSE(self):
-        return self._regex.VERBOSE
+        return self.__wrapped_regex.VERBOSE
 
     @property
     def X(self):
-        return self._regex.X
+        return self.__wrapped_regex.X
 
     @property
     def ASCII(self):
-        return self._regex.ASCII
+        return self.__wrapped_regex.ASCII
 
     @property
     def A(self):
-        return self._regex.A
+        return self.__wrapped_regex.A
 
     @property
     def UNICODE(self):
-        return self._regex.UNICODE
+        return self.__wrapped_regex.UNICODE
 
     @property
     def U(self):
-        return self._regex.U
+        return self.__wrapped_regex.U
 
     # Allow access to error class
     @property
     def error(self):
-        return self._regex.error
+        return self.__wrapped_regex.error
 
     # Allow access to TimeoutError for users who want to catch it
     @property
     def TimeoutError(self):
-        return self._regex.TimeoutError
+        return self.__wrapped_regex.TimeoutError
 
 
 class ErrorDetail:
@@ -1388,6 +1420,7 @@ class ExecutionResult:
         success: bool,
         result: Any = None,
         error: Optional[str] = None,
+        error_category: Optional[str] = None,
         error_detail: Optional[ErrorDetail] = None,
         stdout: str = "",
         duration_ms: int = 0,
@@ -1396,6 +1429,7 @@ class ExecutionResult:
         self.success = success
         self.result = result
         self.error = error
+        self.error_category = error_category
         self.error_detail = error_detail
         self.stdout = stdout
         self.duration_ms = duration_ms
@@ -1427,6 +1461,8 @@ class ExecutionResult:
             except Exception as e:
                 # MemoryError, RecursionError, etc. during serialization
                 logger.error(f"Result serialization failed: {type(e).__name__}: {e}")
+                if isinstance(e, MemoryError):
+                    gc.collect()
                 try:
                     result_value = str(result_value)[:MAX_OUTPUT_SIZE]
                 except Exception:
@@ -1436,6 +1472,7 @@ class ExecutionResult:
             "success": self.success,
             "result": result_value,
             "error": self.error,
+            "error_category": self.error_category,
             "stdout": self.stdout[:MAX_OUTPUT_SIZE] if self.stdout else "",
             "duration_ms": self.duration_ms,
         }
@@ -1789,7 +1826,9 @@ class PythonExecutor:
         Delegates to the module-level create_safe_builtins() which is the
         single source of truth for sandbox builtins.
         """
-        return create_safe_builtins(allowed_modules=allowed_modules)
+        return create_safe_builtins(
+            allowed_modules=allowed_modules,
+        )
 
     def _create_execution_namespace(
         self,
@@ -1815,7 +1854,9 @@ class PythonExecutor:
         )
 
         namespace = {
-            "__builtins__": self._create_safe_builtins(allowed_modules),
+            "__builtins__": self._create_safe_builtins(
+                allowed_modules,
+            ),
             # Inject SSRF-protected HTTP client
             "http": protected_client,
             # Inject commonly used modules wrapped in SafeModuleProxy
@@ -1872,6 +1913,7 @@ class PythonExecutor:
             return ExecutionResult(
                 success=False,
                 error=error_msg,
+                error_category="validation_error",
                 error_detail=error_detail,
                 stdout="",
                 duration_ms=int((time.monotonic() - start_time) * 1000),
@@ -1896,6 +1938,7 @@ class PythonExecutor:
                 return ExecutionResult(
                     success=False,
                     error=str(e),
+                    error_category="sandbox_error",
                     error_detail=error_detail,
                     stdout=stdout_capture.getvalue(),
                     duration_ms=int((time.monotonic() - start_time) * 1000),
@@ -1909,110 +1952,121 @@ class PythonExecutor:
                 *args, file=stdout_capture, **kwargs
             )
 
-            # Compile and execute the user's code to define main()
-            # SECURITY (F-01): Run exec() in a thread with timeout to prevent
-            # module-level infinite loops from blocking the event loop.
-            # Without this, code outside main() (e.g., `while True: pass`)
-            # blocks the entire sandbox indefinitely.
-            compiled = compile(python_code, "<tool>", "exec")
-            loop = asyncio.get_event_loop()
-            try:
-                await asyncio.wait_for(
-                    loop.run_in_executor(None, exec, compiled, namespace),
-                    timeout=timeout,
-                )
-            except asyncio.TimeoutError:
-                error_detail = ErrorDetail(
-                    message=f"Code initialization timed out after {timeout} seconds. "
-                    "Check for expensive computation outside main().",
-                    error_type="TimeoutError",
-                    source_file="<tool>",
-                )
-                return ExecutionResult(
-                    success=False,
-                    error=f"Code initialization timed out after {timeout} seconds",
-                    error_detail=error_detail,
-                    stdout=stdout_capture.getvalue(),
-                    duration_ms=int(timeout * 1000),
-                    debug_info=debug_info,
-                )
+            # Activate SOCKS5 routing for all TCP (tool code + third-party libs).
+            # This sets a ContextVar so that the monkey-patched socket.socket
+            # (PatchedSocket from socket_patch.py) routes connections through
+            # the SOCKS5 proxy for the duration of this tool execution.
+            socks_proxy_addr = _parse_socks_proxy_env()
 
-            # Verify main() exists and is async
-            if "main" not in namespace:
-                error_detail = ErrorDetail(
-                    message="Code must define an async main() function",
-                    error_type="ValidationError",
-                )
-                return ExecutionResult(
-                    success=False,
-                    error="Code must define an async main() function",
-                    error_detail=error_detail,
-                    stdout=stdout_capture.getvalue(),
-                    duration_ms=int((time.monotonic() - start_time) * 1000),
-                    debug_info=debug_info,
-                )
-
-            main_func = namespace["main"]
-            if not asyncio.iscoroutinefunction(main_func):
-                error_detail = ErrorDetail(
-                    message="main() must be an async function (use 'async def main(...)')",
-                    error_type="ValidationError",
-                )
-                return ExecutionResult(
-                    success=False,
-                    error="main() must be an async function (use 'async def main(...)')",
-                    error_detail=error_detail,
-                    stdout=stdout_capture.getvalue(),
-                    duration_ms=int((time.monotonic() - start_time) * 1000),
-                    debug_info=debug_info,
-                )
-
-            # Execute main() with timeout
-            try:
-                result = await asyncio.wait_for(
-                    main_func(**arguments),
-                    timeout=timeout,
-                )
-            except asyncio.TimeoutError:
-                error_detail = ErrorDetail(
-                    message=f"Execution timed out after {timeout} seconds",
-                    error_type="TimeoutError",
-                )
-                return ExecutionResult(
-                    success=False,
-                    error=f"Execution timed out after {timeout} seconds",
-                    error_detail=error_detail,
-                    stdout=stdout_capture.getvalue(),
-                    duration_ms=int(timeout * 1000),
-                    debug_info=debug_info,
-                )
-
-            # Ensure result is JSON-serializable
-            try:
-                json.dumps(result)
-            except (TypeError, ValueError):
-                result = str(result)
-
-            # SECURITY: Redact any secret values that leaked into output.
-            # This catches accidental leaks in return values and print statements.
-            stdout_text = _redact_secrets(stdout_capture.getvalue(), secrets)
-            if isinstance(result, str):
-                result = _redact_secrets(result, secrets)
-            elif isinstance(result, dict):
-                # Redact within JSON-serialized form, then parse back
-                redacted = _redact_secrets(json.dumps(result), secrets)
+            async with execution_socket_context(allowed_hosts, socks_proxy_addr):
+                # Compile and execute the user's code to define main()
+                # SECURITY (F-01): Run exec() in a thread with timeout to prevent
+                # module-level infinite loops from blocking the event loop.
+                # Without this, code outside main() (e.g., `while True: pass`)
+                # blocks the entire sandbox indefinitely.
+                compiled = compile(python_code, "<tool>", "exec")
+                loop = asyncio.get_event_loop()
                 try:
-                    result = json.loads(redacted)
-                except (json.JSONDecodeError, ValueError):
-                    result = redacted
+                    await asyncio.wait_for(
+                        loop.run_in_executor(None, exec, compiled, namespace),
+                        timeout=timeout,
+                    )
+                except asyncio.TimeoutError:
+                    error_detail = ErrorDetail(
+                        message=f"Code initialization timed out after {timeout} seconds. "
+                        "Check for expensive computation outside main().",
+                        error_type="TimeoutError",
+                        source_file="<tool>",
+                    )
+                    return ExecutionResult(
+                        success=False,
+                        error=f"Code initialization timed out after {timeout} seconds",
+                        error_category="timeout_error",
+                        error_detail=error_detail,
+                        stdout=stdout_capture.getvalue(),
+                        duration_ms=int(timeout * 1000),
+                        debug_info=debug_info,
+                    )
 
-            return ExecutionResult(
-                success=True,
-                result=result,
-                stdout=stdout_text,
-                duration_ms=int((time.monotonic() - start_time) * 1000),
-                debug_info=debug_info,
-            )
+                # Verify main() exists and is async
+                if "main" not in namespace:
+                    error_detail = ErrorDetail(
+                        message="Code must define an async main() function",
+                        error_type="ValidationError",
+                    )
+                    return ExecutionResult(
+                        success=False,
+                        error="Code must define an async main() function",
+                        error_category="code_error",
+                        error_detail=error_detail,
+                        stdout=stdout_capture.getvalue(),
+                        duration_ms=int((time.monotonic() - start_time) * 1000),
+                        debug_info=debug_info,
+                    )
+
+                main_func = namespace["main"]
+                if not asyncio.iscoroutinefunction(main_func):
+                    error_detail = ErrorDetail(
+                        message="main() must be an async function (use 'async def main(...)')",
+                        error_type="ValidationError",
+                    )
+                    return ExecutionResult(
+                        success=False,
+                        error="main() must be an async function (use 'async def main(...)')",
+                        error_category="code_error",
+                        error_detail=error_detail,
+                        stdout=stdout_capture.getvalue(),
+                        duration_ms=int((time.monotonic() - start_time) * 1000),
+                        debug_info=debug_info,
+                    )
+
+                # Execute main() with timeout
+                try:
+                    result = await asyncio.wait_for(
+                        main_func(**arguments),
+                        timeout=timeout,
+                    )
+                except asyncio.TimeoutError:
+                    error_detail = ErrorDetail(
+                        message=f"Execution timed out after {timeout} seconds",
+                        error_type="TimeoutError",
+                    )
+                    return ExecutionResult(
+                        success=False,
+                        error=f"Execution timed out after {timeout} seconds",
+                        error_category="timeout_error",
+                        error_detail=error_detail,
+                        stdout=stdout_capture.getvalue(),
+                        duration_ms=int(timeout * 1000),
+                        debug_info=debug_info,
+                    )
+
+                # Ensure result is JSON-serializable
+                try:
+                    json.dumps(result)
+                except (TypeError, ValueError):
+                    result = str(result)
+
+                # SECURITY: Redact any secret values that leaked into output.
+                # This catches accidental leaks in return values and print statements.
+                stdout_text = _redact_secrets(stdout_capture.getvalue(), secrets)
+                if isinstance(result, str):
+                    result = _redact_secrets(result, secrets)
+                elif isinstance(result, dict):
+                    # Redact within JSON-serialized form, then parse back
+                    redacted = _redact_secrets(json.dumps(result), secrets)
+                    try:
+                        result = json.loads(redacted)
+                    except (json.JSONDecodeError, ValueError):
+                        result = redacted
+
+                return ExecutionResult(
+                    success=True,
+                    result=result,
+                    stdout=stdout_text,
+                    duration_ms=int((time.monotonic() - start_time) * 1000),
+                    debug_info=debug_info,
+                )
 
         except SyntaxError as e:
             # Extract code context for syntax errors
@@ -2034,6 +2088,7 @@ class PythonExecutor:
             return ExecutionResult(
                 success=False,
                 error=f"Syntax error at line {e.lineno}: {e.msg}",
+                error_category="code_error",
                 error_detail=error_detail,
                 stdout=stdout_capture.getvalue(),
                 duration_ms=int((time.monotonic() - start_time) * 1000),
@@ -2047,6 +2102,7 @@ class PythonExecutor:
             return ExecutionResult(
                 success=False,
                 error=str(e),
+                error_category="code_error",
                 error_detail=error_detail,
                 stdout=stdout_capture.getvalue(),
                 duration_ms=int((time.monotonic() - start_time) * 1000),
@@ -2057,11 +2113,17 @@ class PythonExecutor:
             tb = traceback.format_exc()
             logger.error(f"Execution error: {tb}")
 
+            # After MemoryError, force garbage collection to reclaim memory
+            # and prevent the sandbox process from staying in a degraded state.
+            if isinstance(e, MemoryError):
+                gc.collect()
+
             error_detail = extract_error_detail(e, python_code)
 
             return ExecutionResult(
                 success=False,
                 error=f"{type(e).__name__}: {e}",
+                error_category="code_error",
                 error_detail=error_detail,
                 stdout=stdout_capture.getvalue(),
                 duration_ms=int((time.monotonic() - start_time) * 1000),

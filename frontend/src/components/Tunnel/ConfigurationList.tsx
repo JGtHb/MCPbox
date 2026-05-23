@@ -5,7 +5,7 @@ import {
   useDeleteTunnelConfiguration,
   TunnelConfigurationListItem,
 } from '../../api/tunnel'
-import { ConfirmModal } from '../ui'
+import { ConfirmModal, Pagination } from '../ui'
 
 interface ConfigurationListProps {
   onEdit: (config: TunnelConfigurationListItem) => void
@@ -140,27 +140,7 @@ export function ConfigurationList({ onEdit, onCreateNew }: ConfigurationListProp
       />
 
       {/* Pagination */}
-      {data && data.pages > 1 && (
-        <div className="flex justify-center gap-2 mt-4">
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
-            className="px-3 py-1 text-sm border border-hl-med rounded-lg text-on-base disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
-          >
-            Previous
-          </button>
-          <span className="px-3 py-1 text-sm text-subtle">
-            Page {page} of {data.pages}
-          </span>
-          <button
-            onClick={() => setPage((p) => Math.min(data.pages, p + 1))}
-            disabled={page === data.pages}
-            className="px-3 py-1 text-sm border border-hl-med rounded-lg text-on-base disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low transition-colors focus:outline-none focus:ring-2 focus:ring-iris"
-          >
-            Next
-          </button>
-        </div>
-      )}
+      {data && <Pagination page={page} totalPages={data.pages} onPageChange={setPage} />}
     </div>
   )
 }

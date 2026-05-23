@@ -23,8 +23,8 @@ services:
   # ============================================================
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: frontend/Dockerfile
     ports:
       - "127.0.0.1:${MCPBOX_FRONTEND_PORT:-3000}:3000"
     environment:
@@ -179,10 +179,13 @@ services:
       # The sandbox doesn't need it, and exposing it increases blast radius on escape.
       - BACKEND_URL=http://backend:8000
       - SANDBOX_PACKAGES_DIR=/app/site-packages
-      # SECURITY: All outbound traffic forced through squid proxy.
+      # SECURITY: All outbound traffic forced through SOCKS5 proxy.
       # Sandbox has no direct internet access (not on mcpbox-sandbox-external).
-      - HTTPS_PROXY=http://squid-proxy:3128
-      - HTTP_PROXY=http://squid-proxy:3128
+      # socks5h:// = proxy-side DNS resolution (sandbox has no external DNS).
+      - HTTPS_PROXY=socks5h://socks-proxy:1080
+      - HTTP_PROXY=socks5h://socks-proxy:1080
+      # SOCKS_PROXY used by SafeSocket for raw TCP routing
+      - SOCKS_PROXY=socks5h://socks-proxy:1080
       # Exclude internal service communication from proxy
       - NO_PROXY=backend,localhost,127.0.0.1
     cap_drop:
@@ -194,13 +197,13 @@ services:
       - /tmp:size=64M
     volumes:
       - mcpbox-sandbox-packages:/app/site-packages
-      - mcpbox-squid-acl:/shared/squid-acl        # Approved private hosts → squid ACL helper
+      - mcpbox-proxy-acl:/shared/proxy-acl         # Approved private hosts → SOCKS5 proxy ACL
     depends_on:
-      squid-proxy:
+      socks-proxy:
         condition: service_healthy
     networks:
       - mcpbox-sandbox
-      - mcpbox-sandbox-proxy   # ALL outbound traffic → squid proxy (no direct internet)
+      - mcpbox-sandbox-proxy   # ALL outbound traffic → SOCKS5 proxy (no direct internet)
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=5)"]
       interval: 30s
@@ -221,31 +224,30 @@ services:
           pids: 128
 
   # ============================================================
-  # Squid Proxy - Egress filter for sandbox
-  # All sandbox outbound traffic forced through this proxy.
-  # Blocks private IPs; per-server domain filtering at app layer.
+  # SOCKS5 Proxy - Egress filter for sandbox
+  # All sandbox outbound traffic (HTTP + raw TCP) forced through
+  # this proxy.  Blocks private IPs unless admin-approved.
+  # Per-server domain filtering enforced at app layer (SSRF client
+  # for HTTP, SafeSocket for raw TCP).
   # ============================================================
-  squid-proxy:
+  socks-proxy:
     build:
-      context: ./squid-proxy
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: socks-proxy/Dockerfile
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
     read_only: true
     tmpfs:
-      - /var/spool/squid:size=16M,uid=31,gid=31
-      - /var/log/squid:size=8M,uid=31,gid=31
-      - /var/run/squid:size=1M,uid=31,gid=31
       - /tmp:size=1M
     volumes:
-      - mcpbox-squid-acl:/shared/squid-acl      # Shared with sandbox (entrypoint fixes perms on old volumes)
+      - mcpbox-proxy-acl:/shared/proxy-acl:ro    # Read approved private hosts from sandbox
     networks:
       - mcpbox-sandbox-proxy     # Receives sandbox traffic
-      - mcpbox-sandbox-external  # Outbound to internet
+      - mcpbox-sandbox-external  # Outbound to internet/LAN
     healthcheck:
-      test: ["CMD-SHELL", "test -f /var/run/squid/squid.pid && kill -0 $(cat /var/run/squid/squid.pid)"]
+      test: ["CMD-SHELL", "python -c \"import socket; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1', 1080)); s.close()\""]
       interval: 30s
       timeout: 5s
       start_period: 5s
@@ -311,8 +313,8 @@ services:
   # ============================================================
   cloudflared:
     build:
-      context: ./cloudflared
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: cloudflared/Dockerfile
     environment:
       - BACKEND_URL=http://backend:8000
       # Dedicated key for cloudflared (falls back to SANDBOX_API_KEY if not set)
@@ -331,6 +333,7 @@ services:
         condition: service_healthy
     networks:
       - mcpbox-internal
+      - mcpbox-tunnel    # Outbound internet access for Cloudflare tunnel
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:2000/ready"]
       interval: 30s
@@ -353,7 +356,7 @@ services:
 networks:
   mcpbox-internal:
     driver: bridge
-    internal: false
+    internal: true  # SECURITY: No outbound internet for frontend/backend/mcp-gateway
 
   mcpbox-sandbox:
     driver: bridge
@@ -361,11 +364,15 @@ networks:
 
   mcpbox-sandbox-proxy:
     driver: bridge
-    internal: true  # Sandbox ↔ squid proxy (sandbox has no direct internet)
+    internal: true  # Sandbox ↔ SOCKS5 proxy (sandbox has no direct internet)
 
   mcpbox-sandbox-external:
     driver: bridge
-    internal: false  # Squid-only outbound (sandbox is NOT on this network)
+    internal: false  # SOCKS5 proxy outbound only (sandbox is NOT on this network)
+
+  mcpbox-tunnel:
+    driver: bridge
+    internal: false  # Cloudflared outbound to Cloudflare (only cloudflared is on this network)
 
   mcpbox-db:
     driver: bridge
@@ -376,5 +383,5 @@ volumes:
     driver: local
   mcpbox-sandbox-packages:
     driver: local
-  mcpbox-squid-acl:
+  mcpbox-proxy-acl:
     driver: local

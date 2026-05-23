@@ -128,42 +128,6 @@ def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
     loop.close()
 
 
-# --- Circuit Breaker Reset Fixture ---
-
-
-def _reset_circuit_breaker_state():
-    """Reset all circuit breakers for tests.
-
-    This ensures circuit breakers don't remain open between tests,
-    which would cause cascading failures when sandbox calls fail.
-
-    Uses direct state reset instead of async reset_all() since
-    test fixtures are synchronous and don't need lock protection.
-    """
-    from app.core.retry import CircuitBreaker, CircuitBreakerState
-
-    for cb in CircuitBreaker._instances.values():
-        cb._state = CircuitBreakerState()
-
-
-@pytest.fixture(autouse=True)
-def reset_circuit_breakers(request):
-    """Reset circuit breakers before each test.
-
-    This is an autouse fixture that runs before every test to ensure
-    clean circuit breaker state.
-
-    Tests marked with pytest.mark.skip_circuit_breaker_reset will skip this.
-    """
-    if request.node.get_closest_marker("skip_circuit_breaker_reset"):
-        yield
-        return
-
-    _reset_circuit_breaker_state()
-    yield
-    _reset_circuit_breaker_state()
-
-
 # --- Rate Limiter Reset Fixture ---
 
 

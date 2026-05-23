@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useToolExecutionLogs, type ExecutionLog } from '../../api/executionLogs'
+import { Pagination } from '../ui'
 
 interface ToolExecutionLogsProps {
   toolId: string
@@ -176,27 +177,7 @@ export function ToolExecutionLogs({ toolId, toolName }: ToolExecutionLogsProps) 
         ))}
       </div>
 
-      {data.pages > 1 && (
-        <div className="flex items-center justify-between mt-4 text-sm">
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page <= 1}
-            className="px-3 py-1 border rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low"
-          >
-            Previous
-          </button>
-          <span className="text-subtle">
-            Page {page} of {data.pages}
-          </span>
-          <button
-            onClick={() => setPage((p) => Math.min(data.pages, p + 1))}
-            disabled={page >= data.pages}
-            className="px-3 py-1 border rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-hl-low"
-          >
-            Next
-          </button>
-        </div>
-      )}
+      <Pagination page={page} totalPages={data.pages} onPageChange={setPage} />
     </div>
   )
 }

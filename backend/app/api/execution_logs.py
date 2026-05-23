@@ -3,12 +3,12 @@
 Provides read-only access to tool execution logs for debugging.
 """
 
-import math
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import calc_pages
 from app.core import get_db
 from app.schemas.execution_log import (
     ExecutionLogListResponse,
@@ -49,7 +49,7 @@ async def list_all_logs(
         total=total,
         page=page,
         page_size=page_size,
-        pages=max(1, math.ceil(total / page_size)),
+        pages=calc_pages(total, page_size),
     )
 
 
@@ -86,7 +86,7 @@ async def list_tool_logs(
         total=total,
         page=page,
         page_size=page_size,
-        pages=max(1, math.ceil(total / page_size)),
+        pages=calc_pages(total, page_size),
     )
 
 
@@ -109,7 +109,7 @@ async def list_server_logs(
         total=total,
         page=page,
         page_size=page_size,
-        pages=max(1, math.ceil(total / page_size)),
+        pages=calc_pages(total, page_size),
     )
 
 

@@ -7,11 +7,11 @@ FROM node:25.7-alpine AS builder
 WORKDIR /app
 
 # Install dependencies
-COPY package*.json ./
+COPY frontend/package*.json ./
 RUN npm ci --legacy-peer-deps
 
 # Copy source
-COPY . .
+COPY frontend/ .
 
 # Build the React app (API calls use same-origin relative paths via nginx proxy)
 RUN npm run build
@@ -34,14 +34,14 @@ RUN adduser -D -u 1000 mcpbox && \
     chown -R mcpbox:mcpbox /var/run/nginx.pid
 
 # Copy nginx config (includes reverse proxy to backend)
-COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY frontend/nginx.conf.template /etc/nginx/templates/default.conf.template
 
 # Copy built files from builder stage
 COPY --from=builder /app/dist /usr/share/nginx/html
 RUN chown -R mcpbox:mcpbox /usr/share/nginx/html
 
 # Copy entrypoint script
-COPY docker-entrypoint.sh /docker-entrypoint.sh
+COPY frontend/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
 # Switch to non-root user

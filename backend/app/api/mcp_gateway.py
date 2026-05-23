@@ -719,11 +719,15 @@ async def _handle_management_tool_call(
         # Format result for MCP protocol
         # MCP tools/call returns content array
         if result.get("error"):
+            error_text = f"Error: {result['error']}"
+            error_category = result.get("error_category")
+            if error_category:
+                error_text += f"\n[error_category: {error_category}]"
             return {
                 "content": [
                     {
                         "type": "text",
-                        "text": f"Error: {result['error']}",
+                        "text": error_text,
                     }
                 ],
                 "isError": True,

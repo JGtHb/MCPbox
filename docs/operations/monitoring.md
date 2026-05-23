@@ -34,7 +34,7 @@ curl http://localhost:8000/health/detail
 curl http://localhost:8000/health/services
 ```
 
-The detailed health check reports the status of PostgreSQL, the sandbox, and circuit breakers.
+The detailed health check reports the status of PostgreSQL and the sandbox.
 
 ## Prometheus Metrics
 
@@ -67,7 +67,7 @@ ALERT_WEBHOOK_URL=https://discord.com/api/webhooks/your-webhook-id/your-token
 ALERT_WEBHOOK_URL=https://hooks.slack.com/services/your/webhook/url
 ```
 
-Alerts fire on circuit breaker trips, security events, and other critical conditions.
+Alerts fire on security events and other critical conditions.
 
 ## Logs
 
