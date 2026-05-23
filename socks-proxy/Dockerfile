@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 # Non-root user ('proxy' already exists in python:3.11-slim)
 RUN useradd -m -u 1000 -s /bin/sh socksproxy
