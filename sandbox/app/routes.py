@@ -734,8 +734,6 @@ class ExecuteCodeResponse(BaseModel):
     stdout: Optional[str] = None
 
 
-
-
 @router.post("/execute", response_model=ExecuteCodeResponse)
 @limiter.limit(TOOL_RATE_LIMIT)
 async def execute_python_code(request: Request, body: ExecuteCodeRequest):
