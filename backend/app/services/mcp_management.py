@@ -1428,7 +1428,7 @@ class MCPManagementService:
             return {"error": "Either tool_id or tool_ids is required"}
 
         id_strings: list[str] = []
-        if raw_ids:
+        if raw_ids is not None:
             if not isinstance(raw_ids, list) or len(raw_ids) == 0:
                 return {"error": "tool_ids must be a non-empty array of UUID strings"}
             id_strings.extend(raw_ids)

@@ -1350,7 +1350,7 @@ class ApprovalService:
                 f"Current status: {request.status}"
             )
 
-        request.status = "pending"
+        request.status = "rejected"
         request.reviewed_at = None
         request.reviewed_by = None
         request.rejection_reason = None
@@ -1404,7 +1404,7 @@ class ApprovalService:
                 f"Current status: {request.status}"
             )
 
-        request.status = "pending"
+        request.status = "rejected"
         request.reviewed_at = None
         request.reviewed_by = None
         request.rejection_reason = None
