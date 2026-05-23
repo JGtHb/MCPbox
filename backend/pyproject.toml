@@ -1,6 +1,6 @@
 [project]
 name = "mcpbox-backend"
-version = "0.2.2"
+version = "0.3.0"
 description = "MCPbox Backend - Self-hosted MCP server management platform"
 requires-python = ">=3.11"
 
