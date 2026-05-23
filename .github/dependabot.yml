@@ -3,6 +3,7 @@ updates:
   # Backend Python dependencies
   - package-ecosystem: "pip"
     directory: "/backend"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -16,6 +17,7 @@ updates:
   # Sandbox Python dependencies
   - package-ecosystem: "pip"
     directory: "/sandbox"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -29,6 +31,7 @@ updates:
   # Frontend npm dependencies
   - package-ecosystem: "npm"
     directory: "/frontend"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -42,6 +45,7 @@ updates:
   # Worker npm dependencies
   - package-ecosystem: "npm"
     directory: "/worker"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -55,6 +59,7 @@ updates:
   # GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -68,6 +73,7 @@ updates:
   # Docker base images
   - package-ecosystem: "docker"
     directory: "/backend"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -80,6 +86,7 @@ updates:
 
   - package-ecosystem: "docker"
     directory: "/frontend"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -92,6 +99,7 @@ updates:
 
   - package-ecosystem: "docker"
     directory: "/sandbox"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -104,6 +112,7 @@ updates:
 
   - package-ecosystem: "docker"
     directory: "/cloudflared"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -116,6 +125,7 @@ updates:
 
   - package-ecosystem: "docker"
     directory: "/socks-proxy"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
       day: "monday"
