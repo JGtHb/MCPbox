@@ -1804,7 +1804,7 @@ async def test_revoke_network_request_triggers_server_reregistration(
         headers=admin_headers,
     )
     assert response.status_code == 200
-    assert response.json()["status"] == "pending"
+    assert response.json()["status"] == "rejected"
 
     # Verify the server was re-registered with the sandbox
     mock_sandbox_client.register_server.assert_called_once()
@@ -1991,7 +1991,7 @@ async def test_revoke_admin_network_request_triggers_server_reregistration(
         headers=admin_headers,
     )
     assert response.status_code == 200
-    assert response.json()["status"] == "pending"
+    assert response.json()["status"] == "rejected"
 
     # Verify the server was re-registered
     mock_sandbox_client.register_server.assert_called_once()
@@ -2114,7 +2114,7 @@ async def test_revoke_module_request_triggers_server_reregistration(
         headers=admin_headers,
     )
     assert response.status_code == 200
-    assert response.json()["status"] == "pending"
+    assert response.json()["status"] == "rejected"
 
     # Verify the server was re-registered with the sandbox
     mock_sandbox_client.register_server.assert_called_once()
