@@ -13,6 +13,10 @@ updates:
       - "dependencies"
       - "backend"
     open-pull-requests-limit: 10
+    groups:
+      backend-deps:
+        patterns:
+          - "*"
 
   # Sandbox Python dependencies
   - package-ecosystem: "pip"
@@ -27,6 +31,10 @@ updates:
       - "dependencies"
       - "sandbox"
     open-pull-requests-limit: 10
+    groups:
+      sandbox-deps:
+        patterns:
+          - "*"
 
   # Frontend npm dependencies
   - package-ecosystem: "npm"
@@ -41,6 +49,10 @@ updates:
       - "dependencies"
       - "frontend"
     open-pull-requests-limit: 10
+    groups:
+      frontend-deps:
+        patterns:
+          - "*"
 
   # Worker npm dependencies
   - package-ecosystem: "npm"
@@ -55,6 +67,10 @@ updates:
       - "dependencies"
       - "worker"
     open-pull-requests-limit: 5
+    groups:
+      worker-deps:
+        patterns:
+          - "*"
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
@@ -69,8 +85,12 @@ updates:
       - "dependencies"
       - "ci"
     open-pull-requests-limit: 5
+    groups:
+      ci-deps:
+        patterns:
+          - "*"
 
-  # Docker base images
+  # Docker base images — all directories grouped into one PR
   - package-ecosystem: "docker"
     directory: "/backend"
     target-branch: "develop"
@@ -83,6 +103,10 @@ updates:
       - "dependencies"
       - "docker"
     open-pull-requests-limit: 5
+    groups:
+      docker-backend:
+        patterns:
+          - "*"
 
   - package-ecosystem: "docker"
     directory: "/frontend"
@@ -96,6 +120,10 @@ updates:
       - "dependencies"
       - "docker"
     open-pull-requests-limit: 5
+    groups:
+      docker-frontend:
+        patterns:
+          - "*"
 
   - package-ecosystem: "docker"
     directory: "/sandbox"
@@ -109,6 +137,10 @@ updates:
       - "dependencies"
       - "docker"
     open-pull-requests-limit: 5
+    groups:
+      docker-sandbox:
+        patterns:
+          - "*"
 
   - package-ecosystem: "docker"
     directory: "/cloudflared"
@@ -122,6 +154,10 @@ updates:
       - "dependencies"
       - "docker"
     open-pull-requests-limit: 5
+    groups:
+      docker-cloudflared:
+        patterns:
+          - "*"
 
   - package-ecosystem: "docker"
     directory: "/socks-proxy"
@@ -135,3 +171,7 @@ updates:
       - "dependencies"
       - "docker"
     open-pull-requests-limit: 5
+    groups:
+      docker-socks-proxy:
+        patterns:
+          - "*"
