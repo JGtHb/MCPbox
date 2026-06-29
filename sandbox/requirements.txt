@@ -8,5 +8,5 @@ fastapi==0.138.1
 uvicorn==0.40.0
 pydantic==2.12.5
 cryptography==46.0.7
-slowapi==0.1.9
+slowapi==0.1.10
 regex==2026.6.28  # Drop-in replacement for re with timeout support (ReDoS protection)
