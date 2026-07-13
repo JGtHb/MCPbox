@@ -7,6 +7,6 @@ PySocks==1.7.1  # SOCKS5 proxy support for pip (pip uses urllib3, not httpx)
 fastapi==0.139.0
 uvicorn==0.51.0
 pydantic==2.12.5
-cryptography==46.0.7
+cryptography==49.0.0
 slowapi==0.1.10
 regex==2026.6.28  # Drop-in replacement for re with timeout support (ReDoS protection)
