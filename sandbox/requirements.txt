@@ -6,7 +6,7 @@ socksio==1.0.0  # SOCKS5 proxy support for httpx (all traffic routes through soc
 PySocks==1.7.1  # SOCKS5 proxy support for pip (pip uses urllib3, not httpx)
 fastapi==0.141.1
 uvicorn==0.52.3
-pydantic==2.12.5
+pydantic==2.13.5
 cryptography==46.0.7
 slowapi==0.1.10
 regex==2026.9.3  # Drop-in replacement for re with timeout support (ReDoS protection)
