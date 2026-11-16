@@ -5,13 +5,13 @@
 # NOTE: Build context is the project root (not ./sandbox) so VERSION is accessible.
 
 # Builder stage — install Python dependencies
-FROM python:3.15.1-slim AS builder
+FROM python:3.16.0a2-slim AS builder
 
 COPY sandbox/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 # Runtime stage — minimal image without setuptools/wheel
-FROM python:3.15.1-slim
+FROM python:3.16.0a2-slim
 
 # Security: Create non-root user
 RUN useradd -m -u 1000 -s /bin/bash sandbox && \
